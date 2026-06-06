@@ -11,7 +11,12 @@ export interface HomeSummary {
   latestHeight: string | null;
 }
 
-/** Network summary cards (§6 home): supply + 24h relays/CU + staked-actor count. ISR 15s. */
+/**
+ * Network summary cards (§6 home): supply + 24h relays/CU + staked-actor count. ISR 15s.
+ * NOTE: relays24h/cu24h are the ESTIMATED (relay-mining difficulty-scaled) totals — the query
+ * aliases totalEstimatedRelays/totalEstimatedComputedUnits onto these keys so the figures match the
+ * ecosystem-standard throughput shown by PoktScan (on-chain "claimed" totals are ~2.5x lower).
+ */
 export async function getHomeSummary(): Promise<HomeSummary> {
   const end = new Date();
   const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);

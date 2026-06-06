@@ -13,8 +13,10 @@ export const BLOCK_LIST = /* GraphQL */ `
         stakedApps
         stakedSuppliers
         stakedGateways
-        totalRelays
-        totalComputedUnits
+        # Aliased to the ESTIMATED (relay-mining difficulty-scaled) fields so relays/CU match the
+        # ecosystem-standard throughput shown by PoktScan; on-chain "claimed" totals are ~2.5x lower.
+        totalRelays: totalEstimatedRelays
+        totalComputedUnits: totalEstimatedComputedUnits
         proposerAddress
         size
         supplies {
@@ -64,8 +66,9 @@ export const BLOCK_BY_HEIGHT = /* GraphQL */ `
       stakedApps
       stakedSuppliers
       stakedGateways
-      totalRelays
-      totalComputedUnits
+      # Aliased to the ESTIMATED (difficulty-scaled) fields — see BLOCK_LIST note.
+      totalRelays: totalEstimatedRelays
+      totalComputedUnits: totalEstimatedComputedUnits
       proposerAddress
       stakedAppsTokens
       stakedSuppliersTokens
@@ -101,8 +104,10 @@ export const BLOCK_BY_HASH = /* GraphQL */ `
         stakedApps
         stakedSuppliers
         stakedGateways
-        totalRelays
-        totalComputedUnits
+        # Aliased to the ESTIMATED (relay-mining difficulty-scaled) fields so relays/CU match the
+        # ecosystem-standard throughput shown by PoktScan; on-chain "claimed" totals are ~2.5x lower.
+        totalRelays: totalEstimatedRelays
+        totalComputedUnits: totalEstimatedComputedUnits
         proposerAddress
         stakedAppsTokens
         stakedSuppliersTokens
