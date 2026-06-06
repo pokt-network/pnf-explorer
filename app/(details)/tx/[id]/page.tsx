@@ -142,7 +142,7 @@ function EventsPanel({ events }: { events: LcdEvent[] }) {
                   <td>
                     <span className="pill-soft">{ev.type}</span>
                   </td>
-                  <td className="mono" style={{ wordBreak: 'break-all' }}>
+                  <td className="mono evt-attrs">
                     {(ev.attributes ?? []).map((a) => `${a.key}=${a.value}`).join(' · ') || '—'}
                   </td>
                 </tr>

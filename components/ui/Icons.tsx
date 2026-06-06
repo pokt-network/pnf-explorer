@@ -31,8 +31,11 @@ export const InfoIcon = (p: IconProps) =>
 export const SearchIcon = (p: IconProps) =>
   svg(<><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></>, p);
 
+export const ServiceIcon = (p: IconProps) =>
+  svg(<><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></>, p);
+
 // ---- entity accent + tic badge ----
-export type Entity = 'block' | 'tx' | 'account' | 'validator' | 'params';
+export type Entity = 'block' | 'tx' | 'account' | 'validator' | 'params' | 'service';
 
 export const ENTITY: Record<Entity, { color: string; tint: string; Icon: (p: IconProps) => React.ReactElement }> = {
   block: { color: 'var(--blue-soft)', tint: 'rgba(2,90,242,.12)', Icon: BlockIcon },
@@ -40,6 +43,7 @@ export const ENTITY: Record<Entity, { color: string; tint: string; Icon: (p: Ico
   account: { color: 'var(--blue-soft)', tint: 'rgba(2,90,242,.12)', Icon: AccountIcon },
   validator: { color: 'var(--lavender)', tint: 'rgba(184,184,255,.14)', Icon: ValidatorIcon },
   params: { color: 'var(--mint)', tint: 'rgba(72,229,194,.12)', Icon: ParamsIcon },
+  service: { color: 'var(--mint)', tint: 'rgba(72,229,194,.12)', Icon: ServiceIcon },
 };
 
 /**

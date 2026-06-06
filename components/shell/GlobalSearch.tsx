@@ -23,7 +23,7 @@ interface ServiceHint {
 /**
  * Global search (§4). Unambiguous shapes route directly; a 64-hex hash is disambiguated via
  * searchByHash (block vs tx — tx preferred). Free text queries searchServices and shows a
- * non-navigating dropdown hint (services have no detail page in MVP — confirmed decision).
+ * dropdown of matches; each row links to /service/{id} and Enter jumps to the top match.
  */
 export function GlobalSearch({ variant = 'mini' }: { variant?: 'mini' | 'hero' }) {
   const router = useRouter();
@@ -73,7 +73,8 @@ export function GlobalSearch({ variant = 'mini' }: { variant?: 'mini' | 'hero' }
         }
       }
       case 'text':
-        // Free text doesn't navigate on submit; the services dropdown is the only affordance.
+        // Free text resolves to the best service match (if the dropdown surfaced any).
+        if (services.length > 0) return router.push(`/service/${services[0].id}`);
         return;
     }
   }
@@ -107,11 +108,22 @@ export function GlobalSearch({ variant = 'mini' }: { variant?: 'mini' | 'hero' }
   const dropdown =
     open && services.length > 0 ? (
       <div className="search-hints" role="listbox" aria-label="Service matches">
-        <div className="search-hints-label">Services · no detail page in this explorer</div>
+        <div className="search-hints-label">Services</div>
         {services.map((s) => (
-          <div className="search-hint-row" key={s.id}>
-            <span className="mono">{s.id}</span>
-            {s.name ? <span className="dim">{s.name}</span> : null}
+          <div
+            className="search-hint-row"
+            role="option"
+            aria-selected={false}
+            key={s.id}
+            // onMouseDown (not onClick) fires before the input's blur closes the dropdown.
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setOpen(false);
+              router.push(`/service/${s.id}`);
+            }}
+          >
+            <span className="svc-name">{s.name ?? s.id}</span>
+            <span className="svc-id">{s.id}</span>
           </div>
         ))}
       </div>

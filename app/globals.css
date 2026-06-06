@@ -163,6 +163,9 @@ main{max-width:var(--maxw);margin:0 auto;padding:8px 24px 64px}
 .tbl .in{color:var(--mint)}
 .tbl .out{color:var(--coral)}
 .tbl-scroll{overflow-x:auto}
+/* Event attributes: wrap at the " · " separators (and within over-long tokens like a base64
+   signature only as a last resort) instead of breaking mid-word as break-all did. */
+.tbl td.evt-attrs{overflow-wrap:anywhere;word-break:normal}
 
 /* ---- direction + soft pills ---- */
 .dirtag{font-size:10.5px;font-weight:600;padding:1px 7px;border-radius:5px}
@@ -181,6 +184,7 @@ main{max-width:var(--maxw);margin:0 auto;padding:8px 24px 64px}
 .typetag{font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:7px}
 .tt-acct{background:rgba(2,90,242,.12);color:var(--blue-soft)}
 .tt-val{background:rgba(184,184,255,.14);color:var(--lavender)}
+.tt-svc{background:rgba(72,229,194,.12);color:var(--mint)}
 
 /* ---- copy button ---- */
 .copybtn{cursor:pointer;color:var(--text-tertiary);display:inline-grid;place-items:center;width:22px;height:22px;border-radius:6px;transition:all .15s;border:none;background:none;vertical-align:middle}
@@ -289,8 +293,12 @@ main{max-width:var(--maxw);margin:0 auto;padding:8px 24px 64px}
 /* ---- search dropdown (service hints) ---- */
 .search-hints{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:20;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:0 8px 28px rgba(0,0,0,.25)}
 .search-hints-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-tertiary);padding:10px 14px 6px}
-.search-hint-row{display:flex;align-items:center;gap:10px;padding:9px 14px;font-size:13px;border-top:1px solid var(--border)}
+.search-hint-row{display:flex;align-items:center;gap:10px;padding:9px 14px;font-size:13px;border-top:1px solid var(--border);cursor:pointer}
+.search-hint-row:hover{background:var(--bg-card-hover)}
 .search-hint-row .mono{font-family:var(--mono);font-size:12.5px;color:var(--text-primary)}
+/* Service hint rows: pretty name primary (left), service id mono/secondary (right). */
+.search-hint-row .svc-name{font-weight:500;color:var(--text-primary)}
+.search-hint-row .svc-id{font-family:var(--mono);font-size:12px;color:var(--text-tertiary);margin-left:auto}
 .search-busy{position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text-tertiary)}
 
 /* ---- empty / state messages ---- */
