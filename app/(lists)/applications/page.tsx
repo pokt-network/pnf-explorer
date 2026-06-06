@@ -28,7 +28,7 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
         <Tic entity="application" iconSize={20} />
         <h1>Applications</h1>
         <span className="cnt">
-          Showing {formatNumber(from)}–{formatNumber(to)} of {formatNumber(totalCount)}
+          Showing {formatNumber(from)}–{formatNumber(to)} of {formatNumber(totalCount)} active
         </span>
       </div>
 

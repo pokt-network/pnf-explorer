@@ -42,7 +42,7 @@ export default async function BlocksPage({ searchParams }: { searchParams: Promi
 
       <div className="sumrow">
         <SummaryCard label="Latest Block" dot={DOT.blue} value={summary.latestHeight ? formatNumber(summary.latestHeight) : '—'} />
-        <SummaryCard label="Txns (latest)" dot={DOT.gold} value={summary.latestTotalTxs != null ? formatNumber(summary.latestTotalTxs) : '—'} />
+        <SummaryCard label="Txns (24h)" dot={DOT.gold} value={summary.txns24h != null ? formatNumber(summary.txns24h) : '—'} />
         <SummaryCard label="Avg Block Time (24h)" dot={DOT.mint} value={summary.avgTimeToBlock != null ? (summary.avgTimeToBlock / 1000).toFixed(2) : '—'} unit="s" />
         <SummaryCard label="Avg Size (24h)" dot={DOT.lavender} value={summary.avgSize != null ? (summary.avgSize / 1024).toFixed(1) : '—'} unit="KB" />
       </div>

@@ -171,6 +171,9 @@ main{max-width:var(--maxw);margin:0 auto;padding:8px 24px 64px}
 .tbl .in{color:var(--mint)}
 .tbl .out{color:var(--coral)}
 .tbl-scroll{overflow-x:auto}
+/* Sortable column header link — looks like the header label, with an active sort arrow. */
+.tbl thead th .th-sort{color:var(--text-tertiary);text-decoration:none;cursor:pointer;white-space:nowrap}
+.tbl thead th .th-sort:hover{color:var(--text-secondary)}
 /* Event attributes: wrap at the " · " separators (and within over-long tokens like a base64
    signature only as a last resort) instead of breaking mid-word as break-all did. */
 .tbl td.evt-attrs{overflow-wrap:anywhere;word-break:normal}

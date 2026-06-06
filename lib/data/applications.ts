@@ -8,7 +8,7 @@ export interface ApplicationRow {
   applicationServices: { totalCount: number };
 }
 
-/** Applications ordered by stake desc (all statuses; status pill in the row). Offset-paginated. ISR 30s. */
+/** Active (Staked) applications ordered by stake desc. Offset-paginated. ISR 30s. */
 export async function getApplicationList(limit: number, offset: number) {
   const data = await gqlFetch<{ applications: { totalCount: number; nodes: ApplicationRow[] } }>(
     APPLICATIONS_LIST,

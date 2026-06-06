@@ -62,15 +62,20 @@ export async function getBlockSummary() {
   const end = new Date();
   const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
   const data = await gqlFetch<{
-    avgs: { nodes: { height: string; totalTxs: number }[]; aggregates: { average: { timeToBlock: string | null; size: string | null } } };
+    avgs: {
+      nodes: { height: string; totalTxs: number }[];
+      aggregates: { average: { timeToBlock: string | null; size: string | null }; sum: { totalTxs: string | null } };
+    };
   }>(BLOCK_SUMMARY, { startDate: start.toISOString(), endDate: end.toISOString() }, { revalidate: 15 });
   const node = data.avgs.nodes[0];
   const avg = data.avgs.aggregates?.average;
-  // GraphQL aggregate averages serialize as strings — coerce to number.
+  // GraphQL aggregate averages/sums serialize as strings — coerce to number.
   const num = (v: number | string | null | undefined) => (v == null ? null : Number(v));
   return {
     latestHeight: node?.height ?? null,
-    latestTotalTxs: node?.totalTxs ?? null,
+    // 24h transaction total — the latest single block is usually 0 (settlement is bursty), so a
+    // window sum is the meaningful headline metric (matches the other 24h cards on this page).
+    txns24h: num(data.avgs.aggregates?.sum?.totalTxs),
     avgTimeToBlock: num(avg?.timeToBlock),
     avgSize: num(avg?.size),
   };

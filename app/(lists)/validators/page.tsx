@@ -6,7 +6,7 @@ import { Pager } from '@/components/ui/Pager';
 import { StakeStatusPill } from '@/components/ui/StatusPill';
 import { EmptyState } from '@/components/ui/states';
 import { getValidatorList, getBondedTokensMap } from '@/lib/data/validators';
-import { formatNumber, formatPokt, formatUpokt, truncate } from '@/lib/format';
+import { formatNumber, formatPokt, truncate } from '@/lib/format';
 import { formatCommission, validatorMoniker } from '@/lib/validator';
 import { sumUpokt } from '@/lib/tx';
 
@@ -102,8 +102,9 @@ export default async function ValidatorsPage({ searchParams }: { searchParams: P
                       </span>
                     </td>
                     <td className="num">{formatCommission(v.commission)}</td>
-                    {/* upokt base-unit math.Int (protocol min, ~1–100 upokt) — not POKT. */}
-                    <td className="num mono">{formatUpokt(v.minSelfDelegation ?? '0')} upokt</td>
+                    {/* Operator self-delegation = the validator's own stake (stakeAmount), NOT
+                        minSelfDelegation (the tiny ~1 upokt protocol-minimum threshold). */}
+                    <td className="num mono">{formatPokt(v.stakeAmount ?? '0')} POKT</td>
                   </tr>
                 );
               })}

@@ -49,6 +49,9 @@ export const BLOCK_SUMMARY = /* GraphQL */ `
           timeToBlock
           size
         }
+        sum {
+          totalTxs
+        }
       }
     }
   }

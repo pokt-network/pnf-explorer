@@ -1,10 +1,15 @@
-// Application list query (post-MVP scope expansion). Shows all applications with a status pill
-// (only 171 total, so no need to pre-filter). id is the app's pokt1 address (links to /account).
-// applicationServices.totalCount = # services the app is staked for.
+// Application list query (post-MVP scope expansion). ACTIVE only — filter to Staked so the list
+// reflects apps currently consuming the network (excludes unstaked apps that still hold a balance).
+// id is the app's pokt1 address (links to /account). applicationServices.totalCount = # services.
 
 export const APPLICATIONS_LIST = /* GraphQL */ `
   query applicationsList($limit: Int!, $offset: Int!) {
-    applications(first: $limit, offset: $offset, orderBy: STAKE_AMOUNT_DESC) {
+    applications(
+      filter: { stakeStatus: { equalTo: Staked } }
+      first: $limit
+      offset: $offset
+      orderBy: STAKE_AMOUNT_DESC
+    ) {
       totalCount
       nodes {
         id

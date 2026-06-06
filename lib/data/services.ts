@@ -38,38 +38,63 @@ export interface ServiceListRow {
   ownerId: string | null;
 }
 
-/** Paginated service list (ordered by name). 12h ISR — services rarely change. */
+export interface ServiceListRowWithCount extends ServiceListRow {
+  activeSuppliers: number;
+}
+
+// The indexer caps connection page size at 100.
+const PAGE_CAP = 100;
+
+/** One page of services (ordered by name). 12h ISR — services rarely change. */
 export async function getServiceList(limit: number, offset: number) {
   const data = await gqlFetch<{ services: { totalCount: number; nodes: ServiceListRow[] } }>(
     SERVICES_LIST,
-    { limit, offset },
+    { limit: Math.min(limit, PAGE_CAP), offset },
     { revalidate: SERVICES_TTL },
   );
   return data.services;
 }
 
 /**
- * Active (Staked) supplier count per service id, in ONE aliased+parameterized query (cN: …, $idN).
- * 12h ISR — these counts move slowly and 173 per-service counts would be too many separate calls.
- * Returns a Map keyed by service id; missing ids default to 0.
+ * Active (Staked) supplier count per service id. Built as aliased+parameterized batches
+ * (cN: …, $idN), chunked to the 100-field cap. 12h ISR — these move slowly and per-service
+ * counts would otherwise be hundreds of separate calls. Map keyed by id; missing ids → 0.
  */
 export async function getServiceActiveSupplierCounts(ids: string[]): Promise<Map<string, number>> {
   const map = new Map<string, number>();
-  if (ids.length === 0) return map;
-  const varDefs = ids.map((_, i) => `$id${i}: String!`).join(', ');
-  const fields = ids
-    .map((_, i) => `c${i}: supplierServiceConfigs(filter:{serviceId:{equalTo:$id${i}},supplier:{stakeStatus:{equalTo:Staked}}}){totalCount}`)
-    .join('\n');
-  const query = `query serviceSupplierCounts(${varDefs}) {\n${fields}\n}`;
-  const vars: Record<string, string> = {};
-  ids.forEach((id, i) => (vars[`id${i}`] = id));
-  try {
-    const data = await gqlFetch<Record<string, { totalCount: number } | null>>(query, vars, { revalidate: SERVICES_TTL });
-    ids.forEach((id, i) => map.set(id, data[`c${i}`]?.totalCount ?? 0));
-  } catch {
-    /* leave counts unset → page renders "—" */
+  for (let start = 0; start < ids.length; start += PAGE_CAP) {
+    const chunk = ids.slice(start, start + PAGE_CAP);
+    const varDefs = chunk.map((_, i) => `$id${i}: String!`).join(', ');
+    const fields = chunk
+      .map((_, i) => `c${i}: supplierServiceConfigs(filter:{serviceId:{equalTo:$id${i}},supplier:{stakeStatus:{equalTo:Staked}}}){totalCount}`)
+      .join('\n');
+    const query = `query serviceSupplierCounts(${varDefs}) {\n${fields}\n}`;
+    const vars: Record<string, string> = {};
+    chunk.forEach((id, i) => (vars[`id${i}`] = id));
+    try {
+      const data = await gqlFetch<Record<string, { totalCount: number } | null>>(query, vars, { revalidate: SERVICES_TTL });
+      chunk.forEach((id, i) => map.set(id, data[`c${i}`]?.totalCount ?? 0));
+    } catch {
+      /* leave this chunk's counts unset → those rows render 0 */
+    }
   }
   return map;
+}
+
+/**
+ * Every service (paged through the 100-row cap) with its active-supplier count. 12h ISR. Used by
+ * the services list so it can sort by CU/relay OR active suppliers across the FULL set, then
+ * paginate in memory (the supplier count is computed, not an orderable indexer field).
+ */
+export async function getAllServicesWithCounts(): Promise<ServiceListRowWithCount[]> {
+  const all: ServiceListRow[] = [];
+  for (let i = 0; i < 20; i++) {
+    const { nodes, totalCount } = await getServiceList(PAGE_CAP, all.length);
+    all.push(...nodes);
+    if (nodes.length === 0 || all.length >= totalCount) break;
+  }
+  const counts = await getServiceActiveSupplierCounts(all.map((n) => n.id));
+  return all.map((n) => ({ ...n, activeSuppliers: counts.get(n.id) ?? 0 }));
 }
 
 /** Service header + active supplier/app counts + latest relay-mining difficulty. null → notFound. */
