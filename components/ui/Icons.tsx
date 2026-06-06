@@ -34,8 +34,17 @@ export const SearchIcon = (p: IconProps) =>
 export const ServiceIcon = (p: IconProps) =>
   svg(<><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></>, p);
 
+export const SupplierIcon = (p: IconProps) =>
+  svg(<><rect x="2" y="2" width="20" height="8" rx="2" /><rect x="2" y="14" width="20" height="8" rx="2" /><line x1="6" y1="6" x2="6.01" y2="6" /><line x1="6" y1="18" x2="6.01" y2="18" /></>, p);
+
+export const ApplicationIcon = (p: IconProps) =>
+  svg(<><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /></>, p);
+
+export const GatewayIcon = (p: IconProps) =>
+  svg(<><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" /><polyline points="10 17 15 12 10 7" /><line x1="15" y1="12" x2="3" y2="12" /></>, p);
+
 // ---- entity accent + tic badge ----
-export type Entity = 'block' | 'tx' | 'account' | 'validator' | 'params' | 'service';
+export type Entity = 'block' | 'tx' | 'account' | 'validator' | 'params' | 'service' | 'supplier' | 'application' | 'gateway';
 
 export const ENTITY: Record<Entity, { color: string; tint: string; Icon: (p: IconProps) => React.ReactElement }> = {
   block: { color: 'var(--blue-soft)', tint: 'rgba(2,90,242,.12)', Icon: BlockIcon },
@@ -44,6 +53,9 @@ export const ENTITY: Record<Entity, { color: string; tint: string; Icon: (p: Ico
   validator: { color: 'var(--lavender)', tint: 'rgba(184,184,255,.14)', Icon: ValidatorIcon },
   params: { color: 'var(--mint)', tint: 'rgba(72,229,194,.12)', Icon: ParamsIcon },
   service: { color: 'var(--mint)', tint: 'rgba(72,229,194,.12)', Icon: ServiceIcon },
+  supplier: { color: 'var(--coral)', tint: 'rgba(255,90,95,.12)', Icon: SupplierIcon },
+  application: { color: 'var(--gold)', tint: 'rgba(255,197,71,.14)', Icon: ApplicationIcon },
+  gateway: { color: 'var(--lavender)', tint: 'rgba(184,184,255,.14)', Icon: GatewayIcon },
 };
 
 /**

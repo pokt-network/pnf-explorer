@@ -81,7 +81,15 @@ header.bar{max-width:var(--maxw);margin:0 auto;padding:22px 24px;display:flex;al
 [data-theme=light] .brand-logo-light{display:block}
 .brand .wordmark{font-size:22px;font-weight:600;letter-spacing:-.01em;color:var(--text-primary)}
 .brand .sub{font-size:13px;font-weight:500;color:var(--text-secondary);padding-left:12px;margin-left:2px;border-left:1px solid var(--border)}
-.bar-right{display:flex;align-items:center;gap:10px}
+.bar-right{display:flex;align-items:center;gap:12px}
+.navmenu{position:relative;display:flex}
+.navmenu-pop{position:absolute;top:calc(100% + 8px);right:0;z-index:30;min-width:210px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:8px;box-shadow:0 8px 28px rgba(0,0,0,.28)}
+.navmenu-section{padding:2px 0}
+.navmenu-section+.navmenu-section{border-top:1px solid var(--border);margin-top:6px;padding-top:8px}
+.navmenu-heading{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-tertiary);padding:4px 10px 6px}
+.navmenu-item{display:block;padding:8px 10px;border-radius:8px;font-size:13.5px;color:var(--text-secondary);text-decoration:none;transition:all .15s ease}
+.navmenu-item:hover{background:var(--bg-card-hover);color:var(--text-primary)}
+.navmenu-item.active{color:var(--blue-soft);background:rgba(2,90,242,.08)}
 .iconbtn{width:40px;height:40px;display:grid;place-items:center;border-radius:10px;background:var(--bg-card);color:var(--text-secondary);border:1px solid var(--border);cursor:pointer;transition:all .2s ease}
 .iconbtn:hover{color:var(--text-primary);border-color:var(--border-hover)}
 .livebadge{display:flex;align-items:center;gap:8px;height:40px;padding:0 13px;border-radius:10px;background:var(--bg-card);border:1px solid var(--border);font-size:13px;font-weight:600;color:var(--text-primary);text-decoration:none;font-variant-numeric:tabular-nums;transition:all .2s ease;white-space:nowrap}

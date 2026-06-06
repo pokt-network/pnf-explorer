@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { GlobalSearch } from './GlobalSearch';
 import { ThemeToggle } from './ThemeToggle';
 import { LiveBadge } from './LiveBadge';
+import { NavMenu } from './NavMenu';
 
 // Fixed app bar present on every route: brand → mini global search → live badge + theme toggle.
 // Official PNF logo: white wordmark on dark, black on light (toggled by CSS via data-theme).
@@ -19,6 +20,7 @@ export function AppBar() {
       <div className="bar-right">
         <LiveBadge />
         <ThemeToggle />
+        <NavMenu />
       </div>
     </header>
   );

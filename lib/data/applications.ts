@@ -1,0 +1,19 @@
+import { gqlFetch } from '@/lib/graphql';
+import { APPLICATIONS_LIST } from '@/lib/queries/applications';
+
+export interface ApplicationRow {
+  id: string;
+  stakeAmount: string | null;
+  stakeStatus: string | null;
+  applicationServices: { totalCount: number };
+}
+
+/** Applications ordered by stake desc (all statuses; status pill in the row). Offset-paginated. ISR 30s. */
+export async function getApplicationList(limit: number, offset: number) {
+  const data = await gqlFetch<{ applications: { totalCount: number; nodes: ApplicationRow[] } }>(
+    APPLICATIONS_LIST,
+    { limit, offset },
+    { revalidate: 30 },
+  );
+  return data.applications;
+}
