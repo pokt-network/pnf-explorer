@@ -18,12 +18,6 @@ export default async function Home() {
         </h1>
         <p>Search the network by block, transaction, account, or validator.</p>
         <GlobalSearch variant="hero" />
-        <div className="searchhint">
-          <span className="chip static">Block height</span>
-          <span className="chip static">64-char hash</span>
-          <span className="chip static">pokt1… account</span>
-          <span className="chip static">poktvaloper… validator</span>
-        </div>
       </section>
 
       <LiveStrip />
