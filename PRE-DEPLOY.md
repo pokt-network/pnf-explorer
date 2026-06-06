@@ -4,13 +4,13 @@ Resolve before deploying to `explorer.pocket.network` (brief §14, §15).
 
 ## ⚠️ Open data questions (verify against the protocol/indexer before deploy)
 
-1. **`_metadata.indexerHealthy` is persistently `false`** on the live indexer
-   (`data.pocket.network`) even when lag is 0 and data is current (verified across polls
-   2026-06-05). The explorer therefore keys the indexer-vs-RPC fallback on **lag only**
-   (`targetHeight - lastProcessedHeight > INDEXER_LAG_THRESHOLD`), not on `indexerHealthy`
-   (see `lib/metadata.ts#evaluateFallback`). **Confirm** this is acceptable, or investigate why
-   the indexer self-reports unhealthy — if `indexerHealthy` is meant to be authoritative, the
-   fallback rule should be restored to include it.
+1. ~~**`_metadata.indexerHealthy` fallback signal**~~ ✅ RESOLVED. On 2026-06-05 this was
+   persistently `false` even at lag 0, so the fallback was temporarily keyed on **lag only**.
+   Re-verified 2026-06-06: `indexerHealthy` now reports `true` when synced (stable across 5 polls,
+   lag 0) — the persistent-false condition has cleared. Per the original §2 design, `indexerHealthy`
+   has been **restored** to the rule: `lib/metadata.ts#evaluateFallback` now returns
+   `useRpc = !indexerHealthy || lag > INDEXER_LAG_THRESHOLD`. Lag still independently catches a
+   stall; an unreachable indexer is forced to RPC by `getUseRpcData()`'s catch.
 
 2. ~~**`validator.minSelfDelegation`** denomination~~ ✅ RESOLVED. The field **is** upokt (base
    units), NOT whole POKT — so the values really are tiny (1–100 upokt). Verified the on-chain LCD
@@ -43,8 +43,16 @@ Resolve before deploying to `explorer.pocket.network` (brief §14, §15).
 
 - [ ] Set env vars on Vercel: `NEXT_PUBLIC_GRAPHQL_URL`, `SAURON_LCD_URL`, `SAURON_RPC_URL`,
       `NEXT_PUBLIC_INDEXER_LAG_THRESHOLD` (see `.env.example`).
-- [ ] `npm run build` passes clean (step 13).
+- [x] `npm run build` passes clean (step 13). Verified 2026-06-06: Next 16.2.7, compiled + TS clean,
+      9 static pages generated, exit 0.
 - [x] Official PNF logo wired (white on dark / black on light, `public/pocket-logo-*.svg`).
-- [ ] Generate favicon + OG image from the PNF mark (§14.8) — header logo done.
+- [x] Generate favicon + OG image from the PNF mark (§14.8). Done 2026-06-06 via next/og metadata
+      routes (no new deps): `app/icon.tsx` (64² favicon, white mark on blue tile), `app/apple-icon.tsx`
+      (180²), `app/opengraph-image.tsx` (1200×630 social card), `app/manifest.ts` (PWA manifest), all
+      driven by the shared `lib/brand.ts` (Pocket mark path + colors). Default starter favicon removed;
+      `metadataBase` + OpenGraph/Twitter wired in `app/layout.tsx`. Verified images render (PNG, correct
+      dims) on the dev server.
 - [ ] Point `explorer.pocket.network` at the Vercel deployment.
-- [ ] Confirm no excluded pages (§1) shipped.
+- [x] Confirm no excluded pages (§1) shipped. Verified 2026-06-06 against the production route list:
+      only `/`, `/account[s]`, `/block[s]`, `/tx[s]`, `/validator[s]`, `/params` — no `/apps`,
+      `/gateways`, `/services`, `/suppliers`, `/tools/*`, `/dashboards/*`, or `/migration`.

@@ -13,10 +13,28 @@ const rubik = Rubik({
   display: 'swap',
 });
 
+const SITE_URL = 'https://explorer.pocket.network';
+const DESCRIPTION =
+  'Read-only block explorer for Pocket Network — look up blocks, transactions, accounts, and validators.';
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: { default: 'Pocket Explorer', template: '%s · Pocket Explorer' },
-  description:
-    'Read-only block explorer for Pocket Network — look up blocks, transactions, accounts, and validators.',
+  description: DESCRIPTION,
+  applicationName: 'Pocket Explorer',
+  // icons + opengraph-image are auto-detected from app/{icon,apple-icon,opengraph-image}.tsx.
+  openGraph: {
+    type: 'website',
+    siteName: 'Pocket Explorer',
+    title: 'Pocket Network Explorer',
+    description: DESCRIPTION,
+    url: SITE_URL,
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Pocket Network Explorer',
+    description: DESCRIPTION,
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

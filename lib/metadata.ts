@@ -20,19 +20,19 @@ export async function getStatus(opts?: { cache?: RequestCache; signal?: AbortSig
 }
 
 /**
- * Pure fallback rule (§2): fall back to LCD/RPC when the indexer's head lags real chain head
- * by more than INDEXER_LAG_THRESHOLD blocks.
+ * Pure fallback rule (§2): fall back to LCD/RPC when EITHER the indexer self-reports unhealthy
+ * (`!indexerHealthy`) OR its head lags real chain head by more than INDEXER_LAG_THRESHOLD blocks.
  *
- * NOTE (live-verified): this deployment's `_metadata.indexerHealthy` is persistently `false`
- * even when lag is 0 and data is current — so it is NOT a usable trigger here (it would fire
- * the RPC banner on every page). Lag is the authoritative freshness signal and still catches a
- * genuine stall (lastProcessedHeight stops advancing while targetHeight tracks chain head). If
- * the indexer is fully unreachable, getUseRpcData()'s catch forces RPC. `indexerHealthy` and
- * `lastFinalizedVerifiedHeight` (may be null) are retained in the payload but not in the rule.
+ * NOTE (live history): on 2026-06-05 `_metadata.indexerHealthy` was persistently `false` even at
+ * lag 0, so the rule was temporarily keyed on lag only. Re-verified 2026-06-06: `indexerHealthy`
+ * now reports `true` when synced (stable across polls), so it has been restored as an authoritative
+ * trigger per the original §2 design. Lag still independently catches a stall (lastProcessedHeight
+ * stops advancing while targetHeight tracks chain head); a fully unreachable indexer is handled by
+ * getUseRpcData()'s catch. `lastFinalizedVerifiedHeight` (may be null) stays in the payload only.
  */
 export function evaluateFallback(metadata: IndexerMetadata): FallbackDecision {
   const lag = metadata.targetHeight - metadata.lastProcessedHeight;
-  const useRpc = lag > INDEXER_LAG_THRESHOLD;
+  const useRpc = !metadata.indexerHealthy || lag > INDEXER_LAG_THRESHOLD;
   return { useRpc, lag, metadata };
 }
 
