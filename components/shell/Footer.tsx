@@ -14,7 +14,7 @@ export function Footer() {
         <a href="https://docs.pocket.network" target="_blank" rel="noopener noreferrer">
           Docs
         </a>
-        <a href="https://poktscan.com" target="_blank" rel="noopener noreferrer">
+        <a href="https://poktscan.pocket.network/" target="_blank" rel="noopener noreferrer">
           Analytics ↗
         </a>
         <a href="https://discord.gg/pocket-network" target="_blank" rel="noopener noreferrer">
