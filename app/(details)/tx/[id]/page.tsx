@@ -58,10 +58,22 @@ function flattenMessage(msg: LcdTxMessage): { key: string; value: string }[] {
   return out;
 }
 
+// Values longer than this are collapsed to a head…tail preview + copy button + char count,
+// so multi-KB blobs (e.g. MsgSubmitProof.proof) don't flood the panel. 64-char hashes/ids
+// (session_id, block hash) stay under the threshold and render in full.
+const LONG_VALUE = 96;
+
 function MessageValue({ value }: { value: string }) {
   if (POKT_ADDR.test(value)) {
+    return <Link href={`/account/${value}`}>{truncate(value, 10, 6)}</Link>;
+  }
+  if (value.length > LONG_VALUE) {
     return (
-      <Link href={`/account/${value}`}>{truncate(value, 10, 6)}</Link>
+      <span className="longval">
+        {truncate(value, 24, 10)}
+        <CopyButton value={value} />
+        <span className="dim len">{formatNumber(value.length)} chars</span>
+      </span>
     );
   }
   return <>{value}</>;
