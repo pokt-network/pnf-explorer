@@ -4,13 +4,17 @@ import { LiveStrip } from '@/components/home/LiveStrip';
 import { RecentBlocks } from '@/components/home/RecentBlocks';
 import { RecentTxs } from '@/components/home/RecentTxs';
 import { getHomeSummary } from '@/lib/data/home';
-import type { NetworkId } from '@/lib/networks';
+import { getNetwork, type NetworkId } from '@/lib/networks';
 import { formatPoktCompact, formatCompact, formatNumber } from '@/lib/format';
 
 // Home: hero + search, live strip, 4 network summary cards, latest blocks + txs (§6 — no charts).
 export default async function Home({ params }: { params: Promise<{ network: NetworkId }> }) {
   const { network } = await params;
   const summary = await getHomeSummary(network);
+  const net = getNetwork(network);
+  // Supply is a meaningful, verifiable figure on mainnet; on testnets it's inflated by test
+  // minting, so we keep the (truthful) on-chain value but drop the "verifiable" framing.
+  const supplyCaption = net.isDefault ? 'Verifiable on-chain' : `${net.label} · test value`;
 
   return (
     <>
@@ -34,7 +38,7 @@ export default async function Home({ params }: { params: Promise<{ network: Netw
             {summary.supplyUpokt ? formatPoktCompact(summary.supplyUpokt) : '—'}
             <span className="unit">POKT</span>
           </div>
-          <div className="sub">Verifiable on-chain</div>
+          <div className="sub">{supplyCaption}</div>
           <div className="badge-icon" style={{ background: 'rgba(2,90,242,.12)' }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--blue-soft)" strokeWidth="2.2" strokeLinecap="round">
               <line x1="12" y1="1" x2="12" y2="23" />

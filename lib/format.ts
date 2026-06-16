@@ -52,10 +52,25 @@ export function formatNumber(v: Numeric): string {
 }
 
 /** Compact notation for summary cards: 412.8M, 5.91B, 1.66B (§13). Full precision elsewhere. */
+const SUPERSCRIPT: Record<string, string> = {
+  '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+  '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '-': '⁻', '+': '',
+};
+
+/** Clean scientific notation with a Unicode superscript exponent, e.g. 1e58 → "1×10⁵⁸". */
+function toScientific(n: number, digits = 2): string {
+  const [mantissa, exp] = n.toExponential(digits).split('e');
+  const sup = exp.split('').map((c) => SUPERSCRIPT[c] ?? c).join('');
+  return `${parseFloat(mantissa)}×10${sup}`;
+}
+
 export function formatCompact(v: Numeric, digits = 2): string {
   const n = typeof v === 'bigint' ? Number(v) : Number(v ?? 0);
   if (!Number.isFinite(n)) return '0';
   const abs = Math.abs(n);
+  // Past quadrillions the K/M/B/T suffixes run out; fall back to clean scientific notation
+  // rather than gluing a 'T' onto an exponential (e.g. the absurd betanet test supply).
+  if (abs >= 1e15) return toScientific(n, 1);
   const units: [number, string][] = [
     [1e12, 'T'],
     [1e9, 'B'],
