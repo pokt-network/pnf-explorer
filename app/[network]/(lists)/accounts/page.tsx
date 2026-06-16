@@ -15,9 +15,9 @@ export const metadata: Metadata = { title: 'Top Accounts' };
 const PAGE_SIZE = 10;
 
 /** Share of total supply: amount / total, as a percentage string, or '—' when unknown. */
-function share(amount: string, total: bigint | null): string {
-  if (total == null || total === BigInt(0)) return '—';
-  const pct = (Number(amount) / Number(total)) * 100;
+function share(amount: string, total: number | null): string {
+  if (total == null || total === 0) return '—';
+  const pct = (Number(amount) / total) * 100;
   if (!Number.isFinite(pct)) return '—';
   if (pct === 0) return '0%';
   if (pct < 0.001) return '<0.001%';

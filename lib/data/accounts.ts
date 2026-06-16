@@ -2,9 +2,14 @@ import { gqlFetch } from '@/lib/graphql';
 import type { NetworkId } from '@/lib/networks';
 import { ACCOUNT_LIST, ACCOUNT_SUMMARY, ACCOUNT_BY_ID } from '@/lib/queries/accounts';
 import { SEARCH_BY_ADDRESS } from '@/lib/queries/search';
-import { BLOCK_LIST } from '@/lib/queries/blocks';
-import { sumUpokt } from '@/lib/tx';
-import type { SupplyNode } from '@/lib/data/blocks';
+
+// Economic total supply (minted + claimable-but-unminted), used as the per-account share
+// denominator so it matches the home Total Supply card. See lib/data/home.ts for the rationale.
+const TOTAL_SUPPLY = /* GraphQL */ `
+  query totalSupply($startDate: Datetime!, $endDate: Datetime!) {
+    supply: getTotalSupplyByDay(startDate: $startDate, endDate: $endDate)
+  }
+`;
 
 // ---- shapes ----
 export interface AccountListRow {
@@ -77,19 +82,21 @@ export async function getAccountSummary(network: NetworkId): Promise<AccountSumm
   };
 }
 
-/** Total upokt supply (latest block) — used to compute per-account share %. Best-effort. */
-export async function getTotalSupplyUpokt(network: NetworkId): Promise<bigint | null> {
+/** Economic total supply (upokt) — the per-account share denominator. Best-effort; null on failure. */
+export async function getTotalSupplyUpokt(network: NetworkId): Promise<number | null> {
   try {
-    const data = await gqlFetch<{ blocks: { nodes: { supplies?: { nodes: SupplyNode[] } }[] } }>(
+    const end = new Date();
+    // ~2-day window so a daily row always exists; take the latest (see getHomeSummary).
+    const start = new Date(end.getTime() - 48 * 60 * 60 * 1000);
+    const data = await gqlFetch<{ supply: { total_supply: number | null }[] | null }>(
       network,
-      BLOCK_LIST,
-      { limit: 1, offset: 0 },
+      TOTAL_SUPPLY,
+      { startDate: start.toISOString(), endDate: end.toISOString() },
       { revalidate: 15 },
     );
-    const supplies = data.blocks.nodes[0]?.supplies?.nodes;
-    if (!supplies?.length) return null;
-    const total = sumUpokt(supplies.map((n) => n.supply));
-    return total > BigInt(0) ? total : null;
+    const rows = data.supply ?? [];
+    const latest = rows.length ? rows[rows.length - 1]?.total_supply : null;
+    return latest != null && Number(latest) > 0 ? Number(latest) : null;
   } catch {
     return null;
   }
