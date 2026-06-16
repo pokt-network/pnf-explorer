@@ -5,7 +5,8 @@ import { sumUpokt } from '@/lib/tx';
 import type { SupplyNode } from '@/lib/data/blocks';
 
 export interface HomeSummary {
-  supplyUpokt: string | null;
+  /** Economic total supply in upokt (minted + claimable-but-unminted). Number is fine for display. */
+  supplyUpokt: number | null;
   relays24h: string | null;
   cu24h: string | null;
   stakedActors: number | null;
@@ -21,7 +22,11 @@ export interface HomeSummary {
 export async function getHomeSummary(network: NetworkId): Promise<HomeSummary> {
   const end = new Date();
   const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+  // getTotalSupplyByDay returns one row per UTC day; span ~2 days so a row always exists and
+  // take the latest. (The function may not have computed today's row early in the UTC day.)
+  const supplyStart = new Date(end.getTime() - 48 * 60 * 60 * 1000);
   const data = await gqlFetch<{
+    supply: { day: string; total_supply: number | null }[] | null;
     lastBlock: {
       nodes: {
         height: string;
@@ -32,14 +37,31 @@ export async function getHomeSummary(network: NetworkId): Promise<HomeSummary> {
       }[];
     };
     window: { aggregates: { sum: { totalRelays: string | null; totalComputedUnits: string | null } } };
-  }>(network, HOME_SUMMARY, { last24HourDate: start.toISOString(), currentDate: end.toISOString() }, { revalidate: 15 });
+  }>(
+    network,
+    HOME_SUMMARY,
+    {
+      last24HourDate: start.toISOString(),
+      currentDate: end.toISOString(),
+      supplyStartDate: supplyStart.toISOString(),
+      supplyEndDate: end.toISOString(),
+    },
+    { revalidate: 15 },
+  );
 
   const lb = data.lastBlock.nodes[0];
-  const supply = lb?.supplies?.nodes?.length ? sumUpokt(lb.supplies.nodes.map((n) => n.supply)).toString() : null;
+
+  // Economic total supply (minted + claimable-but-unminted Morse claims). Fall back to the
+  // already-minted on-chain supply (lastBlock.supplies) if getTotalSupplyByDay is unavailable.
+  const supplyRows = data.supply ?? [];
+  const latestSupply = supplyRows.length ? supplyRows[supplyRows.length - 1]?.total_supply : null;
+  const fallback = lb?.supplies?.nodes?.length ? Number(sumUpokt(lb.supplies.nodes.map((n) => n.supply))) : null;
+  const supplyUpokt = latestSupply != null ? Number(latestSupply) : fallback;
+
   const stakedActors = lb ? Number(lb.stakedSuppliers) + Number(lb.stakedApps) + Number(lb.stakedGateways) : null;
 
   return {
-    supplyUpokt: supply,
+    supplyUpokt,
     relays24h: data.window.aggregates?.sum?.totalRelays ?? null,
     cu24h: data.window.aggregates?.sum?.totalComputedUnits ?? null,
     stakedActors,

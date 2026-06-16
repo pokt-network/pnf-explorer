@@ -1,8 +1,13 @@
-// Home summary — the non-chart subset of the verified `summary` query (home.md §6): latest
-// block (for supply via supplies + staked actor counts) + 24h relay/CU aggregates. The
-// getTotalSupplyByDay chart series is intentionally skipped; supply comes from lastBlock.supplies.
+// Home summary — the non-chart subset of the verified `summary` query (home.md §6): economic
+// total supply + latest-block staked-actor counts + 24h relay/CU aggregates.
+//
+// Total supply is the indexer's `getTotalSupplyByDay.total_supply` = minted Shannon supply PLUS
+// claimable-but-unminted balances (valid Morse claims that can be minted on Shannon at any time).
+// This is the figure exchanges/traders expect (matches PoktScan/pokt.money). `lastBlock.supplies`
+// is kept only as a fallback (the already-minted `shannon_supply` slice).
 export const HOME_SUMMARY = /* GraphQL */ `
-  query homeSummary($last24HourDate: Datetime!, $currentDate: Datetime!) {
+  query homeSummary($last24HourDate: Datetime!, $currentDate: Datetime!, $supplyStartDate: Datetime!, $supplyEndDate: Datetime!) {
+    supply: getTotalSupplyByDay(startDate: $supplyStartDate, endDate: $supplyEndDate)
     lastBlock: blocks(orderBy: ID_DESC, first: 1) {
       nodes {
         height: id

@@ -35,7 +35,7 @@ export default async function Home({ params }: { params: Promise<{ network: Netw
             Total Supply
           </div>
           <div className="val">
-            {summary.supplyUpokt ? formatPoktCompact(summary.supplyUpokt) : '—'}
+            {summary.supplyUpokt != null ? formatPoktCompact(summary.supplyUpokt) : '—'}
             <span className="unit">POKT</span>
           </div>
           <div className="sub">{supplyCaption}</div>
