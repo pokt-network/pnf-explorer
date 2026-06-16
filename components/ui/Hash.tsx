@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { NetLink as Link } from '@/components/shell/NetLink';
 import { truncate } from '@/lib/format';
 import { CopyButton } from './CopyButton';
 

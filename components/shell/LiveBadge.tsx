@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { NetLink as Link } from '@/components/shell/NetLink';
 import { useStatus } from '@/hooks/useStatus';
 import { formatNumber } from '@/lib/format';
 

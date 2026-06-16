@@ -1,4 +1,5 @@
 import { gqlFetch } from '@/lib/graphql';
+import type { NetworkId } from '@/lib/networks';
 import { SUPPLIERS_LIST } from '@/lib/queries/suppliers';
 
 export interface SupplierRow {
@@ -10,8 +11,9 @@ export interface SupplierRow {
 }
 
 /** Active (Staked) suppliers, ordered by stake desc. Offset-paginated. ISR 30s. */
-export async function getSupplierList(limit: number, offset: number) {
+export async function getSupplierList(network: NetworkId, limit: number, offset: number) {
   const data = await gqlFetch<{ suppliers: { totalCount: number; nodes: SupplierRow[] } }>(
+    network,
     SUPPLIERS_LIST,
     { limit, offset },
     { revalidate: 30 },

@@ -1,7 +1,8 @@
-import Link from 'next/link';
+import { NetLink as Link } from '@/components/shell/NetLink';
 import { Hash } from '@/components/ui/Hash';
 import { EmptyState } from '@/components/ui/states';
 import { getServiceSuppliers, getServiceApplications, getServiceDifficulty } from '@/lib/data/services';
+import type { NetworkId } from '@/lib/networks';
 import { formatPokt, formatNumber, truncate } from '@/lib/format';
 
 const TAB_LIMIT = 25;
@@ -26,10 +27,10 @@ function InlineError({ what }: { what: string }) {
 }
 
 /** Active (Staked) suppliers serving the service — supplier address links to its account page. */
-export async function ServiceSuppliersPanel({ id }: { id: string }) {
+export async function ServiceSuppliersPanel({ network, id }: { network: NetworkId; id: string }) {
   let data: Awaited<ReturnType<typeof getServiceSuppliers>> | null = null;
   try {
-    data = await getServiceSuppliers(id, TAB_LIMIT, 0);
+    data = await getServiceSuppliers(network, id, TAB_LIMIT, 0);
   } catch {
     return <InlineError what="suppliers" />;
   }
@@ -67,10 +68,10 @@ export async function ServiceSuppliersPanel({ id }: { id: string }) {
 }
 
 /** Active (Staked) applications staked for the service — address links to its account page. */
-export async function ServiceApplicationsPanel({ id }: { id: string }) {
+export async function ServiceApplicationsPanel({ network, id }: { network: NetworkId; id: string }) {
   let data: Awaited<ReturnType<typeof getServiceApplications>> | null = null;
   try {
-    data = await getServiceApplications(id, TAB_LIMIT, 0);
+    data = await getServiceApplications(network, id, TAB_LIMIT, 0);
   } catch {
     return <InlineError what="applications" />;
   }
@@ -103,10 +104,10 @@ export async function ServiceApplicationsPanel({ id }: { id: string }) {
 }
 
 /** Relay-mining difficulty / EMA update history (newest first). */
-export async function ServiceDifficultyPanel({ id }: { id: string }) {
+export async function ServiceDifficultyPanel({ network, id }: { network: NetworkId; id: string }) {
   let data: Awaited<ReturnType<typeof getServiceDifficulty>> | null = null;
   try {
-    data = await getServiceDifficulty(id, TAB_LIMIT, 0);
+    data = await getServiceDifficulty(network, id, TAB_LIMIT, 0);
   } catch {
     return <InlineError what="relay mining history" />;
   }

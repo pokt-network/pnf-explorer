@@ -2,6 +2,7 @@ import { cache } from 'react';
 import { gqlFetch } from '@/lib/graphql';
 import { lcdFetch } from '@/lib/lcd';
 import { getMetadata } from '@/lib/metadata';
+import type { NetworkId } from '@/lib/networks';
 import { validatorMoniker } from '@/lib/validator';
 import { VALIDATORS_LIST, VALIDATOR_BY_ID, VALIDATOR_UPTIME } from '@/lib/queries/validators';
 
@@ -88,10 +89,11 @@ export interface ProposerValidator {
  * (so a 10-row block list does ONE fetch) and ISR-cached 300s (the set rarely changes). Returns
  * an empty map on failure → proposer falls back to plain hex.
  */
-export const getConsensusValidatorMap = cache(async (): Promise<Map<string, ProposerValidator>> => {
+export const getConsensusValidatorMap = cache(async (network: NetworkId): Promise<Map<string, ProposerValidator>> => {
   const map = new Map<string, ProposerValidator>();
   try {
     const data = await gqlFetch<{ validators: { nodes: { id: string; ed25519Id: string | null; description: unknown }[] } }>(
+      network,
       VALIDATOR_CONSENSUS_MAP,
       undefined,
       { revalidate: 300 },
@@ -119,10 +121,11 @@ interface LcdValidatorsListResponse {
 }
 
 /** valoper → total bonded tokens (upokt). One LCD call for the whole set, cache()-deduped + ISR. */
-export const getBondedTokensMap = cache(async (): Promise<Map<string, string>> => {
+export const getBondedTokensMap = cache(async (network: NetworkId): Promise<Map<string, string>> => {
   const map = new Map<string, string>();
   try {
     const res = await lcdFetch<LcdValidatorsListResponse>(
+      network,
       '/cosmos/staking/v1beta1/validators?pagination.limit=500',
       { revalidate: 30 },
     );
@@ -136,9 +139,10 @@ export const getBondedTokensMap = cache(async (): Promise<Map<string, string>> =
 });
 
 /** Total bonded tokens (upokt) for one validator — its voting/security weight. null on failure. */
-export async function getValidatorBondedTokens(valoper: string): Promise<string | null> {
+export async function getValidatorBondedTokens(network: NetworkId, valoper: string): Promise<string | null> {
   try {
     const res = await lcdFetch<{ validator?: LcdValidatorTokens }>(
+      network,
       `/cosmos/staking/v1beta1/validators/${valoper}`,
       { revalidate: 30 },
     );
@@ -149,8 +153,9 @@ export async function getValidatorBondedTokens(valoper: string): Promise<string 
 }
 
 // ---- list ----
-export async function getValidatorList(limit: number, offset: number) {
+export async function getValidatorList(network: NetworkId, limit: number, offset: number) {
   const data = await gqlFetch<{ validators: { nodes: ValidatorRow[]; totalCount: number } }>(
+    network,
     VALIDATORS_LIST,
     { limit, offset },
     { revalidate: 15 },
@@ -160,8 +165,9 @@ export async function getValidatorList(limit: number, offset: number) {
 
 // ---- detail ----
 /** Resolve a validator by its valoper id. Returns null (→ notFound) when absent. */
-export async function getValidator(id: string): Promise<ValidatorDetail | null> {
+export async function getValidator(network: NetworkId, id: string): Promise<ValidatorDetail | null> {
   const data = await gqlFetch<{ validator: ValidatorDetail | null }>(
+    network,
     VALIDATOR_BY_ID,
     { id },
     { revalidate: 30 },
@@ -170,9 +176,10 @@ export async function getValidator(id: string): Promise<ValidatorDetail | null> 
 }
 
 /** Read the validator's hex consensus address (`ed25519Id`) — needed to key the uptime query. */
-async function getValidatorHexAddress(id: string): Promise<string | null> {
+async function getValidatorHexAddress(network: NetworkId, id: string): Promise<string | null> {
   try {
     const data = await gqlFetch<{ validator: { ed25519Id: string | null } | null }>(
+      network,
       VALIDATOR_HEX_ADDRESS,
       { id },
       { revalidate: 30 },
@@ -188,12 +195,12 @@ async function getValidatorHexAddress(id: string): Promise<string | null> {
  * consensus address (`ed25519Id`, looked up from the valoper `id`). Degrades gracefully (null)
  * if the address is unavailable or the query fails, so the Uptime tab shows an empty state (§11).
  */
-export async function getValidatorUptime(id: string): Promise<UptimeResult | null> {
-  const hexAddress = await getValidatorHexAddress(id);
+export async function getValidatorUptime(network: NetworkId, id: string): Promise<UptimeResult | null> {
+  const hexAddress = await getValidatorHexAddress(network, id);
   if (!hexAddress) return null;
   let toHeight: number;
   try {
-    const meta = await getMetadata();
+    const meta = await getMetadata(network);
     toHeight = meta.targetHeight;
   } catch {
     return null;
@@ -201,6 +208,7 @@ export async function getValidatorUptime(id: string): Promise<UptimeResult | nul
   const fromHeight = Math.max(1, toHeight - UPTIME_WINDOW);
   try {
     const data = await gqlFetch<{ producedBlocks: number[] | null; missedBlocks: number[] | null }>(
+      network,
       VALIDATOR_UPTIME,
       { from: String(fromHeight), validatorHexAddress: hexAddress },
       { revalidate: 15 },
@@ -226,9 +234,10 @@ interface LcdDelegationsResponse {
 }
 
 /** Delegators read live from the Sauron LCD staking endpoint. Empty [] is common. */
-export async function getDelegators(valoper: string): Promise<DelegationRow[]> {
+export async function getDelegators(network: NetworkId, valoper: string): Promise<DelegationRow[]> {
   try {
     const res = await lcdFetch<LcdDelegationsResponse>(
+      network,
       `/cosmos/staking/v1beta1/validators/${valoper}/delegations`,
       { revalidate: 30 },
     );

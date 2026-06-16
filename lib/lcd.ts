@@ -1,4 +1,4 @@
-import { SAURON_LCD_URL, SAURON_RPC_URL } from './config';
+import { getNetwork, type NetworkId } from './networks';
 import { DataError } from './errors';
 
 interface FetchOpts {
@@ -38,11 +38,11 @@ async function jsonFetch<T>(base: string, path: string, opts: FetchOpts): Promis
 }
 
 /** Cosmos LCD (REST). Always-LCD content + indexer fallback (§2). Server-side only. */
-export function lcdFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
-  return jsonFetch<T>(SAURON_LCD_URL, path, opts);
+export function lcdFetch<T>(network: NetworkId, path: string, opts: FetchOpts = {}): Promise<T> {
+  return jsonFetch<T>(getNetwork(network).lcd, path, opts);
 }
 
 /** Tendermint RPC. Block fallback when the indexer lags (§2). Server-side only. */
-export function rpcFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
-  return jsonFetch<T>(SAURON_RPC_URL, path, opts);
+export function rpcFetch<T>(network: NetworkId, path: string, opts: FetchOpts = {}): Promise<T> {
+  return jsonFetch<T>(getNetwork(network).rpc, path, opts);
 }

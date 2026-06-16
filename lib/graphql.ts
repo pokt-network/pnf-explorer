@@ -1,4 +1,4 @@
-import { GRAPHQL_URL } from './config';
+import { getNetwork, type NetworkId } from './networks';
 import { DataError } from './errors';
 
 export type RevalidateOpt = number | false;
@@ -12,10 +12,12 @@ export interface GqlOptions {
 }
 
 /**
- * Typed POST to the GraphQL indexer with a per-call cache policy (§3 — no global default).
+ * Typed POST to a network's GraphQL indexer with a per-call cache policy (§3 — no global default).
+ * `network` selects the endpoint (registry in `lib/networks.ts`) and keeps ISR cache keys distinct.
  * Pass `revalidate` for ISR/immutable data; pass `cache:'no-store'` for live client polling.
  */
 export async function gqlFetch<T>(
+  network: NetworkId,
   query: string,
   variables?: Record<string, unknown>,
   opts: GqlOptions = {},
@@ -37,7 +39,7 @@ export async function gqlFetch<T>(
 
   let res: Response;
   try {
-    res = await fetch(GRAPHQL_URL, init);
+    res = await fetch(getNetwork(network).graphql, init);
   } catch (e) {
     throw new DataError(`Network error reaching the indexer: ${(e as Error).message}`, 'network');
   }

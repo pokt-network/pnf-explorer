@@ -1,4 +1,5 @@
 import { gqlFetch } from '@/lib/graphql';
+import type { NetworkId } from '@/lib/networks';
 import { PARAMS } from '@/lib/queries/params';
 
 export interface ParamNode {
@@ -15,8 +16,8 @@ export interface ParamGroup {
 }
 
 /** Latest value of every on-chain param, grouped by namespace. Rarely changes → long TTL (§3). */
-export async function getParams(): Promise<ParamGroup[]> {
-  const data = await gqlFetch<{ params: { nodes: ParamNode[] } }>(PARAMS, undefined, { revalidate: 3600 });
+export async function getParams(network: NetworkId): Promise<ParamGroup[]> {
+  const data = await gqlFetch<{ params: { nodes: ParamNode[] } }>(network, PARAMS, undefined, { revalidate: 3600 });
   const byNs = new Map<string, ParamNode[]>();
   for (const node of data.params.nodes) {
     const ns = node.namespace ?? 'other';

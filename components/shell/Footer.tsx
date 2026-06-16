@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { NetLink as Link } from '@/components/shell/NetLink';
 
 // Source attribution + nav. Analytics/Discord are external (the analytics app is the
 // separate surface per §0/§1); Params is in-app.

@@ -1,13 +1,14 @@
-import Link from 'next/link';
+import { NetLink as Link } from '@/components/shell/NetLink';
 import { ProposerLink } from '@/components/blocks/ProposerLink';
 import { BlockIcon } from '@/components/ui/Icons';
 import { getBlockList } from '@/lib/data/blocks';
+import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatBlockTime } from '@/lib/format';
 import { relativeTime, absoluteUtc } from '@/lib/time';
 
 // Latest 10 blocks panel (home). Reuses the verified blockList fetch.
-export async function RecentBlocks() {
-  const { nodes } = await getBlockList(10, 0);
+export async function RecentBlocks({ network }: { network: NetworkId }) {
+  const { nodes } = await getBlockList(network, 10, 0);
   return (
     <div className="card panel">
       <div className="head">
@@ -32,7 +33,7 @@ export async function RecentBlocks() {
               </span>
             </div>
             <div className="btm">
-              Proposer <ProposerLink address={b.proposerAddress} />
+              Proposer <ProposerLink network={network} address={b.proposerAddress} />
             </div>
           </div>
           <div className="end">

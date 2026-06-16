@@ -1,4 +1,5 @@
 import { gqlFetch } from '@/lib/graphql';
+import type { NetworkId } from '@/lib/networks';
 import { TRANSACTIONS_BY_ADDRESS, TRANSFERS_LIST } from '@/lib/queries/transactions';
 import type { BlockTx } from '@/lib/data/blocks';
 
@@ -16,8 +17,9 @@ export interface Transfer {
 }
 
 /** Transactions signed by an address. (Validator pages pass the validator's signer address.) */
-export async function getAddressTransactions(address: string, limit: number, offset: number) {
+export async function getAddressTransactions(network: NetworkId, address: string, limit: number, offset: number) {
   const data = await gqlFetch<{ transactions: { nodes: BlockTx[]; totalCount: number } }>(
+    network,
     TRANSACTIONS_BY_ADDRESS,
     { limit, offset, filter: { signerAddress: { equalTo: address } } },
     { revalidate: 30 },
@@ -26,8 +28,9 @@ export async function getAddressTransactions(address: string, limit: number, off
 }
 
 /** Native MsgSend transfers where the address is sender or recipient. */
-export async function getTransfers(address: string, limit: number, offset: number) {
+export async function getTransfers(network: NetworkId, address: string, limit: number, offset: number) {
   const data = await gqlFetch<{ transfers: { nodes: Transfer[]; totalCount: number } }>(
+    network,
     TRANSFERS_LIST,
     { limit, offset, address },
     { revalidate: 30 },

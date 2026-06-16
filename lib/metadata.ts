@@ -1,19 +1,20 @@
 import { gqlFetch } from './graphql';
 import { INDEXER_LAG_THRESHOLD } from './config';
+import type { NetworkId } from './networks';
 import { METADATA_QUERY, STATUS_QUERY } from './queries/shared';
 import type { FallbackDecision, IndexerMetadata, MetadataResult, StatusResult } from './types';
 
 /** Fetch `_metadata`. Defaults to fresh (no-store) so fallback decisions reflect the head. */
-export async function getMetadata(opts?: { cache?: RequestCache }): Promise<IndexerMetadata> {
-  const data = await gqlFetch<MetadataResult>(METADATA_QUERY, undefined, {
+export async function getMetadata(network: NetworkId, opts?: { cache?: RequestCache }): Promise<IndexerMetadata> {
+  const data = await gqlFetch<MetadataResult>(network, METADATA_QUERY, undefined, {
     cache: opts?.cache ?? 'no-store',
   });
   return data._metadata;
 }
 
 /** Fetch the live `status` (latest block + heights). Client polling passes no-store. */
-export async function getStatus(opts?: { cache?: RequestCache; signal?: AbortSignal }): Promise<StatusResult> {
-  return gqlFetch<StatusResult>(STATUS_QUERY, undefined, {
+export async function getStatus(network: NetworkId, opts?: { cache?: RequestCache; signal?: AbortSignal }): Promise<StatusResult> {
+  return gqlFetch<StatusResult>(network, STATUS_QUERY, undefined, {
     cache: opts?.cache ?? 'no-store',
     signal: opts?.signal,
   });
@@ -40,9 +41,9 @@ export function evaluateFallback(metadata: IndexerMetadata): FallbackDecision {
  * Decide indexer vs RPC for a server render. If `_metadata` itself can't be read, force RPC
  * so pages still resolve (returns error for the indexer-lagging banner, §11).
  */
-export async function getUseRpcData(): Promise<FallbackDecision> {
+export async function getUseRpcData(network: NetworkId): Promise<FallbackDecision> {
   try {
-    return evaluateFallback(await getMetadata());
+    return evaluateFallback(await getMetadata(network));
   } catch (e) {
     return { useRpc: true, lag: null, metadata: null, error: (e as Error).message };
   }

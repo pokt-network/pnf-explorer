@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { NetLink as Link } from '@/components/shell/NetLink';
 import { Fragment } from 'react';
 
 export interface Crumb {

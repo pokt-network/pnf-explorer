@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { NetLink as Link } from '@/components/shell/NetLink';
 import { Hash } from '@/components/ui/Hash';
 import { TxResultPill } from '@/components/ui/StatusPill';
 import { EmptyState } from '@/components/ui/states';

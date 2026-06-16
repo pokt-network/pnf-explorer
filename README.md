@@ -29,13 +29,25 @@ Configure endpoints via `.env` (see `.env.example`):
 
 | Var | Purpose |
 |---|---|
-| `NEXT_PUBLIC_GRAPHQL_URL` | GraphQL indexer endpoint |
-| `SAURON_LCD_URL` | Cosmos LCD base (fallback + always-LCD) |
-| `SAURON_RPC_URL` | Tendermint RPC base (block fallback) |
+| `NEXT_PUBLIC_GRAPHQL_URL` | Mainnet GraphQL indexer endpoint |
+| `SAURON_LCD_URL` | Mainnet Cosmos LCD base (fallback + always-LCD) |
+| `SAURON_RPC_URL` | Mainnet Tendermint RPC base (block fallback) |
+| `NEXT_PUBLIC_GRAPHQL_URL_BETA` | Beta TestNet GraphQL indexer (override; default in `lib/networks.ts`) |
+| `SAURON_LCD_URL_BETA` | Beta TestNet Cosmos LCD base |
+| `SAURON_RPC_URL_BETA` | Beta TestNet Tendermint RPC base |
 | `NEXT_PUBLIC_INDEXER_LAG_THRESHOLD` | Blocks of lag before falling back to RPC (default 5) |
+
+## Networks
+
+The explorer serves multiple Pocket Network chains. The active network is carried in the URL path:
+**mainnet** is the prefix-less default (`/block/1`); **Beta TestNet** is served under `/beta`
+(`/beta/block/1`). `proxy.ts` rewrites prefix-less requests onto the default network; the AppBar
+switcher navigates between networks. Endpoints per network live in `lib/networks.ts` and the
+active network is threaded into every data call (so per-network ISR cache keys stay distinct).
 
 ## Routes
 
+Network-agnostic paths (each also available under `/beta`):
 `/` · `/blocks` · `/block/[id]` · `/txs` · `/tx/[id]` · `/accounts` · `/account/[id]` ·
 `/validators` · `/validator/[id]` · `/params`, plus global search (height / hash / address /
 valoper) in the app bar.

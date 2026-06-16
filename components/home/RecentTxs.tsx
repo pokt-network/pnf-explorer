@@ -1,7 +1,8 @@
-import Link from 'next/link';
+import { NetLink as Link } from '@/components/shell/NetLink';
 import { Hash } from '@/components/ui/Hash';
 import { TxIcon } from '@/components/ui/Icons';
 import { getTransactionsList } from '@/lib/data/transactions';
+import type { NetworkId } from '@/lib/networks';
 import { primaryMessage, formatFees, sumUpokt } from '@/lib/tx';
 import { formatPokt } from '@/lib/format';
 import { relativeTime, absoluteUtc } from '@/lib/time';
@@ -15,8 +16,8 @@ function amountLabel(tx: BlockTx): { value: string; unit: string } {
 }
 
 // Latest 10 transactions panel (home). Reuses the verified transactionsList fetch.
-export async function RecentTxs() {
-  const { nodes } = await getTransactionsList(10, 0, 'all');
+export async function RecentTxs({ network }: { network: NetworkId }) {
+  const { nodes } = await getTransactionsList(network, 10, 0, 'all');
   return (
     <div className="card panel">
       <div className="head">

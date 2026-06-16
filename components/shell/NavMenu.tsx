@@ -1,8 +1,10 @@
 'use client';
 
-import Link from 'next/link';
+import { NetLink as Link } from '@/components/shell/NetLink';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import { useNetwork } from '@/lib/network-context';
+import { netHref } from '@/lib/networks';
 
 // Top-level navigation to every list/section. Lives to the right of the theme toggle in the AppBar.
 const SECTIONS: { heading: string; links: { href: string; label: string }[] }[] = [
@@ -34,6 +36,7 @@ export function NavMenu() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
+  const network = useNetwork();
 
   // Close on route change.
   useEffect(() => setOpen(false), [pathname]);
@@ -81,7 +84,7 @@ export function NavMenu() {
                   key={l.href}
                   href={l.href}
                   role="menuitem"
-                  className={`navmenu-item${pathname === l.href ? ' active' : ''}`}
+                  className={`navmenu-item${pathname === netHref(network, l.href) ? ' active' : ''}`}
                 >
                   {l.label}
                 </Link>

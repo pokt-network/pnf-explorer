@@ -1,4 +1,5 @@
 import { gqlFetch } from '@/lib/graphql';
+import type { NetworkId } from '@/lib/networks';
 import { HOME_SUMMARY } from '@/lib/queries/home';
 import { sumUpokt } from '@/lib/tx';
 import type { SupplyNode } from '@/lib/data/blocks';
@@ -17,7 +18,7 @@ export interface HomeSummary {
  * aliases totalEstimatedRelays/totalEstimatedComputedUnits onto these keys so the figures match the
  * ecosystem-standard throughput shown by PoktScan (on-chain "claimed" totals are ~2.5x lower).
  */
-export async function getHomeSummary(): Promise<HomeSummary> {
+export async function getHomeSummary(network: NetworkId): Promise<HomeSummary> {
   const end = new Date();
   const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
   const data = await gqlFetch<{
@@ -31,7 +32,7 @@ export async function getHomeSummary(): Promise<HomeSummary> {
       }[];
     };
     window: { aggregates: { sum: { totalRelays: string | null; totalComputedUnits: string | null } } };
-  }>(HOME_SUMMARY, { last24HourDate: start.toISOString(), currentDate: end.toISOString() }, { revalidate: 15 });
+  }>(network, HOME_SUMMARY, { last24HourDate: start.toISOString(), currentDate: end.toISOString() }, { revalidate: 15 });
 
   const lb = data.lastBlock.nodes[0];
   const supply = lb?.supplies?.nodes?.length ? sumUpokt(lb.supplies.nodes.map((n) => n.supply)).toString() : null;

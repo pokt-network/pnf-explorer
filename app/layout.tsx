@@ -3,8 +3,6 @@ import { Rubik } from 'next/font/google';
 import './globals.css';
 import { ThemeScript } from '@/components/shell/ThemeScript';
 import { Atmosphere } from '@/components/shell/Atmosphere';
-import { AppBar } from '@/components/shell/AppBar';
-import { Footer } from '@/components/shell/Footer';
 
 const rubik = Rubik({
   subsets: ['latin'],
@@ -39,6 +37,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   // data-theme is set pre-paint by ThemeScript; suppress the resulting hydration diff.
+  // The app shell (AppBar/Footer) lives in `app/[network]/layout.tsx` so it can read the active
+  // network; everything network-agnostic (html, fonts, theme, ambient atmosphere) stays here.
   return (
     <html lang="en" suppressHydrationWarning className={rubik.variable}>
       <head>
@@ -46,11 +46,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <Atmosphere />
-        <div className="shell">
-          <AppBar />
-          <main>{children}</main>
-          <Footer />
-        </div>
+        {children}
       </body>
     </html>
   );

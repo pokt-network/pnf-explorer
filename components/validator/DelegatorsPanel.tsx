@@ -2,6 +2,7 @@ import { Hash } from '@/components/ui/Hash';
 import { LcdSourceStrip } from '@/components/ui/LcdSourceStrip';
 import { EmptyState } from '@/components/ui/states';
 import { getDelegators } from '@/lib/data/validators';
+import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt } from '@/lib/format';
 
 /**
@@ -9,8 +10,8 @@ import { formatNumber, formatPokt } from '@/lib/format';
  * the gold provenance strip makes that explicit. `shares` is a decimal string; `amount` is
  * upokt. The validator's own signer is tagged "(self)".
  */
-export async function DelegatorsPanel({ valoper, signerId }: { valoper: string; signerId: string }) {
-  const delegators = await getDelegators(valoper);
+export async function DelegatorsPanel({ network, valoper, signerId }: { network: NetworkId; valoper: string; signerId: string }) {
+  const delegators = await getDelegators(network, valoper);
 
   return (
     <div className="card flush-top">

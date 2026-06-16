@@ -1,6 +1,7 @@
 import { gqlFetch } from '@/lib/graphql';
 import { lcdFetch } from '@/lib/lcd';
 import { INDEXER_LAG_THRESHOLD } from '@/lib/config';
+import type { NetworkId } from '@/lib/networks';
 import { DataError } from '@/lib/errors';
 import { TRANSACTIONS_LIST, TRANSACTIONS_SUMMARY, TRANSACTION_DETAIL } from '@/lib/queries/transactions';
 import type { BlockTx } from '@/lib/data/blocks';
@@ -45,8 +46,9 @@ export interface TxDetail {
 }
 
 // ---- list ----
-export async function getTransactionsList(limit: number, offset: number, filter: TxFilterKey) {
+export async function getTransactionsList(network: NetworkId, limit: number, offset: number, filter: TxFilterKey) {
   const data = await gqlFetch<{ transactions: { nodes: BlockTx[]; totalCount: number } }>(
+    network,
     TRANSACTIONS_LIST,
     { limit, offset, filter: FILTERS[filter] },
     { revalidate: 15 },
@@ -54,14 +56,14 @@ export async function getTransactionsList(limit: number, offset: number, filter:
   return data.transactions;
 }
 
-export async function getTransactionsSummary() {
+export async function getTransactionsSummary(network: NetworkId) {
   const end = new Date();
   const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
   const data = await gqlFetch<{
     blocks: { nodes: { totalTxs: number }[] };
     validTxs: { totalCount: number };
     failedTxs: { totalCount: number };
-  }>(TRANSACTIONS_SUMMARY, { startDate: start.toISOString(), endDate: end.toISOString() }, { revalidate: 15 });
+  }>(network, TRANSACTIONS_SUMMARY, { startDate: start.toISOString(), endDate: end.toISOString() }, { revalidate: 15 });
   return {
     latestBlockTxs: data.blocks.nodes[0]?.totalTxs ?? null,
     successful24h: data.validTxs.totalCount,
@@ -80,11 +82,11 @@ function revalidateForHeight(height: number | null, targetHeight: number | null)
  * Indexer tx header. The indexer stores hashes UPPERCASE and is case-sensitive, so we
  * normalize before querying (a lowercased hash otherwise returns null → false 404).
  */
-export async function getTransaction(id: string, targetHeight: number | null): Promise<TxDetail | null> {
+export async function getTransaction(network: NetworkId, id: string, targetHeight: number | null): Promise<TxDetail | null> {
   const hash = HEX64.test(id) ? id.toUpperCase() : id;
   // First fetch with a short TTL; if it lands far below head we could cache harder, but a
   // single round-trip keeps it simple — bury-immutability is applied on the next render.
-  const data = await gqlFetch<{ transaction: TxDetail | null }>(TRANSACTION_DETAIL, { id: hash }, { revalidate: 15 });
+  const data = await gqlFetch<{ transaction: TxDetail | null }>(network, TRANSACTION_DETAIL, { id: hash }, { revalidate: 15 });
   const tx = data.transaction;
   if (!tx) return null;
   // A tip tx may be indexed before its block relation lands (block null) → keep the short TTL.
@@ -92,7 +94,7 @@ export async function getTransaction(id: string, targetHeight: number | null): P
   // Re-key cache by burial once we know the height (cheap; same query, immutable revalidate).
   const rev = revalidateForHeight(Number(tx.block.height), targetHeight);
   if (rev === false) {
-    const fixed = await gqlFetch<{ transaction: TxDetail | null }>(TRANSACTION_DETAIL, { id: hash }, { revalidate: false });
+    const fixed = await gqlFetch<{ transaction: TxDetail | null }>(network, TRANSACTION_DETAIL, { id: hash }, { revalidate: false });
     return fixed.transaction ?? tx;
   }
   return tx;
@@ -140,9 +142,9 @@ export type LcdTxResult =
  * on tip txs (not yet indexed) or when node tx-indexing is unavailable → surface as a transient
  * 'indexing' state, NOT a hard error. A 404 is a genuine miss.
  */
-export async function getTxFromLcd(hash: string): Promise<LcdTxResult> {
+export async function getTxFromLcd(network: NetworkId, hash: string): Promise<LcdTxResult> {
   try {
-    const data = await lcdFetch<LcdTxResponse>(`/cosmos/tx/v1beta1/txs/${hash}`, { revalidate: 15 });
+    const data = await lcdFetch<LcdTxResponse>(network, `/cosmos/tx/v1beta1/txs/${hash}`, { revalidate: 15 });
     return { state: 'ok', data };
   } catch (e) {
     if (e instanceof DataError) {

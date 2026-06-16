@@ -1,4 +1,5 @@
 import { gqlFetch } from '@/lib/graphql';
+import type { NetworkId } from '@/lib/networks';
 import { ACCOUNT_LIST, ACCOUNT_SUMMARY, ACCOUNT_BY_ID } from '@/lib/queries/accounts';
 import { SEARCH_BY_ADDRESS } from '@/lib/queries/search';
 import { BLOCK_LIST } from '@/lib/queries/blocks';
@@ -46,8 +47,9 @@ export interface AccountSummary {
 }
 
 // ---- list ----
-export async function getAccountList(limit: number, offset: number) {
+export async function getAccountList(network: NetworkId, limit: number, offset: number) {
   const data = await gqlFetch<{ balances: { nodes: AccountListRow[]; totalCount: number } }>(
+    network,
     ACCOUNT_LIST,
     { limit, offset },
     { revalidate: 15 },
@@ -55,7 +57,7 @@ export async function getAccountList(limit: number, offset: number) {
   return data.balances;
 }
 
-export async function getAccountSummary(): Promise<AccountSummary> {
+export async function getAccountSummary(network: NetworkId): Promise<AccountSummary> {
   const now = new Date();
   // Start of today (UTC), -30d, -90d — ISO Datetime strings for the indexer filters.
   const todayDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
@@ -66,7 +68,7 @@ export async function getAccountSummary(): Promise<AccountSummary> {
     todayAccounts: { totalCount: number };
     monthAccounts: { totalCount: number };
     last90DaysAccounts: { totalCount: number };
-  }>(ACCOUNT_SUMMARY, { todayDate, monthDate, last90Date }, { revalidate: 15 });
+  }>(network, ACCOUNT_SUMMARY, { todayDate, monthDate, last90Date }, { revalidate: 15 });
   return {
     accountsWithBalance: data.accountsWithBalance?.totalCount ?? null,
     todayAccounts: data.todayAccounts?.totalCount ?? null,
@@ -76,9 +78,10 @@ export async function getAccountSummary(): Promise<AccountSummary> {
 }
 
 /** Total upokt supply (latest block) — used to compute per-account share %. Best-effort. */
-export async function getTotalSupplyUpokt(): Promise<bigint | null> {
+export async function getTotalSupplyUpokt(network: NetworkId): Promise<bigint | null> {
   try {
     const data = await gqlFetch<{ blocks: { nodes: { supplies?: { nodes: SupplyNode[] } }[] } }>(
+      network,
       BLOCK_LIST,
       { limit: 1, offset: 0 },
       { revalidate: 15 },
@@ -93,14 +96,14 @@ export async function getTotalSupplyUpokt(): Promise<bigint | null> {
 }
 
 // ---- detail ----
-export async function getAccount(id: string): Promise<Account | null> {
-  const data = await gqlFetch<{ account: Account | null }>(ACCOUNT_BY_ID, { id }, { revalidate: 30 });
+export async function getAccount(network: NetworkId, id: string): Promise<Account | null> {
+  const data = await gqlFetch<{ account: Account | null }>(network, ACCOUNT_BY_ID, { id }, { revalidate: 30 });
   return data.account;
 }
 
 /** Resolve all on-chain roles for an address (account balance + supplier/app/gateway stake info). */
-export async function getAddressRoles(id: string): Promise<AddressRoles> {
-  const data = await gqlFetch<AddressRoles>(SEARCH_BY_ADDRESS, { address: id }, { revalidate: 30 });
+export async function getAddressRoles(network: NetworkId, id: string): Promise<AddressRoles> {
+  const data = await gqlFetch<AddressRoles>(network, SEARCH_BY_ADDRESS, { address: id }, { revalidate: 30 });
   return {
     account: data.account ?? null,
     supplier: data.supplier ?? null,

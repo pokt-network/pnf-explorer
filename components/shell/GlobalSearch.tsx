@@ -3,6 +3,8 @@
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { gqlFetch } from '@/lib/graphql';
+import { useNetwork } from '@/lib/network-context';
+import { netHref } from '@/lib/networks';
 import { SEARCH_BY_HASH, SEARCH_SERVICES } from '@/lib/queries/search';
 
 const SearchIcon = (
@@ -27,6 +29,9 @@ interface ServiceHint {
  */
 export function GlobalSearch({ variant = 'mini' }: { variant?: 'mini' | 'hero' }) {
   const router = useRouter();
+  const network = useNetwork();
+  // Navigate within the active network (prefixes /beta on betanet, no-op on mainnet).
+  const go = (path: string) => router.push(netHref(network, path));
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const [services, setServices] = useState<ServiceHint[]>([]);
@@ -48,33 +53,34 @@ export function GlobalSearch({ variant = 'mini' }: { variant?: 'mini' | 'hero' }
     setOpen(false);
     switch (shape) {
       case 'valoper':
-        return router.push(`/validator/${q}`);
+        return go(`/validator/${q}`);
       case 'address':
-        return router.push(`/account/${q}`);
+        return go(`/account/${q}`);
       case 'numeric':
-        return router.push(`/block/${q}`);
+        return go(`/block/${q}`);
       case 'hex': {
         const hash = q.replace(/^0x/, '');
         setBusy(true);
         try {
           const data = await gqlFetch<{ transaction: { id: string } | null; blocks: { nodes: { hash: string }[] } }>(
+            network,
             SEARCH_BY_HASH,
             { hash: hash.toUpperCase() },
             { cache: 'no-store' },
           );
           // Disambiguation: prefer the tx if the hash resolves to both (§4).
-          if (data.transaction) return router.push(`/tx/${hash}`);
-          if (data.blocks.nodes.length) return router.push(`/block/${hash}`);
-          return router.push(`/tx/${hash}`); // nothing matched → tx page renders not-found
+          if (data.transaction) return go(`/tx/${hash}`);
+          if (data.blocks.nodes.length) return go(`/block/${hash}`);
+          return go(`/tx/${hash}`); // nothing matched → tx page renders not-found
         } catch {
-          return router.push(`/tx/${hash}`);
+          return go(`/tx/${hash}`);
         } finally {
           setBusy(false);
         }
       }
       case 'text':
         // Free text resolves to the best service match (if the dropdown surfaced any).
-        if (services.length > 0) return router.push(`/service/${services[0].id}`);
+        if (services.length > 0) return go(`/service/${services[0].id}`);
         return;
     }
   }
@@ -90,7 +96,7 @@ export function GlobalSearch({ variant = 'mini' }: { variant?: 'mini' | 'hero' }
     }
     debounce.current = setTimeout(async () => {
       try {
-        const data = await gqlFetch<{ services: { nodes: ServiceHint[] } }>(SEARCH_SERVICES, { text: q }, { cache: 'no-store' });
+        const data = await gqlFetch<{ services: { nodes: ServiceHint[] } }>(network, SEARCH_SERVICES, { text: q }, { cache: 'no-store' });
         setServices(data.services.nodes.slice(0, 6));
         setOpen(data.services.nodes.length > 0);
       } catch {
@@ -119,7 +125,7 @@ export function GlobalSearch({ variant = 'mini' }: { variant?: 'mini' | 'hero' }
             onMouseDown={(e) => {
               e.preventDefault();
               setOpen(false);
-              router.push(`/service/${s.id}`);
+              go(`/service/${s.id}`);
             }}
           >
             <span className="svc-name">{s.name ?? s.id}</span>

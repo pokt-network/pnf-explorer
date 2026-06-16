@@ -1,4 +1,5 @@
 import { gqlFetch } from '@/lib/graphql';
+import type { NetworkId } from '@/lib/networks';
 import { SERVICES_LIST, SERVICE_BY_ID, SERVICE_SUPPLIERS, SERVICE_APPLICATIONS, SERVICE_DIFFICULTY } from '@/lib/queries/services';
 
 // Services are infrequently updated and stable for long stretches, so the list + its per-service
@@ -46,8 +47,9 @@ export interface ServiceListRowWithCount extends ServiceListRow {
 const PAGE_CAP = 100;
 
 /** One page of services (ordered by name). 12h ISR — services rarely change. */
-export async function getServiceList(limit: number, offset: number) {
+export async function getServiceList(network: NetworkId, limit: number, offset: number) {
   const data = await gqlFetch<{ services: { totalCount: number; nodes: ServiceListRow[] } }>(
+    network,
     SERVICES_LIST,
     { limit: Math.min(limit, PAGE_CAP), offset },
     { revalidate: SERVICES_TTL },
@@ -60,7 +62,7 @@ export async function getServiceList(limit: number, offset: number) {
  * (cN: …, $idN), chunked to the 100-field cap. 12h ISR — these move slowly and per-service
  * counts would otherwise be hundreds of separate calls. Map keyed by id; missing ids → 0.
  */
-export async function getServiceActiveSupplierCounts(ids: string[]): Promise<Map<string, number>> {
+export async function getServiceActiveSupplierCounts(network: NetworkId, ids: string[]): Promise<Map<string, number>> {
   const map = new Map<string, number>();
   for (let start = 0; start < ids.length; start += PAGE_CAP) {
     const chunk = ids.slice(start, start + PAGE_CAP);
@@ -72,7 +74,7 @@ export async function getServiceActiveSupplierCounts(ids: string[]): Promise<Map
     const vars: Record<string, string> = {};
     chunk.forEach((id, i) => (vars[`id${i}`] = id));
     try {
-      const data = await gqlFetch<Record<string, { totalCount: number } | null>>(query, vars, { revalidate: SERVICES_TTL });
+      const data = await gqlFetch<Record<string, { totalCount: number } | null>>(network, query, vars, { revalidate: SERVICES_TTL });
       chunk.forEach((id, i) => map.set(id, data[`c${i}`]?.totalCount ?? 0));
     } catch {
       /* leave this chunk's counts unset → those rows render 0 */
@@ -86,25 +88,25 @@ export async function getServiceActiveSupplierCounts(ids: string[]): Promise<Map
  * the services list so it can sort by CU/relay OR active suppliers across the FULL set, then
  * paginate in memory (the supplier count is computed, not an orderable indexer field).
  */
-export async function getAllServicesWithCounts(): Promise<ServiceListRowWithCount[]> {
+export async function getAllServicesWithCounts(network: NetworkId): Promise<ServiceListRowWithCount[]> {
   const all: ServiceListRow[] = [];
   for (let i = 0; i < 20; i++) {
-    const { nodes, totalCount } = await getServiceList(PAGE_CAP, all.length);
+    const { nodes, totalCount } = await getServiceList(network, PAGE_CAP, all.length);
     all.push(...nodes);
     if (nodes.length === 0 || all.length >= totalCount) break;
   }
-  const counts = await getServiceActiveSupplierCounts(all.map((n) => n.id));
+  const counts = await getServiceActiveSupplierCounts(network, all.map((n) => n.id));
   return all.map((n) => ({ ...n, activeSuppliers: counts.get(n.id) ?? 0 }));
 }
 
 /** Service header + active supplier/app counts + latest relay-mining difficulty. null → notFound. */
-export async function getService(id: string): Promise<ServiceSummary | null> {
+export async function getService(network: NetworkId, id: string): Promise<ServiceSummary | null> {
   const data = await gqlFetch<{
     service: ServiceDetail | null;
     activeSuppliers: { totalCount: number } | null;
     totalSuppliers: { totalCount: number } | null;
     activeApps: { totalCount: number } | null;
-  }>(SERVICE_BY_ID, { id }, { revalidate: 60 });
+  }>(network, SERVICE_BY_ID, { id }, { revalidate: 60 });
   if (!data.service) return null;
   return {
     service: data.service,
@@ -126,8 +128,9 @@ export interface ServiceSupplierRow {
 }
 
 /** Active (Staked) suppliers serving this service. */
-export async function getServiceSuppliers(id: string, limit: number, offset: number) {
+export async function getServiceSuppliers(network: NetworkId, id: string, limit: number, offset: number) {
   const data = await gqlFetch<{ supplierServiceConfigs: { totalCount: number; nodes: ServiceSupplierRow[] } }>(
+    network,
     SERVICE_SUPPLIERS,
     { id, limit, offset },
     { revalidate: 60 },
@@ -141,8 +144,9 @@ export interface ServiceApplicationRow {
 }
 
 /** Active (Staked) applications staked for this service. */
-export async function getServiceApplications(id: string, limit: number, offset: number) {
+export async function getServiceApplications(network: NetworkId, id: string, limit: number, offset: number) {
   const data = await gqlFetch<{ applicationServices: { totalCount: number; nodes: ServiceApplicationRow[] } }>(
+    network,
     SERVICE_APPLICATIONS,
     { id, limit, offset },
     { revalidate: 60 },
@@ -151,9 +155,9 @@ export async function getServiceApplications(id: string, limit: number, offset: 
 }
 
 /** Relay-mining difficulty / EMA update history for this service (newest first). */
-export async function getServiceDifficulty(id: string, limit: number, offset: number) {
+export async function getServiceDifficulty(network: NetworkId, id: string, limit: number, offset: number) {
   const data = await gqlFetch<{
     service: { relayMiningDifficultyUpdatedEvents: { totalCount: number; nodes: ServiceDifficultyPoint[] } } | null;
-  }>(SERVICE_DIFFICULTY, { id, limit, offset }, { revalidate: 60 });
+  }>(network, SERVICE_DIFFICULTY, { id, limit, offset }, { revalidate: 60 });
   return data.service?.relayMiningDifficultyUpdatedEvents ?? { totalCount: 0, nodes: [] };
 }

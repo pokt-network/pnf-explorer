@@ -90,6 +90,20 @@ header.bar{max-width:var(--maxw);margin:0 auto;padding:22px 24px;display:flex;al
 .navmenu-item{display:block;padding:8px 10px;border-radius:8px;font-size:13.5px;color:var(--text-secondary);text-decoration:none;transition:all .15s ease}
 .navmenu-item:hover{background:var(--bg-card-hover);color:var(--text-primary)}
 .navmenu-item.active{color:var(--blue-soft);background:rgba(2,90,242,.08)}
+.netswitch{position:relative;display:flex}
+.netswitch-btn{display:flex;align-items:center;gap:8px;height:40px;padding:0 11px;border-radius:10px;background:var(--bg-card);border:1px solid var(--border);color:var(--text-primary);font-size:13px;font-weight:600;cursor:pointer;transition:all .2s ease;white-space:nowrap}
+.netswitch-btn:hover{border-color:var(--border-hover)}
+.netswitch-btn .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.netswitch-btn .lbl{font-size:12px}
+.netswitch-btn .chev{color:var(--text-tertiary);margin-left:-1px}
+@media(max-width:520px){.netswitch-btn .lbl{display:none}}
+.netswitch-pop{min-width:184px}
+.netswitch-item{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:8px 10px;border-radius:8px;font-size:13.5px;color:var(--text-secondary);background:none;border:none;cursor:pointer;transition:all .15s ease}
+.netswitch-item:hover{background:var(--bg-card-hover);color:var(--text-primary)}
+.netswitch-item.active{color:var(--text-primary)}
+.netswitch-item .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.netswitch-item .nm{flex:1}
+.netswitch-item .chk{color:var(--mint);font-weight:700}
 .iconbtn{width:40px;height:40px;display:grid;place-items:center;border-radius:10px;background:var(--bg-card);color:var(--text-secondary);border:1px solid var(--border);cursor:pointer;transition:all .2s ease}
 .iconbtn:hover{color:var(--text-primary);border-color:var(--border-hover)}
 .livebadge{display:flex;align-items:center;gap:8px;height:40px;padding:0 13px;border-radius:10px;background:var(--bg-card);border:1px solid var(--border);font-size:13px;font-weight:600;color:var(--text-primary);text-decoration:none;font-variant-numeric:tabular-nums;transition:all .2s ease;white-space:nowrap}

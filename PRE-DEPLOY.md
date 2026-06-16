@@ -42,7 +42,8 @@ Resolve before deploying to `explorer.pocket.network` (brief §14, §15).
 ## Standard deploy steps (brief §14, §5)
 
 - [ ] Set env vars on Vercel: `NEXT_PUBLIC_GRAPHQL_URL`, `SAURON_LCD_URL`, `SAURON_RPC_URL`,
-      `NEXT_PUBLIC_INDEXER_LAG_THRESHOLD` (see `.env.example`).
+      `NEXT_PUBLIC_INDEXER_LAG_THRESHOLD` (see `.env.example`). Beta TestNet endpoints
+      (`*_BETA`) default from `lib/networks.ts` — only set them on Vercel to override.
 - [x] `npm run build` passes clean (step 13). Verified 2026-06-06: Next 16.2.7, compiled + TS clean,
       9 static pages generated, exit 0.
 - [x] Official PNF logo wired (white on dark / black on light, `public/pocket-logo-*.svg`).

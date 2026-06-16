@@ -1,5 +1,6 @@
-import Link from 'next/link';
+import { NetLink as Link } from '@/components/shell/NetLink';
 import { getConsensusValidatorMap } from '@/lib/data/validators';
+import type { NetworkId } from '@/lib/networks';
 import { truncate } from '@/lib/format';
 
 /**
@@ -7,8 +8,8 @@ import { truncate } from '@/lib/format';
  * ed25519Id), so it links to the matching validator — NOT to /account (which would 404). Falls
  * back to plain hex if no validator matches (e.g. a since-removed validator).
  */
-export async function ProposerLink({ address, full = false }: { address: string; full?: boolean }) {
-  const map = await getConsensusValidatorMap();
+export async function ProposerLink({ network, address, full = false }: { network: NetworkId; address: string; full?: boolean }) {
+  const map = await getConsensusValidatorMap(network);
   const v = map.get(address.toUpperCase());
   if (v) {
     return (

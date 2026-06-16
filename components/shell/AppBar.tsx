@@ -1,11 +1,13 @@
-import Link from 'next/link';
+import { NetLink as Link } from '@/components/shell/NetLink';
 import { GlobalSearch } from './GlobalSearch';
 import { ThemeToggle } from './ThemeToggle';
 import { LiveBadge } from './LiveBadge';
+import { NetworkSwitcher } from './NetworkSwitcher';
 import { NavMenu } from './NavMenu';
 
-// Fixed app bar present on every route: brand → mini global search → live badge + theme toggle.
-// Official PNF logo: white wordmark on dark, black on light (toggled by CSS via data-theme).
+// Fixed app bar present on every route: brand → mini global search → live badge + network
+// switcher + theme toggle. Official PNF logo: white wordmark on dark, black on light (CSS via
+// data-theme).
 export function AppBar() {
   return (
     <header className="bar">
@@ -19,6 +21,7 @@ export function AppBar() {
       <GlobalSearch variant="mini" />
       <div className="bar-right">
         <LiveBadge />
+        <NetworkSwitcher />
         <ThemeToggle />
         <NavMenu />
       </div>

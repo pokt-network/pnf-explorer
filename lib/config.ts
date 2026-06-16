@@ -1,16 +1,7 @@
 // Centralized environment access (§5). Never read process.env elsewhere.
-
-/** Primary GraphQL indexer endpoint (public — the live badge polls it client-side). */
-export const GRAPHQL_URL =
-  process.env.NEXT_PUBLIC_GRAPHQL_URL ?? 'https://data.pocket.network/graphql';
-
-/** Sauron Cosmos LCD base (server-side fallback + always-LCD content). */
-export const SAURON_LCD_URL =
-  process.env.SAURON_LCD_URL ?? 'https://sauron-api.infra.pocket.network';
-
-/** Sauron Tendermint RPC base (server-side block fallback). */
-export const SAURON_RPC_URL =
-  process.env.SAURON_RPC_URL ?? 'https://sauron-rpc.infra.pocket.network';
+//
+// Per-network endpoints now live in `lib/networks.ts` (the URL carries the active network and the
+// fetchers resolve endpoints from the registry). This file holds the network-agnostic config.
 
 /**
  * Indexer lag tolerance in blocks. If `targetHeight - lastProcessedHeight`

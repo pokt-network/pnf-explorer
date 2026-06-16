@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { getStatus } from '@/lib/metadata';
 import { INDEXER_LAG_THRESHOLD } from '@/lib/config';
+import { useNetwork } from '@/lib/network-context';
 
 export interface LiveStatus {
   height: number;
@@ -24,6 +25,7 @@ const POLL_MS = 15_000;
 
 /** Client-polls `status` every 15s for the live badge + "refresh on new block" (§3 heartbeat). */
 export function useStatus(): UseStatusState {
+  const network = useNetwork();
   const [state, setState] = useState<UseStatusState>({ status: null, error: false, loading: true });
 
   useEffect(() => {
@@ -34,7 +36,7 @@ export function useStatus(): UseStatusState {
       controller?.abort();
       controller = new AbortController();
       try {
-        const data = await getStatus({ signal: controller.signal });
+        const data = await getStatus(network, { signal: controller.signal });
         if (!active) return;
         const node = data.blocks.nodes[0];
         const targetHeight = Number(data._metadata.targetHeight);
@@ -66,7 +68,7 @@ export function useStatus(): UseStatusState {
       controller?.abort();
       clearInterval(id);
     };
-  }, []);
+  }, [network]);
 
   return state;
 }
