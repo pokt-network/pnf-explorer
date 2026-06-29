@@ -98,3 +98,8 @@ temp/
 *.tmp
 *.bak
 *.orig
+
+# Working / scratch docs (research + design notes, not part of the shipped app)
+ACCOUNT-PAGE-DATA-DESIGN.md
+POCKET-DATA-ACCESS.md
+POCKETDEX-BUG-nativeTransfers-sender-recipient-inverted.md

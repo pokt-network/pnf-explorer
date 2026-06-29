@@ -36,6 +36,21 @@ export function absoluteUtc(input: TimeInput): string {
   return `${mm}-${dd}-${yyyy} ${hh}:${min}:${ss} ${ampm} UTC`;
 }
 
+/**
+ * Approximate wall-clock for a number of FUTURE blocks (Shannon block time ≈ 60s). Used for
+ * unstake/unbond ETAs from `unstakingEndHeight − currentHeight`. e.g. 120 → "~2h", 0 → "imminent".
+ */
+export function etaFromBlocks(blocks: number, secsPerBlock = 60): string {
+  if (!Number.isFinite(blocks) || blocks <= 0) return 'imminent';
+  const secs = blocks * secsPerBlock;
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (d > 0) return `~${d}d${h ? ` ${h}h` : ''}`;
+  if (h > 0) return `~${h}h${m ? ` ${m}m` : ''}`;
+  return `~${Math.max(1, m)}m`;
+}
+
 /** "4s ago", "3m ago", "2h ago", "5d ago". Pass `nowMs` for deterministic SSR. */
 export function relativeTime(input: TimeInput, nowMs?: number): string {
   const d = toDate(input);

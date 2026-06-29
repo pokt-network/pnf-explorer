@@ -152,6 +152,38 @@ export async function getValidatorBondedTokens(network: NetworkId, valoper: stri
   }
 }
 
+export interface ValidatorUnbonding {
+  /** Block height at which unbonding completes. */
+  height: string;
+  /** RFC3339 completion timestamp (Cosmos unbonding period after the unbond began). */
+  time: string;
+}
+
+// Validator unbonding is Cosmos-side (the `staking` module), NOT the indexer's supplier-style
+// `unstakingEndHeight`. The LCD validator record carries `status` + `unbonding_height`/`unbonding_time`;
+// they're only meaningful while `status == BOND_STATUS_UNBONDING`.
+interface LcdValidatorUnbonding {
+  status?: string;
+  unbonding_height?: string;
+  unbonding_time?: string;
+}
+
+/** Unbonding completion (height + time) for a validator, or null unless it is actively unbonding. */
+export async function getValidatorUnbonding(network: NetworkId, valoper: string): Promise<ValidatorUnbonding | null> {
+  try {
+    const res = await lcdFetch<{ validator?: LcdValidatorUnbonding }>(
+      network,
+      `/cosmos/staking/v1beta1/validators/${valoper}`,
+      { revalidate: 30 },
+    );
+    const v = res.validator;
+    if (!v || v.status !== 'BOND_STATUS_UNBONDING') return null;
+    return { height: v.unbonding_height ?? '0', time: v.unbonding_time ?? '' };
+  } catch {
+    return null;
+  }
+}
+
 // ---- list ----
 export async function getValidatorList(network: NetworkId, limit: number, offset: number) {
   const data = await gqlFetch<{ validators: { nodes: ValidatorRow[]; totalCount: number } }>(

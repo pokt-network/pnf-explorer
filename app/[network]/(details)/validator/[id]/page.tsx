@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { NetLink as Link } from '@/components/shell/NetLink';
 import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { Tic } from '@/components/ui/Icons';
 import { Hash } from '@/components/ui/Hash';
@@ -11,11 +12,11 @@ import { AddressTransactionsPanel, AddressTransfersPanel, addressTabCounts } fro
 import { UptimeGrid } from '@/components/validator/UptimeGrid';
 import { DelegatorsPanel } from '@/components/validator/DelegatorsPanel';
 import { getUseRpcData } from '@/lib/metadata';
-import { getValidator, getValidatorUptime, getDelegators, getValidatorBondedTokens } from '@/lib/data/validators';
+import { getValidator, getValidatorUptime, getDelegators, getValidatorBondedTokens, getValidatorUnbonding } from '@/lib/data/validators';
 import type { NetworkId } from '@/lib/networks';
-import { formatPokt, formatPoktCompact, formatUpokt, truncate } from '@/lib/format';
+import { formatPokt, formatPoktCompact, formatUpokt, formatNumber, truncate } from '@/lib/format';
+import { absoluteUtc } from '@/lib/time';
 import { formatCommission, validatorMoniker } from '@/lib/validator';
-import { sumUpokt } from '@/lib/tx';
 
 export async function generateMetadata({ params }: { params: Promise<{ network: NetworkId; id: string }> }): Promise<Metadata> {
   const { network, id } = await params;
@@ -40,11 +41,13 @@ export default async function ValidatorDetailPage({ params }: { params: Promise<
   const signerBalance = signerBalances.find((b) => b.denom === 'upokt') ?? signerBalances[0] ?? null;
 
   // Parallelize the tab data that the page needs to seed badges + the always-LCD/uptime panels.
-  const [counts, uptime, delegators, bondedTokens] = await Promise.all([
+  // Unbonding is Cosmos-side (LCD) and only relevant while the validator is Unstaking.
+  const [counts, uptime, delegators, bondedTokens, unbonding] = await Promise.all([
     addressTabCounts(network, operator),
     getValidatorUptime(network, validator.id),
     getDelegators(network, validator.id),
     getValidatorBondedTokens(network, validator.id),
+    validator.stakeStatus === 'Unstaking' ? getValidatorUnbonding(network, validator.id) : Promise.resolve(null),
   ]);
 
   // Voting power is the total bonded `tokens` (self-stake + delegations) — the security weight —
@@ -145,6 +148,15 @@ export default async function ValidatorDetailPage({ params }: { params: Promise<
               <Hash value={operator} href={`/account/${operator}`} />
             </div>
           </div>
+          {unbonding ? (
+            <div className="line">
+              <div className="k">Unbonding</div>
+              <div className="v">
+                Completes at block <Link href={`/block/${unbonding.height}`}>{formatNumber(unbonding.height)}</Link>
+                {unbonding.time ? <span className="dim"> · {absoluteUtc(unbonding.time)}</span> : null}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 

@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Gitignored reference material + scratch introspection scripts (not shipped).
+    "assets/**",
   ]),
 ]);
 

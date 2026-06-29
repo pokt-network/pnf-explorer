@@ -38,8 +38,13 @@ export function NavMenu() {
   const pathname = usePathname();
   const network = useNetwork();
 
-  // Close on route change.
-  useEffect(() => setOpen(false), [pathname]);
+  // Close on route change — adjust state during render off the changed pathname (React's
+  // recommended pattern for resetting state on a prop change, no effect needed).
+  const [prevPath, setPrevPath] = useState(pathname);
+  if (pathname !== prevPath) {
+    setPrevPath(pathname);
+    setOpen(false);
+  }
 
   // Close on outside click / Escape.
   useEffect(() => {

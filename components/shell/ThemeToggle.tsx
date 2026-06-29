@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 
 const Sun = (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -18,13 +18,23 @@ const Moon = (
 );
 
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<'dark' | 'light' | null>(null);
-
-  // Read the theme the no-flash script already applied, after mount (avoids hydration mismatch).
-  useEffect(() => {
-    const t = document.documentElement.getAttribute('data-theme');
-    setTheme(t === 'light' ? 'light' : 'dark');
+  // The active theme is external state (the `data-theme` attr the no-flash script set on <html>).
+  // Read it via useSyncExternalStore: the server snapshot is null (unknown → render nothing, no
+  // hydration mismatch); the client snapshot reads the live attribute. toggle() flips the attribute
+  // and dispatches `themechange` so the store re-reads.
+  const subscribe = useCallback((onChange: () => void) => {
+    window.addEventListener('themechange', onChange);
+    window.addEventListener('storage', onChange);
+    return () => {
+      window.removeEventListener('themechange', onChange);
+      window.removeEventListener('storage', onChange);
+    };
   }, []);
+  const theme = useSyncExternalStore<'dark' | 'light' | null>(
+    subscribe,
+    () => (document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'),
+    () => null,
+  );
 
   function toggle() {
     const next = theme === 'light' ? 'dark' : 'light';
@@ -32,7 +42,7 @@ export function ThemeToggle() {
     try {
       localStorage.setItem('theme', next);
     } catch {}
-    setTheme(next);
+    window.dispatchEvent(new Event('themechange'));
   }
 
   return (

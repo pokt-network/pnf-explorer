@@ -4,15 +4,19 @@ import { notFound } from 'next/navigation';
 import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { Tic } from '@/components/ui/Icons';
 import { Hash } from '@/components/ui/Hash';
-import { CopyButton } from '@/components/ui/CopyButton';
 import { Tabs } from '@/components/ui/Tabs';
+import type { TabDef } from '@/components/ui/Tabs';
 import { RawJson } from '@/components/ui/RawJson';
 import { IndexerBanner } from '@/components/ui/IndexerBanner';
-import { StakeStatusPill } from '@/components/ui/StatusPill';
+import { RolesSummary } from '@/components/account/RolesSummary';
+import { SupplierServicesPanel } from '@/components/account/SupplierServicesPanel';
+import { OperatorsPanel } from '@/components/account/OperatorsPanel';
+import { DelegationsPanel } from '@/components/account/DelegationsPanel';
+import { RevSharePanel } from '@/components/account/RevSharePanel';
 import { AddressTransactionsPanel, AddressTransfersPanel, addressTabCounts } from '@/components/address/AddressPanels';
 import { getUseRpcData } from '@/lib/metadata';
-import { getAccount, getAddressRoles } from '@/lib/data/accounts';
-import type { StakeRole } from '@/lib/data/accounts';
+import { getAccountProfile } from '@/lib/data/accounts';
+import type { AccountProfile } from '@/lib/data/accounts';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, formatUpokt, truncate } from '@/lib/format';
 import { relativeTime, absoluteUtc } from '@/lib/time';
@@ -23,66 +27,81 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return { title: `Account ${short}` };
 }
 
-const STAKED = 'Staked';
-
-/** First staked actor role → label for the header typetag (e.g. "Supplier Owner"). */
-function primaryRoleLabel(roles: { supplier: StakeRole | null; application: StakeRole | null; gateway: StakeRole | null }): string | null {
-  if (roles.supplier?.stakeStatus === STAKED) return 'Supplier';
-  if (roles.application?.stakeStatus === STAKED) return 'Application';
-  if (roles.gateway?.stakeStatus === STAKED) return 'Gateway';
-  return null;
-}
-
-function RoleLine({ label, role }: { label: string; role: StakeRole | null }) {
-  const staked = role?.stakeStatus === STAKED || role?.stakeStatus === 'Unstaking';
-  return (
-    <div className="line">
-      <div className="k">{label}</div>
-      <div className="v">
-        {staked && role ? (
-          <>
-            <StakeStatusPill status={role.stakeStatus} />{' '}
-            <span className="dim">· {formatPokt(role.stakeAmount)} POKT</span>
-          </>
-        ) : (
-          <span className="muted">Not staked</span>
-        )}
-      </div>
-    </div>
-  );
+/** Active-role chips for the header. Each maps to an existing typetag tint. */
+function roleChips(profile: AccountProfile): { label: string; cls: string }[] {
+  const chips: { label: string; cls: string }[] = [];
+  if (profile.supplier) chips.push({ label: 'Operator', cls: 'tt-acct' });
+  if (profile.owner) chips.push({ label: 'Owner', cls: 'tt-acct' });
+  if (profile.validator) chips.push({ label: 'Validator', cls: 'tt-val' });
+  if (profile.application) chips.push({ label: 'Application', cls: 'tt-acct' });
+  if (profile.gateway) chips.push({ label: 'Gateway', cls: 'tt-acct' });
+  if (profile.ownedServices.length > 0) chips.push({ label: 'Service Owner', cls: 'tt-svc' });
+  if (profile.revShareRecipientConfigs > 0) chips.push({ label: 'Rev-share', cls: 'tt-svc' });
+  return chips;
 }
 
 export default async function AccountDetailPage({ params }: { params: Promise<{ network: NetworkId; id: string }> }) {
   const { network, id } = await params;
   const fallback = await getUseRpcData(network);
 
-  const [account, roles, counts] = await Promise.all([getAccount(network, id), getAddressRoles(network, id), addressTabCounts(network, id)]);
+  const [profile, counts] = await Promise.all([getAccountProfile(network, id), addressTabCounts(network, id)]);
 
-  const balance = account?.balances?.nodes?.find((b) => b.denom === 'upokt') ?? account?.balances?.nodes?.[0] ?? null;
+  const balance = profile.account?.balances?.nodes?.find((b) => b.denom === 'upokt') ?? profile.account?.balances?.nodes?.[0] ?? null;
   const hasBalance = balance != null && Number(balance.amount) > 0;
-  const anyRole =
-    roles.supplier != null || roles.application != null || roles.gateway != null || (roles.account?.balances?.nodes?.length ?? 0) > 0;
+  const chips = roleChips(profile);
+  const anyRole = chips.length > 0;
 
   // Missing entity: no account record AND no roles AND no balance.
-  if (account == null && !anyRole && !hasBalance) notFound();
+  if (profile.account == null && !anyRole && !hasBalance) notFound();
 
-  const roleLabel = primaryRoleLabel(roles);
+  const currentHeight = fallback.metadata?.targetHeight ?? null;
+  const rawData = profile.account ?? { id, balances: { nodes: [] } };
 
-  const rawData = account ?? { id, balances: { nodes: [] } };
-
-  const tabs = [
-    {
-      key: 'txs',
-      label: 'Transactions',
-      badge: counts.txCount ?? undefined,
-      panel: <AddressTransactionsPanel network={network} address={id} />,
-    },
-    {
-      key: 'xfer',
-      label: 'Transfers',
-      badge: counts.transferCount ?? undefined,
-      panel: <AddressTransfersPanel network={network} address={id} />,
-    },
+  // Role-gated tabs come first (the reason you opened this account), then the universal ones.
+  const tabs: TabDef[] = [];
+  if (profile.supplier) {
+    tabs.push({
+      key: 'svc',
+      label: 'Services',
+      badge: profile.supplier.serviceConfigs.totalCount || undefined,
+      panel: <SupplierServicesPanel supplier={profile.supplier} />,
+    });
+  }
+  if (profile.owner) {
+    tabs.push({
+      key: 'ops',
+      label: 'Operators',
+      badge: profile.owner.operatorCount || undefined,
+      panel: <OperatorsPanel network={network} address={id} />,
+    });
+  }
+  if (profile.application) {
+    tabs.push({
+      key: 'appgw',
+      label: 'Delegated Gateways',
+      badge: profile.application.delegatedGatewayCount || undefined,
+      panel: <DelegationsPanel network={network} address={id} direction="app-gateways" />,
+    });
+  }
+  if (profile.gateway) {
+    tabs.push({
+      key: 'gwapp',
+      label: 'Delegating Apps',
+      badge: profile.gateway.delegatingAppCount || undefined,
+      panel: <DelegationsPanel network={network} address={id} direction="gateway-apps" />,
+    });
+  }
+  if (profile.revShareRecipientConfigs > 0) {
+    tabs.push({
+      key: 'rs',
+      label: 'Rev-share',
+      badge: profile.revShareRecipientConfigs,
+      panel: <RevSharePanel network={network} address={id} />,
+    });
+  }
+  tabs.push(
+    { key: 'txs', label: 'Transactions', badge: counts.txCount ?? undefined, panel: <AddressTransactionsPanel network={network} address={id} /> },
+    { key: 'xfer', label: 'Transfers', badge: counts.transferCount ?? undefined, panel: <AddressTransfersPanel network={network} address={id} /> },
     {
       key: 'raw',
       label: 'Raw',
@@ -98,7 +117,7 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
         />
       ),
     },
-  ];
+  );
 
   return (
     <>
@@ -113,7 +132,11 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
         <div>
           <h1>
             Account
-            {roleLabel ? <span className="typetag tt-acct" style={{ marginLeft: 10 }}>{roleLabel}</span> : null}
+            {chips.map((c) => (
+              <span key={c.label} className={`typetag ${c.cls}`} style={{ marginLeft: 10 }}>
+                {c.label}
+              </span>
+            ))}
           </h1>
           <div className="hash">
             <Hash value={id} full copy />
@@ -138,18 +161,7 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
           ) : null}
         </div>
 
-        <div className="card kv" style={{ paddingTop: 0 }}>
-          <div className="ttl">Network Roles</div>
-          <RoleLine label="Supplier" role={roles.supplier} />
-          <RoleLine label="Application" role={roles.application} />
-          <RoleLine label="Gateway" role={roles.gateway} />
-          <div className="line">
-            <div className="k">Validator</div>
-            <div className="v">
-              <span className="muted">No</span>
-            </div>
-          </div>
-        </div>
+        <RolesSummary profile={profile} address={id} currentHeight={currentHeight} />
       </div>
 
       <Tabs tabs={tabs} />

@@ -1,7 +1,14 @@
 import { gqlFetch } from '@/lib/graphql';
 import type { NetworkId } from '@/lib/networks';
-import { ACCOUNT_LIST, ACCOUNT_SUMMARY, ACCOUNT_BY_ID } from '@/lib/queries/accounts';
-import { SEARCH_BY_ADDRESS } from '@/lib/queries/search';
+import {
+  ACCOUNT_LIST,
+  ACCOUNT_SUMMARY,
+  ACCOUNT_ROLES,
+  OWNED_OPERATORS,
+  APP_DELEGATED_GATEWAYS,
+  GATEWAY_DELEGATING_APPS,
+  REVSHARE_RECIPIENT_CONFIGS,
+} from '@/lib/queries/accounts';
 
 // Economic total supply (minted + claimable-but-unminted), used as the per-account share
 // denominator so it matches the home Total Supply card. See lib/data/home.ts for the rationale.
@@ -30,18 +37,92 @@ export interface Account {
   balances: { nodes: AccountBalance[] };
 }
 
-export interface StakeRole {
+// ---- full role profile (account detail page) ----
+export interface RevShareEntry {
+  address: string;
+  revSharePercentage: string;
+}
+export interface SupplierEndpoint {
+  url: string;
+  rpcType: number;
+  configs: unknown[];
+}
+export interface SupplierServiceConfig {
+  serviceId: string;
+  revShare: RevShareEntry[];
+  endpoints: SupplierEndpoint[];
+}
+/** Supplier OPERATOR view. `ownerId` may differ from the address (owner≠operator is common). */
+export interface SupplierRole {
+  id: string;
+  operatorId: string;
+  ownerId: string;
+  stakeAmount: string | null;
+  stakeStatus: string | null;
+  unstakingReason: string | null;
+  unstakingBeginBlockId: string | null;
+  unstakingEndHeight: string | null;
+  serviceConfigs: { totalCount: number; nodes: SupplierServiceConfig[] };
+}
+/** Supplier OWNER view: this address is the `ownerId` of ≥1 supplier (reverse lookup). */
+export interface OwnerRole {
+  operatorCount: number;
+  totalStakeUpokt: string;
+}
+export interface ValidatorRoleLite {
+  id: string; // valoper
+  signerId: string;
+  description: unknown;
+  commission: unknown;
+  minSelfDelegation: number | string | null;
+  stakeAmount: string | null;
+  stakeStatus: string | null;
+}
+export interface AppRole {
+  id: string;
+  stakeAmount: string | null;
+  stakeStatus: string | null;
+  unstakingReason: string | null;
+  unstakingEndHeight: string | null;
+  serviceCount: number;
+  delegatedGatewayCount: number;
+}
+export interface GatewayRole {
+  id: string;
+  stakeAmount: string | null;
+  stakeStatus: string | null;
+  unstakingEndHeight: string | null;
+  delegatingAppCount: number;
+}
+export interface OwnedService {
+  id: string;
+  name: string | null;
+  computeUnitsPerRelay: string | number | null;
+}
+export interface AccountProfile {
+  account: Account | null;
+  supplier: SupplierRole | null;
+  owner: OwnerRole | null;
+  validator: ValidatorRoleLite | null;
+  application: AppRole | null;
+  gateway: GatewayRole | null;
+  ownedServices: OwnedService[];
+  /** # of supplier service-configs whose revShare[] pays this address (0 = not a recipient). */
+  revShareRecipientConfigs: number;
+}
+
+export interface OwnedOperatorRow {
   id: string;
   stakeStatus: string | null;
   stakeAmount: string | null;
-  stakeDenom: string | null;
+  serviceConfigs: { totalCount: number };
 }
 
-export interface AddressRoles {
-  account: Account | null;
-  supplier: StakeRole | null;
-  application: StakeRole | null;
-  gateway: StakeRole | null;
+/** One supplier→service config that pays the subject address a rev-share cut. */
+export interface RevShareConfigRow {
+  supplierId: string;
+  serviceId: string;
+  revShare: RevShareEntry[];
 }
 
 export interface AccountSummary {
@@ -103,18 +184,113 @@ export async function getTotalSupplyUpokt(network: NetworkId): Promise<number | 
 }
 
 // ---- detail ----
-export async function getAccount(network: NetworkId, id: string): Promise<Account | null> {
-  const data = await gqlFetch<{ account: Account | null }>(network, ACCOUNT_BY_ID, { id }, { revalidate: 30 });
-  return data.account;
+// Raw shape of the ACCOUNT_ROLES response (pre-normalization).
+interface AccountRolesResult {
+  account: Account | null;
+  supplier: SupplierRole | null;
+  ownedOperators: { totalCount: number; aggregates: { sum: { stakeAmount: string | null } | null } | null };
+  asValidator: { nodes: ValidatorRoleLite[] };
+  asApp: {
+    id: string;
+    stakeAmount: string | null;
+    stakeStatus: string | null;
+    unstakingReason: string | null;
+    unstakingEndHeight: string | null;
+    applicationServices: { totalCount: number };
+    applicationGateways: { totalCount: number };
+  } | null;
+  asGateway: {
+    id: string;
+    stakeAmount: string | null;
+    stakeStatus: string | null;
+    unstakingEndHeight: string | null;
+    applicationGateways: { totalCount: number };
+  } | null;
+  ownedServices: { totalCount: number; nodes: OwnedService[] };
+  revShareRecipient: { totalCount: number };
 }
 
-/** Resolve all on-chain roles for an address (account balance + supplier/app/gateway stake info). */
-export async function getAddressRoles(network: NetworkId, id: string): Promise<AddressRoles> {
-  const data = await gqlFetch<AddressRoles>(network, SEARCH_BY_ADDRESS, { address: id }, { revalidate: 30 });
+/**
+ * Resolve EVERY on-chain role an address holds, in one round-trip. Roles are additive — a multi-role
+ * address (e.g. operator that is also a validator) returns all branches populated. See ACCOUNT_ROLES.
+ */
+export async function getAccountProfile(network: NetworkId, id: string): Promise<AccountProfile> {
+  // rsMatch: JSON-containment probe — configs whose revShare[] include an entry for this address.
+  const d = await gqlFetch<AccountRolesResult>(network, ACCOUNT_ROLES, { id, rsMatch: [{ address: id }] }, { revalidate: 30 });
+  const owner =
+    d.ownedOperators?.totalCount > 0
+      ? { operatorCount: d.ownedOperators.totalCount, totalStakeUpokt: d.ownedOperators.aggregates?.sum?.stakeAmount ?? '0' }
+      : null;
   return {
-    account: data.account ?? null,
-    supplier: data.supplier ?? null,
-    application: data.application ?? null,
-    gateway: data.gateway ?? null,
+    account: d.account ?? null,
+    supplier: d.supplier ?? null,
+    owner,
+    validator: d.asValidator?.nodes?.[0] ?? null,
+    application: d.asApp
+      ? {
+          id: d.asApp.id,
+          stakeAmount: d.asApp.stakeAmount,
+          stakeStatus: d.asApp.stakeStatus,
+          unstakingReason: d.asApp.unstakingReason,
+          unstakingEndHeight: d.asApp.unstakingEndHeight,
+          serviceCount: d.asApp.applicationServices?.totalCount ?? 0,
+          delegatedGatewayCount: d.asApp.applicationGateways?.totalCount ?? 0,
+        }
+      : null,
+    gateway: d.asGateway
+      ? {
+          id: d.asGateway.id,
+          stakeAmount: d.asGateway.stakeAmount,
+          stakeStatus: d.asGateway.stakeStatus,
+          unstakingEndHeight: d.asGateway.unstakingEndHeight,
+          delegatingAppCount: d.asGateway.applicationGateways?.totalCount ?? 0,
+        }
+      : null,
+    ownedServices: d.ownedServices?.nodes ?? [],
+    revShareRecipientConfigs: d.revShareRecipient?.totalCount ?? 0,
   };
+}
+
+/** Owner → operator nodes, paginated (newest-staked first). Powers the account "Operators" tab. */
+export async function getOwnedOperators(network: NetworkId, id: string, limit: number, offset: number) {
+  const data = await gqlFetch<{ suppliers: { totalCount: number; nodes: OwnedOperatorRow[] } }>(
+    network,
+    OWNED_OPERATORS,
+    { id, limit, offset },
+    { revalidate: 30 },
+  );
+  return data.suppliers;
+}
+
+/** Application → gateways it delegates to (paginated). Powers the account "Delegated Gateways" tab. */
+export async function getAppDelegatedGateways(network: NetworkId, id: string, limit: number, offset: number) {
+  const data = await gqlFetch<{ applicationGateways: { totalCount: number; nodes: { gatewayId: string }[] } }>(
+    network,
+    APP_DELEGATED_GATEWAYS,
+    { id, limit, offset },
+    { revalidate: 30 },
+  );
+  return data.applicationGateways;
+}
+
+/** Gateway → applications delegating to it (paginated). Powers the account "Delegating Apps" tab. */
+export async function getGatewayDelegatingApps(network: NetworkId, id: string, limit: number, offset: number) {
+  const data = await gqlFetch<{ applicationGateways: { totalCount: number; nodes: { applicationId: string }[] } }>(
+    network,
+    GATEWAY_DELEGATING_APPS,
+    { id, limit, offset },
+    { revalidate: 30 },
+  );
+  return data.applicationGateways;
+}
+
+/** Supplier service-configs that pay `id` a rev-share cut (paginated). Powers the "Rev-share" tab. */
+export async function getRevShareConfigs(network: NetworkId, id: string, limit: number, offset: number) {
+  const data = await gqlFetch<{ supplierServiceConfigs: { totalCount: number; nodes: RevShareConfigRow[] } }>(
+    network,
+    REVSHARE_RECIPIENT_CONFIGS,
+    { rsMatch: [{ address: id }], limit, offset },
+    { revalidate: 30 },
+  );
+  return data.supplierServiceConfigs;
 }

@@ -13,10 +13,15 @@ export function LiveStrip() {
   const { status, error } = useStatus();
   const [countdown, setCountdown] = useState(POLL_SECONDS);
 
-  // Reset the countdown whenever a fresh status arrives; tick down each second.
-  useEffect(() => {
+  // Reset the countdown whenever a fresh status height arrives. Adjusting state during render off a
+  // changed value (not in an effect) is React's recommended pattern for derived resets.
+  const [prevHeight, setPrevHeight] = useState(status?.height);
+  if (status?.height !== prevHeight) {
+    setPrevHeight(status?.height);
     setCountdown(POLL_SECONDS);
-  }, [status?.height]);
+  }
+
+  // Tick down each second (functional update — no dependency on the current value).
   useEffect(() => {
     const id = setInterval(() => setCountdown((c) => (c <= 0 ? POLL_SECONDS : c - 1)), 1000);
     return () => clearInterval(id);
