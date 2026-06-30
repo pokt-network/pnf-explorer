@@ -51,6 +51,21 @@ export function etaFromBlocks(blocks: number, secsPerBlock = 60): string {
   return `~${Math.max(1, m)}m`;
 }
 
+/**
+ * Approximate elapsed wall-clock for a number of PAST blocks (Shannon ≈ 60s/block) — the mirror of
+ * `etaFromBlocks`, for "last settled N blocks ago". e.g. 120 → "2h ago", 0 → "recent".
+ */
+export function agoFromBlocks(blocks: number, secsPerBlock = 60): string {
+  if (!Number.isFinite(blocks) || blocks <= 0) return 'recent';
+  const secs = blocks * secsPerBlock;
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (d > 0) return `${d}d ago`;
+  if (h > 0) return `${h}h ago`;
+  return `${Math.max(1, m)}m ago`;
+}
+
 /** "4s ago", "3m ago", "2h ago", "5d ago". Pass `nowMs` for deterministic SSR. */
 export function relativeTime(input: TimeInput, nowMs?: number): string {
   const d = toDate(input);

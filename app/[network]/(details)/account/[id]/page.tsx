@@ -10,6 +10,7 @@ import { RawJson } from '@/components/ui/RawJson';
 import { IndexerBanner } from '@/components/ui/IndexerBanner';
 import { RolesSummary } from '@/components/account/RolesSummary';
 import { SupplierServicesPanel } from '@/components/account/SupplierServicesPanel';
+import { SupplierTrafficPanel } from '@/components/account/SupplierTrafficPanel';
 import { OperatorsPanel } from '@/components/account/OperatorsPanel';
 import { DelegationsPanel } from '@/components/account/DelegationsPanel';
 import { RevSharePanel } from '@/components/account/RevSharePanel';
@@ -65,6 +66,11 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
       label: 'Services',
       badge: profile.supplier.serviceConfigs.totalCount || undefined,
       panel: <SupplierServicesPanel supplier={profile.supplier} />,
+    });
+    tabs.push({
+      key: 'traffic',
+      label: 'Traffic',
+      panel: <SupplierTrafficPanel network={network} supplier={profile.supplier} currentHeight={currentHeight} />,
     });
   }
   if (profile.owner) {
