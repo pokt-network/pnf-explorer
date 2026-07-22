@@ -9,6 +9,7 @@ import { getService } from '@/lib/data/services';
 import { ServiceSuppliersPanel, ServiceApplicationsPanel, ServiceDifficultyPanel } from '@/components/service/ServicePanels';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber } from '@/lib/format';
+import { parsePage } from '@/lib/paging';
 
 export async function generateMetadata({ params }: { params: Promise<{ network: NetworkId; id: string }> }): Promise<Metadata> {
   const { network, id } = await params;
@@ -17,8 +18,15 @@ export async function generateMetadata({ params }: { params: Promise<{ network: 
   return { title: `Service ${name}` };
 }
 
-export default async function ServiceDetailPage({ params }: { params: Promise<{ network: NetworkId; id: string }> }) {
+export default async function ServiceDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ network: NetworkId; id: string }>;
+  searchParams: Promise<{ suppliers?: string; apps?: string; mining?: string }>;
+}) {
   const { network, id } = await params;
+  const sp = await searchParams;
   const summary = await getService(network, id);
   if (!summary) notFound();
 
@@ -31,15 +39,15 @@ export default async function ServiceDetailPage({ params }: { params: Promise<{ 
       key: 'suppliers',
       label: 'Suppliers',
       badge: summary.activeSuppliers ?? undefined,
-      panel: <ServiceSuppliersPanel network={network} id={svc.id} />,
+      panel: <ServiceSuppliersPanel network={network} id={svc.id} page={parsePage(sp.suppliers)} />,
     },
     {
       key: 'apps',
       label: 'Applications',
       badge: summary.activeApps ?? undefined,
-      panel: <ServiceApplicationsPanel network={network} id={svc.id} />,
+      panel: <ServiceApplicationsPanel network={network} id={svc.id} page={parsePage(sp.apps)} />,
     },
-    { key: 'difficulty', label: 'Relay Mining', panel: <ServiceDifficultyPanel network={network} id={svc.id} /> },
+    { key: 'difficulty', label: 'Relay Mining', panel: <ServiceDifficultyPanel network={network} id={svc.id} page={parsePage(sp.mining)} /> },
     {
       key: 'raw',
       label: 'Raw',

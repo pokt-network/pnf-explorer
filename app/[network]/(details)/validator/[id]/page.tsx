@@ -15,6 +15,7 @@ import { getUseRpcData } from '@/lib/metadata';
 import { getValidator, getValidatorUptime, getDelegators, getValidatorBondedTokens, getValidatorUnbonding } from '@/lib/data/validators';
 import type { NetworkId } from '@/lib/networks';
 import { formatPokt, formatPoktCompact, formatUpokt, formatNumber, truncate } from '@/lib/format';
+import { parsePage } from '@/lib/paging';
 import { absoluteUtc } from '@/lib/time';
 import { formatCommission, validatorMoniker } from '@/lib/validator';
 
@@ -25,8 +26,15 @@ export async function generateMetadata({ params }: { params: Promise<{ network: 
   return { title: moniker ? `Validator ${moniker}` : `Validator ${truncate(id, 10, 6)}` };
 }
 
-export default async function ValidatorDetailPage({ params }: { params: Promise<{ network: NetworkId; id: string }> }) {
+export default async function ValidatorDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ network: NetworkId; id: string }>;
+  searchParams: Promise<{ txs?: string; transfers?: string }>;
+}) {
   const { network, id } = await params;
+  const sp = await searchParams;
   const fallback = await getUseRpcData(network);
   const validator = await getValidator(network, id);
   if (!validator) notFound();
@@ -62,8 +70,8 @@ export default async function ValidatorDetailPage({ params }: { params: Promise<
   const tabs = [
     { key: 'del', label: 'Delegators', badge: delegators.length || undefined, panel: delegatorPanel },
     { key: 'up', label: 'Uptime', panel: uptimePanel },
-    { key: 'txs', label: 'Transactions', badge: counts.txCount ?? undefined, panel: <AddressTransactionsPanel network={network} address={operator} /> },
-    { key: 'xfer', label: 'Transfers', badge: counts.transferCount ?? undefined, panel: <AddressTransfersPanel network={network} address={operator} /> },
+    { key: 'txs', label: 'Transactions', badge: counts.txCount ?? undefined, panel: <AddressTransactionsPanel network={network} address={operator} page={parsePage(sp.txs)} /> },
+    { key: 'xfer', label: 'Transfers', badge: counts.transferCount ?? undefined, panel: <AddressTransfersPanel network={network} address={operator} page={parsePage(sp.transfers)} /> },
     {
       key: 'raw',
       label: 'Raw',

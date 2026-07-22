@@ -1,24 +1,25 @@
 import { Hash } from '@/components/ui/Hash';
+import { Pager } from '@/components/ui/Pager';
 import { EmptyState } from '@/components/ui/states';
 import { StakeStatusPill } from '@/components/ui/StatusPill';
 import { getOwnedOperators } from '@/lib/data/accounts';
 import type { NetworkId } from '@/lib/networks';
-import { formatPokt, formatNumber } from '@/lib/format';
+import { formatPokt } from '@/lib/format';
 
 const LIMIT = 25;
 
 /**
  * Operators tab for an owner wallet: the supplier nodes this address owns (`ownerId == address`).
- * A large operation can own ~100 nodes, so the list is paged (first {LIMIT}) with a count footer.
+ * A large operation can own ~100 nodes, so the list is paged via `?ops=`.
  */
-export async function OperatorsPanel({ network, address }: { network: NetworkId; address: string }) {
+export async function OperatorsPanel({ network, address, page }: { network: NetworkId; address: string; page: number }) {
   let data: Awaited<ReturnType<typeof getOwnedOperators>> | null = null;
   try {
-    data = await getOwnedOperators(network, address, LIMIT, 0);
+    data = await getOwnedOperators(network, address, LIMIT, (page - 1) * LIMIT);
   } catch {
     return <div className="card flush-top"><EmptyState>Couldn’t load operators right now.</EmptyState></div>;
   }
-  if (data.nodes.length === 0) return <div className="card flush-top"><EmptyState>This address owns no operator nodes.</EmptyState></div>;
+  if (data.nodes.length === 0 && page === 1) return <div className="card flush-top"><EmptyState>This address owns no operator nodes.</EmptyState></div>;
 
   return (
     <div className="card flush-top">
@@ -48,13 +49,7 @@ export async function OperatorsPanel({ network, address }: { network: NetworkId;
           </tbody>
         </table>
       </div>
-      {data.totalCount > LIMIT ? (
-        <div className="pager">
-          <span>
-            Showing first {LIMIT} of {formatNumber(data.totalCount)} operators
-          </span>
-        </div>
-      ) : null}
+      {data.totalCount > LIMIT ? <Pager page={page} pageSize={LIMIT} totalCount={data.totalCount} param="ops" /> : null}
     </div>
   );
 }

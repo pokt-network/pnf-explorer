@@ -20,6 +20,7 @@ import { getAccountProfile } from '@/lib/data/accounts';
 import type { AccountProfile } from '@/lib/data/accounts';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, formatUpokt, truncate } from '@/lib/format';
+import { parsePage } from '@/lib/paging';
 import { relativeTime, absoluteUtc } from '@/lib/time';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -41,8 +42,15 @@ function roleChips(profile: AccountProfile): { label: string; cls: string }[] {
   return chips;
 }
 
-export default async function AccountDetailPage({ params }: { params: Promise<{ network: NetworkId; id: string }> }) {
+export default async function AccountDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ network: NetworkId; id: string }>;
+  searchParams: Promise<{ ops?: string; gateways?: string; apps?: string; revshare?: string; txs?: string; transfers?: string }>;
+}) {
   const { network, id } = await params;
+  const sp = await searchParams;
   const fallback = await getUseRpcData(network);
 
   const [profile, counts] = await Promise.all([getAccountProfile(network, id), addressTabCounts(network, id)]);
@@ -78,7 +86,7 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
       key: 'ops',
       label: 'Operators',
       badge: profile.owner.operatorCount || undefined,
-      panel: <OperatorsPanel network={network} address={id} />,
+      panel: <OperatorsPanel network={network} address={id} page={parsePage(sp.ops)} />,
     });
   }
   if (profile.application) {
@@ -86,7 +94,7 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
       key: 'appgw',
       label: 'Delegated Gateways',
       badge: profile.application.delegatedGatewayCount || undefined,
-      panel: <DelegationsPanel network={network} address={id} direction="app-gateways" />,
+      panel: <DelegationsPanel network={network} address={id} direction="app-gateways" page={parsePage(sp.gateways)} />,
     });
   }
   if (profile.gateway) {
@@ -94,7 +102,7 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
       key: 'gwapp',
       label: 'Delegating Apps',
       badge: profile.gateway.delegatingAppCount || undefined,
-      panel: <DelegationsPanel network={network} address={id} direction="gateway-apps" />,
+      panel: <DelegationsPanel network={network} address={id} direction="gateway-apps" page={parsePage(sp.apps)} />,
     });
   }
   if (profile.revShareRecipientConfigs > 0) {
@@ -102,12 +110,12 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
       key: 'rs',
       label: 'Rev-share',
       badge: profile.revShareRecipientConfigs,
-      panel: <RevSharePanel network={network} address={id} />,
+      panel: <RevSharePanel network={network} address={id} page={parsePage(sp.revshare)} />,
     });
   }
   tabs.push(
-    { key: 'txs', label: 'Transactions', badge: counts.txCount ?? undefined, panel: <AddressTransactionsPanel network={network} address={id} /> },
-    { key: 'xfer', label: 'Transfers', badge: counts.transferCount ?? undefined, panel: <AddressTransfersPanel network={network} address={id} /> },
+    { key: 'txs', label: 'Transactions', badge: counts.txCount ?? undefined, panel: <AddressTransactionsPanel network={network} address={id} page={parsePage(sp.txs)} /> },
+    { key: 'xfer', label: 'Transfers', badge: counts.transferCount ?? undefined, panel: <AddressTransfersPanel network={network} address={id} page={parsePage(sp.transfers)} /> },
     {
       key: 'raw',
       label: 'Raw',

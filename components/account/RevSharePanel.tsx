@@ -1,25 +1,25 @@
 import { NetLink as Link } from '@/components/shell/NetLink';
 import { Hash } from '@/components/ui/Hash';
+import { Pager } from '@/components/ui/Pager';
 import { EmptyState } from '@/components/ui/states';
 import { getRevShareConfigs } from '@/lib/data/accounts';
 import type { NetworkId } from '@/lib/networks';
-import { formatNumber } from '@/lib/format';
 
 const LIMIT = 25;
 
 /**
  * Rev-share recipient tab: supplier→service configs that pay this address a cut, with the address's
  * own percentage on each row (parsed from the config's revShare[]). Reverse of the operator's
- * Services tab. Paged — a payout address can appear on hundreds of configs.
+ * Services tab. Paged via `?revshare=` — a payout address can appear on hundreds of configs.
  */
-export async function RevSharePanel({ network, address }: { network: NetworkId; address: string }) {
+export async function RevSharePanel({ network, address, page }: { network: NetworkId; address: string; page: number }) {
   let data: Awaited<ReturnType<typeof getRevShareConfigs>> | null = null;
   try {
-    data = await getRevShareConfigs(network, address, LIMIT, 0);
+    data = await getRevShareConfigs(network, address, LIMIT, (page - 1) * LIMIT);
   } catch {
     return <div className="card flush-top"><EmptyState>Couldn’t load rev-share right now.</EmptyState></div>;
   }
-  if (data.nodes.length === 0) {
+  if (data.nodes.length === 0 && page === 1) {
     return <div className="card flush-top"><EmptyState>This address receives no supplier rev-share.</EmptyState></div>;
   }
 
@@ -52,13 +52,7 @@ export async function RevSharePanel({ network, address }: { network: NetworkId; 
           </tbody>
         </table>
       </div>
-      {data.totalCount > LIMIT ? (
-        <div className="pager">
-          <span>
-            Showing first {LIMIT} of {formatNumber(data.totalCount)} configs
-          </span>
-        </div>
-      ) : null}
+      {data.totalCount > LIMIT ? <Pager page={page} pageSize={LIMIT} totalCount={data.totalCount} param="revshare" /> : null}
     </div>
   );
 }

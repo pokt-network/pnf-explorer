@@ -262,18 +262,29 @@ interface LcdDelegationsResponse {
     delegation?: { delegator_address?: string; shares?: string };
     balance?: { amount?: string; denom?: string };
   }>;
-  pagination?: { total?: string } | null;
+  pagination?: { total?: string; next_key?: string | null } | null;
 }
 
-/** Delegators read live from the Sauron LCD staking endpoint. Empty [] is common. */
+/**
+ * Delegators read live from the Sauron LCD staking endpoint. Empty [] is common.
+ * The LCD caps each response at its default page size (100), so follow `pagination.next_key`
+ * to return the FULL set — a bounded loop guards against a runaway cursor.
+ */
 export async function getDelegators(network: NetworkId, valoper: string): Promise<DelegationRow[]> {
   try {
-    const res = await lcdFetch<LcdDelegationsResponse>(
-      network,
-      `/cosmos/staking/v1beta1/validators/${valoper}/delegations`,
-      { revalidate: 30 },
-    );
-    const rows = res.delegation_responses ?? [];
+    const rows: NonNullable<LcdDelegationsResponse['delegation_responses']> = [];
+    let nextKey: string | null = null;
+    for (let i = 0; i < 20; i++) {
+      const qs: string = `pagination.limit=500${nextKey ? `&pagination.key=${encodeURIComponent(nextKey)}` : ''}`;
+      const res: LcdDelegationsResponse = await lcdFetch<LcdDelegationsResponse>(
+        network,
+        `/cosmos/staking/v1beta1/validators/${valoper}/delegations?${qs}`,
+        { revalidate: 30 },
+      );
+      rows.push(...(res.delegation_responses ?? []));
+      nextKey = res.pagination?.next_key ?? null;
+      if (!nextKey) break;
+    }
     return rows.map((r) => ({
       delegatorAddress: r.delegation?.delegator_address ?? '',
       shares: r.delegation?.shares ?? '0',

@@ -6,6 +6,7 @@ import { Tic } from '@/components/ui/Icons';
 import { Hash } from '@/components/ui/Hash';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { Tabs } from '@/components/ui/Tabs';
+import { Pager } from '@/components/ui/Pager';
 import { RawJson } from '@/components/ui/RawJson';
 import { EmptyState } from '@/components/ui/states';
 import { IndexerBanner } from '@/components/ui/IndexerBanner';
@@ -15,6 +16,7 @@ import { getUseRpcData } from '@/lib/metadata';
 import { resolveBlock, getBlockTransactions } from '@/lib/data/blocks';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPoktCompact, formatUpokt, formatBlockTime } from '@/lib/format';
+import { parsePage } from '@/lib/paging';
 import { relativeTime, absoluteUtc } from '@/lib/time';
 import { sumUpokt } from '@/lib/tx';
 
@@ -38,8 +40,16 @@ function StakedLine({ label, count, tokens }: { label: string; count: number; to
   );
 }
 
-export default async function BlockDetailPage({ params }: { params: Promise<{ network: NetworkId; id: string }> }) {
+export default async function BlockDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ network: NetworkId; id: string }>;
+  searchParams: Promise<{ page?: string }>;
+}) {
   const { network, id } = await params;
+  const { page: pageParam } = await searchParams;
+  const page = parsePage(pageParam);
   const fallback = await getUseRpcData(network);
   const block = await resolveBlock(network, id, fallback);
   if (!block) notFound();
@@ -49,10 +59,10 @@ export default async function BlockDetailPage({ params }: { params: Promise<{ ne
   const failed = Math.max(0, block.totalTxs - block.successfulTxs);
   const fromRpc = block.source === 'rpc';
 
-  // Transactions tab — first page at this height (indexer only; RPC tx decoding is out of scope).
+  // Transactions tab — paged via `?page=` at this height (indexer only; RPC tx decoding is out of scope).
   let txs: Awaited<ReturnType<typeof getBlockTransactions>> | null = null;
   if (!fromRpc && block.totalTxs > 0) {
-    txs = await getBlockTransactions(network, block.height, TX_TAB_LIMIT, 0, target);
+    txs = await getBlockTransactions(network, block.height, TX_TAB_LIMIT, (page - 1) * TX_TAB_LIMIT, target);
   }
 
   const supplyUpokt = block.supplies?.nodes?.length ? sumUpokt(block.supplies.nodes.map((n) => n.supply)) : null;
@@ -64,13 +74,7 @@ export default async function BlockDetailPage({ params }: { params: Promise<{ ne
       ) : (
         <>
           <TxTable txs={txs?.nodes ?? []} columns={['type', 'signer', 'fee', 'result']} empty="No transactions in this block." />
-          {txs && txs.totalCount > TX_TAB_LIMIT ? (
-            <div className="pager">
-              <span>
-                Showing first {TX_TAB_LIMIT} of {formatNumber(txs.totalCount)} transactions
-              </span>
-            </div>
-          ) : null}
+          {txs && txs.totalCount > TX_TAB_LIMIT ? <Pager page={page} pageSize={TX_TAB_LIMIT} totalCount={txs.totalCount} /> : null}
         </>
       )}
     </div>

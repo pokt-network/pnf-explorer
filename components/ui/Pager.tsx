@@ -18,8 +18,10 @@ function pageList(current: number, total: number): (number | '…')[] {
 /**
  * URL-driven pager (`?page=`). Page 1 is the clean ISR-cached URL; subsequent pages add the
  * query param and the server re-renders at the new offset (§7). All lists use first/offset.
+ * Detail-page tab panels pass a distinct `param` each (e.g. `?suppliers=2`) so paginating one
+ * tab never moves another — existing params (incl. `?tab=`) are preserved on navigation.
  */
-export function Pager({ page, pageSize, totalCount }: { page: number; pageSize: number; totalCount: number }) {
+export function Pager({ page, pageSize, totalCount, param = 'page' }: { page: number; pageSize: number; totalCount: number; param?: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
@@ -28,8 +30,8 @@ export function Pager({ page, pageSize, totalCount }: { page: number; pageSize: 
   function go(p: number) {
     if (p < 1 || p > totalPages || p === page) return;
     const params = new URLSearchParams(sp.toString());
-    if (p <= 1) params.delete('page');
-    else params.set('page', String(p));
+    if (p <= 1) params.delete(param);
+    else params.set(param, String(p));
     const qs = params.toString();
     router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: true });
   }
