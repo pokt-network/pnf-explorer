@@ -56,7 +56,7 @@ export default async function GatewaysPage({
                 <tr key={g.id}>
                   <td className="rank">{offset + i + 1}</td>
                   <td className="mono">
-                    <Hash value={g.id} href={`/account/${g.id}`} />
+                    <Hash value={g.id} href={`/account/${g.id}?as=gateway`} />
                   </td>
                   <td className="num mono">{formatPokt(g.stakeAmount ?? '0')} POKT</td>
                   <td>

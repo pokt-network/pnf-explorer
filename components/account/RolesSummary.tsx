@@ -26,8 +26,8 @@ function UnbondLine({ endHeight, currentHeight, reason }: { endHeight: string | 
  * with no stake roles falls through to a single explanatory line.
  */
 export function RolesSummary({ profile, address, currentHeight }: { profile: AccountProfile; address: string; currentHeight: number | null }) {
-  const { supplier, owner, validator, application, gateway, ownedServices, revShareRecipientConfigs } = profile;
-  const hasAnyRole = supplier || owner || validator || application || gateway || ownedServices.length > 0 || revShareRecipientConfigs > 0;
+  const { supplier, owner, validator, application, gateway, ownedServices, ownedServiceCount, revShareRecipientConfigs } = profile;
+  const hasAnyRole = supplier || owner || validator || application || gateway || ownedServiceCount > 0 || revShareRecipientConfigs > 0;
 
   return (
     <div className="card kv" style={{ paddingTop: 0 }}>
@@ -112,12 +112,15 @@ export function RolesSummary({ profile, address, currentHeight }: { profile: Acc
         </div>
       ) : null}
 
-      {ownedServices.length > 0 ? (
+      {ownedServiceCount > 0 ? (
         <div className="line">
           <div className="k">Service Owner</div>
           <div className="v">
-            <b>{ownedServices.length}</b> service{ownedServices.length === 1 ? '' : 's'}{' '}
-            <span className="dim">· {ownedServices.map((s) => s.id).join(', ')}</span>
+            <b>{formatNumber(ownedServiceCount)}</b> service{ownedServiceCount === 1 ? '' : 's'}{' '}
+            <span className="dim">
+              · {ownedServices.map((s) => s.id).join(', ')}
+              {ownedServiceCount > ownedServices.length ? ', …' : ''}
+            </span>
           </div>
         </div>
       ) : null}
