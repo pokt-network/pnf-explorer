@@ -58,10 +58,10 @@ export default async function SuppliersPage({
                 <tr key={s.id}>
                   <td className="rank">{offset + i + 1}</td>
                   <td className="mono">
-                    <Hash value={s.id} href={`/account/${s.id}`} />
+                    <Hash value={s.id} href={`/account/${s.id}?as=supplier`} />
                   </td>
                   <td className="mono">
-                    {s.ownerId ? <Hash value={s.ownerId} href={`/account/${s.ownerId}`} /> : <span className="dim">—</span>}
+                    {s.ownerId ? <Hash value={s.ownerId} href={`/account/${s.ownerId}?as=owner`} /> : <span className="dim">—</span>}
                   </td>
                   <td className="num mono">{formatPokt(s.stakeAmount ?? '0')} POKT</td>
                   <td className="num">{formatNumber(s.serviceConfigs?.totalCount ?? 0)}</td>

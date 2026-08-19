@@ -106,7 +106,10 @@ export interface AccountProfile {
   validator: ValidatorRoleLite | null;
   application: AppRole | null;
   gateway: GatewayRole | null;
+  /** First few owned services (preview only — see `ownedServiceCount` for the real total). */
   ownedServices: OwnedService[];
+  /** Total services owned. `ownedServices` is capped, so never count that array. */
+  ownedServiceCount: number;
   /** # of supplier service-configs whose revShare[] pays this address (0 = not a recipient). */
   revShareRecipientConfigs: number;
 }
@@ -247,6 +250,7 @@ export async function getAccountProfile(network: NetworkId, id: string): Promise
         }
       : null,
     ownedServices: d.ownedServices?.nodes ?? [],
+    ownedServiceCount: d.ownedServices?.totalCount ?? 0,
     revShareRecipientConfigs: d.revShareRecipient?.totalCount ?? 0,
   };
 }

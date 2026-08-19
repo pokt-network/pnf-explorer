@@ -2,7 +2,8 @@ import { UPOKT_PER_POKT } from './config';
 
 type Numeric = string | number | bigint | null | undefined;
 
-function toBigInt(v: Numeric): bigint {
+/** Parse a numeric scalar to BigInt. Indexer BigFloat strings may carry a fractional part. */
+export function toBigInt(v: Numeric): bigint {
   if (v === null || v === undefined || v === '') return BigInt(0);
   if (typeof v === 'bigint') return v;
   if (typeof v === 'number') return BigInt(Math.trunc(v));

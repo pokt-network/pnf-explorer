@@ -57,7 +57,7 @@ export default async function ApplicationsPage({
                 <tr key={a.id}>
                   <td className="rank">{offset + i + 1}</td>
                   <td className="mono">
-                    <Hash value={a.id} href={`/account/${a.id}`} />
+                    <Hash value={a.id} href={`/account/${a.id}?as=application`} />
                   </td>
                   <td className="num mono">{formatPokt(a.stakeAmount ?? '0')} POKT</td>
                   <td className="num">{formatNumber(a.applicationServices?.totalCount ?? 0)}</td>

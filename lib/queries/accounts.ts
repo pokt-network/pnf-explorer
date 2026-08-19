@@ -136,7 +136,9 @@ export const ACCOUNT_ROLES = /* GraphQL */ `
         totalCount
       }
     }
-    ownedServices: services(filter: { ownerId: { equalTo: $id } }) {
+    # Only a preview of the ids is needed here (the rail/summary show a count); the full list is
+    # paginated by the Service Owner role view.
+    ownedServices: services(filter: { ownerId: { equalTo: $id } }, first: 6) {
       totalCount
       nodes {
         id
