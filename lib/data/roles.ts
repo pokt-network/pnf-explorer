@@ -461,16 +461,18 @@ const INCOME_PARTS = [
  * 60 seconds, and this is the most expensive call on the page by an order of magnitude.
  */
 export async function getRevShareIncome(network: NetworkId, recipient: string): Promise<RevShareIncome> {
-  type Part = { totalCount: number; aggregates: { sum: { amount: string | null } | null } | null } | null;
+  type Part = { aggregates: { sum: { amount: string | null; transferCount: string | null } | null } | null } | null;
   const d = await gqlFetch<Record<string, Part>>(network, REVSHARE_INCOME_AMOUNTS, { recipient }, { revalidate: 300 });
 
   let total = BigInt(0);
   let transfers = 0;
   const byReason: RevShareIncome['byReason'] = [];
   for (const { key, reason } of INCOME_PARTS) {
-    const c = d[key];
-    const amountUpokt = c?.aggregates?.sum?.amount ?? '0';
-    const n = c?.totalCount ?? 0;
+    const sum = d[key]?.aggregates?.sum;
+    const amountUpokt = sum?.amount ?? '0';
+    // transferCount, NOT the connection's totalCount — these are roll-up rows, each standing for
+    // several transfers. Counting rows would under-report by roughly half.
+    const n = Number(toBigInt(sum?.transferCount));
     total += toBigInt(amountUpokt);
     transfers += n;
     if (n > 0) byReason.push({ reason, amountUpokt, transfers: n });

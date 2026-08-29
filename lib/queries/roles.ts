@@ -321,46 +321,55 @@ export const SERVICE_OWNER_ROLE = /* GraphQL */ `
 // "What has this address actually been paid as a rev-share recipient", lifetime, across every
 // supplier that pays it.
 //
-// PERFORMANCE (measured 2026-08-29 against a 395-config recipient, 72,901 transfers):
-//   groupedAggregates(groupBy: OP_REASON)  59.00s   <- what this used to do
-//   same filter, no groupedAggregates       4.95s
-//   per-reason aliases, recipient only      5.28s   <- what it does now
-// The by-reason grouping was 54 of those 59 seconds. Splitting it into one aliased aggregate per
-// reason is index-backed, ~11x faster, and returns the SAME breakdown — the grouping was doing a
-// full scan to discover reason keys we already know from the enum.
+// Reads `modToAcctTransfersSummarizeds`, the indexer's pre-aggregated roll-up of
+// `modToAcctTransfers` (one row per block/recipient/reason/service, carrying `transferCount`).
+// Same numbers to the last upokt, roughly half the rows, and far steadier latency.
 //
-// Dropping the `eventClaimSettled.supplierId` join also drops the page's supplier ids out of the
-// cache key, so the figure is computed once per recipient instead of once per page of results. It
-// is a lifetime total now rather than "from the suppliers on this page", which is both the more
-// meaningful number and the one that survives pagination.
+// PERFORMANCE (measured 2026-08-29, 3 runs each, against a 395-config recipient / 97,064 transfers):
+//   raw + groupedAggregates(groupBy: OP_REASON)   59.00s        <- the original
+//   raw + one aliased aggregate per reason        9.96/5.04/14.25s
+//   summarized + one aliased aggregate per reason  0.85/0.68/0.72s
+// Both raw shapes also swing wildly run to run; the roll-up does not. Totals verified identical:
+// 130,298.402690 POKT / 97,064 transfers on the heavy account, 20.004337 POKT / 1,318 on a typical
+// one.
 //
-// The recipientId+opReason pair is the index that makes this viable — recipientId alone times out
-// server-side. Never drop the opReason (same trap as the delegation queries).
+// Two traps this shape avoids, both easy to walk back into:
+//   1. `groupBy: OP_REASON` does a full scan to discover keys the enum already gives us — it was 54
+//      of those 59 seconds. One aliased aggregate per reason returns the identical breakdown.
+//   2. `recipientId` WITHOUT `opReason` is not merely slow, it is cancelled by the statement
+//      timeout. The pair is the index. Never drop the reason.
+//
+// There is no supplier-id join: narrowing to the current page's suppliers put per-page values in the
+// fetch cache key, so paginating recomputed the whole aggregate. The figure is a lifetime total,
+// which is both cheaper and the more meaningful number.
+//
+// NOTE: `totalCount` here counts ROLL-UP ROWS, not transfers. The transfer count is
+// `sum { transferCount }`. Reading totalCount would silently under-report by ~2x.
 export const REVSHARE_INCOME_AMOUNTS = /* GraphQL */ `
   query revShareIncomeAmounts($recipient: String!) {
-    relay: modToAcctTransfers(
+    relay: modToAcctTransfersSummarizeds(
       filter: {
         recipientId: { equalTo: $recipient }
         opReason: { equalTo: TLM_RELAY_BURN_EQUALS_MINT_SUPPLIER_SHAREHOLDER_RD }
       }
     ) {
-      totalCount
       aggregates {
         sum {
           amount
+          transferCount
         }
       }
     }
-    mint: modToAcctTransfers(
+    mint: modToAcctTransfersSummarizeds(
       filter: {
         recipientId: { equalTo: $recipient }
         opReason: { equalTo: TLM_GLOBAL_MINT_SUPPLIER_SHAREHOLDER_REWARD_DISTRIBUTION }
       }
     ) {
-      totalCount
       aggregates {
         sum {
           amount
+          transferCount
         }
       }
     }
