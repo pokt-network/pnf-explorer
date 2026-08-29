@@ -8,7 +8,7 @@ import { LcdSourceStrip } from '@/components/ui/LcdSourceStrip';
 import { EmptyState } from '@/components/ui/states';
 import { StakeStatusPill } from '@/components/ui/StatusPill';
 import { RoleStats, SummaryCard, DOT } from './RoleStats';
-import { getDelegationPayouts, dailyAvgPokt, EARNINGS_WINDOW_DAYS } from '@/lib/data/delegations';
+import { getDelegationSettlements, toPokt, EARNINGS_WINDOW_DAYS } from '@/lib/data/delegations';
 import type { DelegationSet, DelegationEarnings } from '@/lib/data/delegations';
 import { getValidatorList } from '@/lib/data/validators';
 import type { NetworkId } from '@/lib/networks';
@@ -33,17 +33,11 @@ function windowLabel(days: number): string {
   return `${Math.max(1, Math.round(days * 24))}h`;
 }
 
-/**
- * Validators tab — where the stake actually sits. Always-LCD: the indexer has no Delegation
- * entity, so the bonded amount and the accrued-but-unpaid reward both come straight from the
- * chain. Validator identity (moniker, commission, status) is enriched from the indexer, which is
- * cosmetic — a failure there leaves the row rendering the raw valoper.
- */
-async function ValidatorsPanel({ network, set }: { network: NetworkId; set: DelegationSet }) {
-  // Monikers/commission for the delegated validators. The set is small (35 validators network-wide)
-  // so one list call is cheaper than N by-id lookups.
+/** Validator monikers/commission/status, keyed by valoper. Cosmetic — failure leaves bare addresses. */
+async function validatorMeta(network: NetworkId) {
   const meta = new Map<string, { moniker: string | null; commission: unknown; stakeStatus: string | null }>();
   try {
+    // The set is small (tens of validators network-wide), so one list call beats N by-id lookups.
     const list = await getValidatorList(network, 200, 0);
     for (const v of list.nodes) {
       meta.set(v.id, { moniker: validatorMoniker(v.description), commission: v.commission, stakeStatus: v.stakeStatus });
@@ -51,12 +45,33 @@ async function ValidatorsPanel({ network, set }: { network: NetworkId; set: Dele
   } catch {
     /* rows fall back to the bare valoper */
   }
+  return meta;
+}
+
+/**
+ * Validators tab — where the stake sits and what each validator returned over the window.
+ *
+ * Bonded amount and claimable balance are always-LCD; the per-validator earnings column is derived
+ * from that validator's settlements (see lib/queries/delegations.ts).
+ */
+async function ValidatorsPanel({
+  network,
+  set,
+  earnings,
+}: {
+  network: NetworkId;
+  set: DelegationSet;
+  earnings: DelegationEarnings | null;
+}) {
+  const meta = await validatorMeta(network);
+  const earnBy = new Map((earnings?.byValidator ?? []).map((v) => [v.validatorAddress, v]));
+  const win = earnings ? windowLabel(earnings.windowDays) : `${EARNINGS_WINDOW_DAYS}d`;
 
   return (
     <div className="card flush-top">
       <LcdSourceStrip>
-        Staking delegations are not served by the GraphQL indexer. The bonded amount and the pending reward on each row are read
-        live from the chain.
+        The bonded amount and the claimable balance are read live from the chain — staking delegations are not served by the
+        GraphQL indexer. Earnings are derived from each validator’s settlement events.
       </LcdSourceStrip>
       <div className="tbl-scroll">
         <table className="tbl">
@@ -66,22 +81,36 @@ async function ValidatorsPanel({ network, set }: { network: NetworkId; set: Dele
               <th>Status</th>
               <th className="num">Commission</th>
               <th className="num">Delegated</th>
-              <th className="num">Pending reward</th>
+              <th className="num">Earned {win}</th>
+              <th className="num">Claimable</th>
             </tr>
           </thead>
           <tbody>
             {set.rows.map((r) => {
               const m = meta.get(r.validatorAddress);
+              const e = earnBy.get(r.validatorAddress);
               return (
                 <tr key={r.validatorAddress}>
                   <td>
                     <Link href={`/validator/${r.validatorAddress}`}>{m?.moniker ?? truncate(r.validatorAddress, 12, 6)}</Link>
-                    {m?.moniker ? <div className="dim mono" style={{ fontSize: 12 }}>{truncate(r.validatorAddress, 12, 6)}</div> : null}
+                    {m?.moniker ? (
+                      <div className="dim mono" style={{ fontSize: 12 }}>
+                        {truncate(r.validatorAddress, 12, 6)}
+                      </div>
+                    ) : null}
                   </td>
                   <td>{m?.stakeStatus ? <StakeStatusPill status={m.stakeStatus} sm /> : <span className="dim">—</span>}</td>
                   <td className="num mono">{m?.commission ? formatCommission(m.commission) : '—'}</td>
                   <td className="num mono">{formatPokt(r.amountUpokt)}</td>
-                  <td className="num mono">{formatPokt(r.pendingUpokt)}</td>
+                  <td className="num mono">
+                    {e ? formatPokt(Math.round(e.myShareUpokt)) : <span className="dim">—</span>}
+                    {e ? (
+                      <div className="dim" style={{ fontSize: 12 }}>
+                        {formatNumber(e.settlements)} settlements
+                      </div>
+                    ) : null}
+                  </td>
+                  <td className="num mono">{formatPokt(r.claimableUpokt)}</td>
                 </tr>
               );
             })}
@@ -94,7 +123,7 @@ async function ValidatorsPanel({ network, set }: { network: NetworkId; set: Dele
             <div className="k">Note</div>
             <div className="v">
               <span className="muted">
-                This address delegates to more validators than one LCD page returns; the totals above cover the{' '}
+                This address delegates to more validators than one LCD page returns; the totals cover the{' '}
                 {formatNumber(set.rows.length)} shown.
               </span>
             </div>
@@ -106,59 +135,63 @@ async function ValidatorsPanel({ network, set }: { network: NetworkId; set: Dele
 }
 
 /**
- * Payouts tab — the realised money, block by block.
+ * Settlements tab — the blocks where the delegated validators earned, and this address's cut.
  *
- * These are the settlements that actually credited POKT to this address (module→account transfers
- * with opReason TLM_RELAY_BURN_EQUALS_MINT_DELEGATOR_RD), not a pro-rata estimate of what the
- * validators earned. The chain does not record WHICH delegated validator a given payout came from,
- * so the stream is deliberately not split per validator — see the note under the table.
+ * Each row is one validator's session-end settlement. Shannon pays the delegator pool's share
+ * straight to delegator wallets, so a row is income landing, not an accrual waiting to be claimed.
  */
-async function PayoutsPanel({
+async function SettlementsPanel({
   network,
-  address,
+  set,
+  earnings,
   page,
-  validatorCount,
 }: {
   network: NetworkId;
-  address: string;
+  set: DelegationSet;
+  earnings: DelegationEarnings | null;
   page: number;
-  validatorCount: number;
 }) {
-  let data: Awaited<ReturnType<typeof getDelegationPayouts>>;
+  let data: Awaited<ReturnType<typeof getDelegationSettlements>>;
   try {
-    data = await getDelegationPayouts(network, address, LIMIT, (page - 1) * LIMIT);
+    data = await getDelegationSettlements(network, set, LIMIT, (page - 1) * LIMIT);
   } catch {
     return (
       <div className="card flush-top">
-        <EmptyState>Couldn’t load delegation payouts right now.</EmptyState>
+        <EmptyState>Couldn’t load settlements right now.</EmptyState>
       </div>
     );
   }
   if (data.rows.length === 0 && page === 1) {
     return (
       <div className="card flush-top">
-        <EmptyState>
-          This address has staking delegations but has not been paid a delegation reward yet. Rewards accrue every session and are
-          swept to the account periodically.
-        </EmptyState>
+        <EmptyState>These validators have not settled a reward yet.</EmptyState>
       </div>
     );
   }
+
+  const meta = await validatorMeta(network);
+  const win = earnings ? windowLabel(earnings.windowDays) : `${EARNINGS_WINDOW_DAYS}d`;
 
   return (
     <div className="card flush-top">
       <div className="kv" style={{ paddingTop: 0 }}>
         <div className="line">
-          <div className="k">Received</div>
+          <div className="k">Earned {win}</div>
           <div className="v">
-            <b>{formatPokt(data.lifetimeUpokt)} POKT</b>{' '}
-            <span className="dim">
-              across {formatNumber(data.totalCount)} payout{data.totalCount === 1 ? '' : 's'}
-            </span>
+            {earnings ? (
+              <>
+                <b>{formatPokt(Math.round(earnings.windowUpokt))} POKT</b>{' '}
+                <span className="dim">
+                  across {formatNumber(earnings.settlements)} settlement{earnings.settlements === 1 ? '' : 's'}
+                </span>
+              </>
+            ) : (
+              <span className="dim">—</span>
+            )}
             <div className="muted" style={{ marginTop: 4 }}>
-              Each row is a settlement that credited POKT to this address. The chain records the payout but not which of the{' '}
-              {formatNumber(validatorCount)} delegated validator{validatorCount === 1 ? '' : 's'} it came from, so the stream is
-              combined.
+              Each row is one validator’s session-end settlement. Shannon pays the delegator pool’s share directly to delegator
+              wallets, so this is money that landed — there is nothing to claim. <b>My share</b> is this address’s pro-rata slice
+              of the pool: pool × (bonded stake ÷ total delegated stake).
             </div>
           </div>
         </div>
@@ -169,7 +202,10 @@ async function PayoutsPanel({
             <tr>
               <th>Block</th>
               <th>Age</th>
-              <th className="num">Amount</th>
+              <th>Validator</th>
+              <th className="num">Delegator pool</th>
+              <th className="num">Pool stake</th>
+              <th className="num">My share</th>
             </tr>
           </thead>
           <tbody>
@@ -181,18 +217,28 @@ async function PayoutsPanel({
                 <td title={r.timestamp ? absoluteUtc(r.timestamp) : undefined}>
                   {r.timestamp ? relativeTime(r.timestamp) : <span className="dim">—</span>}
                 </td>
-                <td className="num mono">{formatPokt(r.amountUpokt, 6)}</td>
+                <td>
+                  <Link href={`/validator/${r.validatorAddress}`}>
+                    {meta.get(r.validatorAddress)?.moniker ?? truncate(r.validatorAddress, 10, 5)}
+                  </Link>
+                </td>
+                <td className="num mono">{formatPokt(r.poolUpokt, 4)}</td>
+                <td className="num mono">
+                  {formatPoktCompact(r.totalStakeUpokt)}
+                  <span className="dim"> · {formatNumber(r.numDelegators)}</span>
+                </td>
+                <td className="num mono">{formatPokt(Math.round(r.myShareUpokt), 4)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      {data.totalCount > LIMIT ? <Pager page={page} pageSize={LIMIT} totalCount={data.totalCount} param="payouts" /> : null}
+      {data.totalCount > LIMIT ? <Pager page={page} pageSize={LIMIT} totalCount={data.totalCount} param="settlements" /> : null}
     </div>
   );
 }
 
-/** Rate tab — how the daily average and the APR on the summary row were actually derived. */
+/** Rate tab — how the daily average and the APR on the summary row were derived, and what limits them. */
 function RatePanel({ set, earnings }: { set: DelegationSet; earnings: DelegationEarnings | null }) {
   if (!earnings) {
     return (
@@ -210,15 +256,9 @@ function RatePanel({ set, earnings }: { set: DelegationSet; earnings: Delegation
           <div className="v">
             Trailing <b>{win}</b>{' '}
             <span className="dim">
-              · {formatNumber(earnings.windowPayouts)} payout{earnings.windowPayouts === 1 ? '' : 's'} ·{' '}
-              {formatPokt(earnings.windowUpokt)} POKT
+              · {formatNumber(earnings.settlements)} settlement{earnings.settlements === 1 ? '' : 's'} ·{' '}
+              {formatPokt(Math.round(earnings.windowUpokt))} POKT
             </span>
-            {earnings.windowDays < EARNINGS_WINDOW_DAYS - 0.5 ? (
-              <div className="muted" style={{ marginTop: 4 }}>
-                Shorter than the standard {EARNINGS_WINDOW_DAYS}-day window because this address has only been earning since{' '}
-                {earnings.firstPayoutAt ? absoluteUtc(earnings.firstPayoutAt) : 'recently'}.
-              </div>
-            ) : null}
           </div>
         </div>
         <div className="line">
@@ -232,24 +272,34 @@ function RatePanel({ set, earnings }: { set: DelegationSet; earnings: Delegation
           <div className="v">
             {earnings.aprPct != null ? <b>{earnings.aprPct.toFixed(2)}%</b> : <span className="dim">—</span>}
             <div className="muted" style={{ marginTop: 4 }}>
-              Daily average annualised over the {formatPokt(set.totalUpokt)} POKT currently bonded. Backward-looking: it reflects
-              the settlement volume this address’s validators actually earned in the window, not a promised or forward rate. A
-              delegation that changed size inside the window skews it, because the divisor is today’s stake.
+              Daily average annualised over the {formatPokt(set.totalUpokt)} POKT bonded. Backward-looking: it reflects the
+              settlement volume these validators actually earned in the window, not a promised or forward rate.
             </div>
           </div>
         </div>
         <div className="line">
-          <div className="k">Lifetime</div>
+          <div className="k">How it’s derived</div>
           <div className="v">
-            <b>{formatPokt(earnings.lifetimeUpokt)} POKT</b>{' '}
-            <span className="dim">
-              across {formatNumber(earnings.lifetimePayouts)} payout{earnings.lifetimePayouts === 1 ? '' : 's'}
-            </span>
-            {earnings.firstPayoutAt ? (
-              <div className="muted" style={{ marginTop: 4 }}>
-                First payout {relativeTime(earnings.firstPayoutAt)} · {absoluteUtc(earnings.firstPayoutAt)}
-              </div>
-            ) : null}
+            Shannon pays the validator pool’s share of relay settlement directly to delegator wallets at each session end. This
+            address’s income is its slice of that pool: <b>pool × (bonded stake ÷ total delegated stake)</b>, summed over the
+            window.
+            <div className="muted" style={{ marginTop: 4 }}>
+              The slice uses the stake bonded <i>today</i>. Cosmos staking messages are not indexed, so a delegation that changed
+              size inside the window cannot be corrected for and would skew both the daily average and the APR.
+              {earnings.approximate
+                ? ' A validator’s total delegated stake also moved during this window, so its share is a mean rather than an exact figure.'
+                : ' Every validator’s total delegated stake held steady across this window, so the slice is exact.'}
+            </div>
+          </div>
+        </div>
+        <div className="line">
+          <div className="k">Claimable</div>
+          <div className="v">
+            <b>{formatPokt(set.claimableUpokt)} POKT</b>
+            <div className="muted" style={{ marginTop: 4 }}>
+              Separate money, and deliberately excluded from every figure above. This is the Cosmos distribution pool fed by the
+              protocol’s minimum inflation, which cannot be set to zero. Settlement income never passes through it.
+            </div>
           </div>
         </div>
       </div>
@@ -258,37 +308,36 @@ function RatePanel({ set, earnings }: { set: DelegationSet; earnings: Delegation
 }
 
 /**
- * The staking-delegator actor: POKT bonded to validators, and what that stake has actually been
- * paid. Distinct from every other role on an address page in that its subject is the chain's
- * staking module, not one of Pocket's own actor modules.
+ * The staking-delegator actor: POKT bonded to validators, and what that stake actually earns.
+ * Distinct from every other role on an address page in that its subject is the chain's staking and
+ * distribution modules, not one of Pocket's own actor modules.
  */
 export function DelegationRoleView({
   network,
   address,
   set,
   earnings,
-  payoutsPage,
+  settlementsPage,
 }: {
   network: NetworkId;
   address: string;
   set: DelegationSet;
   earnings: DelegationEarnings | null;
-  payoutsPage: string | undefined;
+  settlementsPage: string | undefined;
 }) {
+  const win = earnings ? windowLabel(earnings.windowDays) : `${EARNINGS_WINDOW_DAYS}d`;
+
   const tabs: TabDef[] = [
     {
       key: 'validators',
       label: 'Validators',
       badge: set.rows.length || undefined,
-      panel: <ValidatorsPanel network={network} set={set} />,
+      panel: <ValidatorsPanel network={network} set={set} earnings={earnings} />,
     },
     {
-      key: 'payouts',
-      label: 'Payouts',
-      badge: earnings?.lifetimePayouts || undefined,
-      panel: (
-        <PayoutsPanel network={network} address={address} page={parsePage(payoutsPage)} validatorCount={set.rows.length} />
-      ),
+      key: 'settlements',
+      label: 'Settlements',
+      panel: <SettlementsPanel network={network} set={set} earnings={earnings} page={parsePage(settlementsPage)} />,
     },
     { key: 'rate', label: 'Rate', panel: <RatePanel set={set} earnings={earnings} /> },
     {
@@ -303,17 +352,20 @@ export function DelegationRoleView({
     },
   ];
 
-  const win = earnings ? windowLabel(earnings.windowDays) : `${EARNINGS_WINDOW_DAYS}d`;
-
   return (
     <>
       <RoleStats>
         <SummaryCard label="Delegated" dot={DOT.lavender} value={formatPoktCompact(set.totalUpokt)} unit="POKT" />
-        <SummaryCard label="Earned" dot={DOT.mint} value={earnings ? formatPoktCompact(earnings.lifetimeUpokt) : '—'} unit="POKT" />
+        <SummaryCard
+          label={`Earned ${win}`}
+          dot={DOT.mint}
+          value={earnings ? statPokt(toPokt(earnings.windowUpokt)) : '—'}
+          unit="POKT"
+        />
         <SummaryCard
           label={`Daily Avg ${win}`}
           dot={DOT.blue}
-          value={earnings ? statPokt(dailyAvgPokt(earnings)) : '—'}
+          value={earnings ? statPokt(toPokt(earnings.dailyAvgUpokt)) : '—'}
           unit="POKT"
         />
         <SummaryCard
@@ -337,12 +389,22 @@ export function DelegationRoleView({
           </div>
         </div>
         <div className="line">
-          <div className="k">Pending reward</div>
+          <div className="k">Rewards</div>
           <div className="v">
-            <b>{formatPokt(set.pendingUpokt)} POKT</b>
+            Paid <b>directly to this wallet</b> at each session end
             <div className="muted" style={{ marginTop: 4 }}>
-              Accrued but not yet swept to the account. Validators credit their delegator pool at every session end; the pool
-              lands in delegator accounts periodically. Not included in <b>Earned</b>, which counts only POKT actually received.
+              The validator pool’s share of relay settlement is distributed straight to delegators — there is no claim step and
+              nothing accrues waiting for one. See the Settlements tab for the per-block detail.
+            </div>
+          </div>
+        </div>
+        <div className="line">
+          <div className="k">Claimable</div>
+          <div className="v">
+            <b>{formatPokt(set.claimableUpokt)} POKT</b> <span className="dim">· minimum inflation only</span>
+            <div className="muted" style={{ marginTop: 4 }}>
+              Not settlement income. Cosmos cannot set emissions to zero, so a trivial amount accrues in the distribution pool
+              and sits here until claimed. Excluded from Earned, the daily average and the APR.
             </div>
           </div>
         </div>

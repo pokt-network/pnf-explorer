@@ -5,21 +5,17 @@ import type { NetworkId } from '@/lib/networks';
 import { UPOKT_PER_POKT } from '@/lib/config';
 import { toBigInt } from '@/lib/format';
 import { toDate } from '@/lib/time';
-import { DELEGATION_PAYOUTS, DELEGATION_EARNINGS, DELEGATION_WINDOW_BLOCK } from '@/lib/queries/delegations';
+import { DELEGATION_SETTLEMENTS, DELEGATION_WINDOW, DELEGATION_WINDOW_BLOCK } from '@/lib/queries/delegations';
 
-// Staking-delegation data layer.
+// Staking-delegation data layer. See lib/queries/delegations.ts for the verified model; the short
+// version is that Shannon pays the validator pool's settlement share DIRECTLY to delegator wallets
+// each session, and a delegator's income is its pro-rata slice of `delegatorsRewardAmount`. The
+// separately-claimable LCD balance is the Cosmos minimum-inflation pool and is NOT that income.
 //
-// Two sources, deliberately split (see lib/queries/delegations.ts for the full rationale):
-//   - LCD → the delegations themselves + pending (accrued, unpaid) rewards. Not indexed at all.
-//   - GQL → realised payouts: exact, per settlement that credited this address.
-//
-// The two are NOT the same money. A validator's settlement credits its delegator pool every
-// session (~20 blocks); the pool is swept to delegator accounts irregularly, a few times a day.
-// "Earned" therefore means RECEIVED and "Pending" means accrued-but-not-yet-swept. Summing them
-// would double-count the sweep that is about to happen, so this module never combines them and
-// the UI keeps them in separate columns.
+//   - LCD → the delegations, and the claimable minimum-inflation balance.
+//   - GQL → eventValidatorRewardDistributions, from which income is derived per session.
 
-/** Trailing window for the daily average and APR. Long enough to smooth the irregular sweeps. */
+/** Trailing window for earned/daily-average/APR. Long enough to smooth per-session variance. */
 export const EARNINGS_WINDOW_DAYS = 30;
 
 // ---- LCD shapes ----
@@ -33,34 +29,39 @@ interface LcdDelegationResponse {
 
 interface LcdRewardsResponse {
   rewards?: { validator_address?: string; reward?: { denom?: string; amount?: string }[] }[];
-  total?: { denom?: string; amount?: string }[];
 }
 
-/** One validator this address has staked POKT with. `pendingUpokt` is accrued, not yet received. */
+/** One validator this address has staked POKT with. */
 export interface DelegationRow {
   validatorAddress: string;
   /** Bonded upokt (the `balance`, not the share count — shares drift from tokens after a slash). */
   amountUpokt: string;
-  pendingUpokt: string;
+  /**
+   * Claimable from the Cosmos distribution module, upokt. This is the minimum-inflation pool — the
+   * protocol cannot set emissions to zero, so a trivial amount accrues here. It is NOT withheld
+   * settlement income; that is paid straight to the wallet and never appears in this balance.
+   */
+  claimableUpokt: string;
 }
 
 export interface DelegationSet {
   rows: DelegationRow[];
   /** Total bonded across every delegation, upokt. */
   totalUpokt: string;
-  /** Total accrued-but-unpaid across every delegation, upokt. */
-  pendingUpokt: string;
+  /** Total claimable minimum-inflation balance across every delegation, upokt. */
+  claimableUpokt: string;
   /** True when the LCD reported more delegations than it returned in one page. */
   truncated: boolean;
 }
 
-// The LCD caps a page at 100 by default; ask for more explicitly so a large delegator set arrives
+// The LCD caps a page at 100 by default; ask for more explicitly so a large delegation set arrives
 // in one call, and report truncation rather than silently showing a partial total.
 const DELEGATION_PAGE = 500;
 
 /**
- * Delegations + pending rewards for an address, always-LCD (§2 — the indexer has no Delegation
- * entity). Returns null when the address delegates to nobody, which is what gates the whole role.
+ * Delegations + the claimable balance for an address, always-LCD (§2 — the indexer has no
+ * Delegation entity and does not index Cosmos staking messages either). Returns null when the
+ * address delegates to nobody, which is what gates the whole role.
  *
  * `cache()`-deduped: the address page calls this once to decide whether the role is held and again
  * to render it.
@@ -81,34 +82,34 @@ export const getDelegations = cache(async (network: NetworkId, address: string):
   const responses = res.delegation_responses ?? [];
   if (responses.length === 0) return null;
 
-  // Pending rewards are a separate endpoint; a failure there must not cost us the delegation list.
+  // The claimable balance is a separate endpoint; a failure there must not cost us the delegations.
   let rewards: LcdRewardsResponse = {};
   try {
     rewards = await lcdFetch<LcdRewardsResponse>(network, `/cosmos/distribution/v1beta1/delegators/${address}/rewards`, {
       revalidate: 30,
     });
   } catch {
-    /* pending renders as zero */
+    /* claimable renders as zero */
   }
-  const pendingBy = new Map<string, string>();
+  const claimableBy = new Map<string, string>();
   for (const r of rewards.rewards ?? []) {
     const upokt = r.reward?.find((x) => x.denom === 'upokt')?.amount;
-    if (r.validator_address && upokt) pendingBy.set(r.validator_address, upokt);
+    if (r.validator_address && upokt) claimableBy.set(r.validator_address, upokt);
   }
 
   const rows: DelegationRow[] = [];
   let total = BigInt(0);
-  let pending = BigInt(0);
+  let claimable = BigInt(0);
   for (const d of responses) {
     const validatorAddress = d.delegation?.validator_address;
     if (!validatorAddress) continue;
     const amountUpokt = d.balance?.denom === 'upokt' ? (d.balance.amount ?? '0') : '0';
-    // Reward amounts are DECIMAL strings ("664143124.680255000000000000"); toBigInt keeps the
-    // integer upokt part, which is the only part that can ever actually be paid out.
-    const pendingUpokt = toBigInt(pendingBy.get(validatorAddress)).toString();
-    rows.push({ validatorAddress, amountUpokt, pendingUpokt });
+    // Claimable comes back as a DECIMAL string ("664143124.680255000000000000"); toBigInt keeps the
+    // integer upokt part, which is the only part that can ever actually be claimed.
+    const claimableUpokt = toBigInt(claimableBy.get(validatorAddress)).toString();
+    rows.push({ validatorAddress, amountUpokt, claimableUpokt });
     total += toBigInt(amountUpokt);
-    pending += toBigInt(pendingUpokt);
+    claimable += toBigInt(claimableUpokt);
   }
   if (rows.length === 0) return null;
 
@@ -117,65 +118,115 @@ export const getDelegations = cache(async (network: NetworkId, address: string):
   return {
     rows,
     totalUpokt: total.toString(),
-    pendingUpokt: pending.toString(),
+    claimableUpokt: claimable.toString(),
     truncated: Number.isFinite(reported) && reported > rows.length,
   };
 });
 
-// ---- realised payouts ----
-export interface PayoutRow {
-  id: string;
-  amountUpokt: string;
-  blockHeight: string;
-  timestamp: string | null;
+// ---- derived income ----
+
+/** Pro-rata slice of a pool. Returns 0 rather than NaN when the pool's stake is missing/zero. */
+function slice(poolUpokt: number, myStakeUpokt: number, totalStakeUpokt: number): number {
+  if (!(totalStakeUpokt > 0)) return 0;
+  return poolUpokt * (myStakeUpokt / totalStakeUpokt);
 }
 
-/** One page of realised payouts, newest first, plus the lifetime count/sum for the panel header. */
-export async function getDelegationPayouts(
+/** One settlement, with this address's derived share of it. */
+export interface SettlementRow {
+  id: string;
+  blockHeight: string;
+  sessionEndHeight: string;
+  validatorAddress: string;
+  timestamp: string | null;
+  /** The whole delegator pool's cut of this settlement, upokt. */
+  poolUpokt: string;
+  /** Stake the pool was divided over at this block, upokt. */
+  totalStakeUpokt: string;
+  numDelegators: number;
+  /** This address's derived slice, upokt. */
+  myShareUpokt: number;
+}
+
+/**
+ * One page of settlements across every delegated validator, newest first, each carrying this
+ * address's derived slice.
+ *
+ * The slice uses the address's CURRENT bonded stake against the pool's historical
+ * `totalDelegatedStakeAmount`. Cosmos staking messages are not indexed, so there is no way to
+ * recover what this address had bonded at an arbitrary past block — rows from before a delegation
+ * changed size are therefore approximate, and the view says so.
+ */
+export async function getDelegationSettlements(
   network: NetworkId,
-  address: string,
+  set: DelegationSet,
   limit: number,
   offset: number,
-): Promise<{ totalCount: number; lifetimeUpokt: string; rows: PayoutRow[] }> {
-  const d = await gqlFetch<{
-    modToAcctTransfers: {
-      totalCount: number;
-      aggregates: { sum: { amount: string | null } | null } | null;
-      nodes: { id: string; amount: string; blockId: string; block: { id: string; timestamp: string } | null }[];
-    } | null;
-  }>(network, DELEGATION_PAYOUTS, { address, limit, offset }, { revalidate: 60 });
+): Promise<{ totalCount: number; rows: SettlementRow[] }> {
+  const validators = set.rows.map((r) => r.validatorAddress);
+  const stakeBy = new Map(set.rows.map((r) => [r.validatorAddress, Number(toBigInt(r.amountUpokt))]));
 
-  const c = d.modToAcctTransfers;
+  const d = await gqlFetch<{
+    eventValidatorRewardDistributions: {
+      totalCount: number;
+      nodes: {
+        id: string;
+        blockId: string;
+        sessionEndBlockHeight: string;
+        validatorOperatorAddress: string;
+        delegatorsRewardAmount: string;
+        totalDelegatedStakeAmount: string;
+        numDelegators: number;
+        block: { id: string; timestamp: string } | null;
+      }[];
+    } | null;
+  }>(network, DELEGATION_SETTLEMENTS, { validators, limit, offset }, { revalidate: 60 });
+
+  const c = d.eventValidatorRewardDistributions;
   return {
     totalCount: c?.totalCount ?? 0,
-    lifetimeUpokt: c?.aggregates?.sum?.amount ?? '0',
     rows: (c?.nodes ?? []).map((n) => ({
       id: n.id,
-      amountUpokt: n.amount,
       blockHeight: n.block?.id ?? n.blockId,
+      sessionEndHeight: n.sessionEndBlockHeight,
+      validatorAddress: n.validatorOperatorAddress,
       timestamp: n.block?.timestamp ?? null,
+      poolUpokt: n.delegatorsRewardAmount,
+      totalStakeUpokt: n.totalDelegatedStakeAmount,
+      numDelegators: n.numDelegators,
+      myShareUpokt: slice(
+        Number(toBigInt(n.delegatorsRewardAmount)),
+        stakeBy.get(n.validatorOperatorAddress) ?? 0,
+        Number(toBigInt(n.totalDelegatedStakeAmount)),
+      ),
     })),
   };
 }
 
+/** Per-validator contribution to the window total. */
+export interface ValidatorEarning {
+  validatorAddress: string;
+  settlements: number;
+  /** The validator's whole delegator pool over the window, upokt. */
+  poolUpokt: number;
+  /** This address's derived slice of it, upokt. */
+  myShareUpokt: number;
+  /** True when the pool's total staked amount moved during the window (slice is then a mean). */
+  poolDrifted: boolean;
+}
+
 export interface DelegationEarnings {
-  /** Everything this address has ever been paid, upokt. */
-  lifetimeUpokt: string;
-  lifetimePayouts: number;
-  /** Payouts inside the trailing window, upokt. */
-  windowUpokt: string;
-  windowPayouts: number;
-  /** Days actually covered — clamped by the first payout for a delegation younger than the window. */
+  /** Derived income over the window, upokt. */
+  windowUpokt: number;
+  /** Settlements counted. */
+  settlements: number;
+  /** Days the window actually covers. */
   windowDays: number;
-  /** Mean upokt received per day across the window. */
   dailyAvgUpokt: number;
-  /**
-   * Annualised window return over the CURRENT bonded stake, as a percentage. Null when nothing is
-   * bonded. An estimate by construction — see the caveats on the view.
-   */
+  /** Annualised window income over the current bonded stake, percent. Null when nothing is bonded. */
   aprPct: number | null;
-  /** Timestamp of the first payout ever received, for "earning since". */
-  firstPayoutAt: string | null;
+  byValidator: ValidatorEarning[];
+  /** True when any validator's pool moved during the window — the totals are then approximate. */
+  approximate: boolean;
 }
 
 /**
@@ -201,60 +252,86 @@ async function windowStartBlock(network: NetworkId, days: number): Promise<{ hei
 }
 
 /**
- * Lifetime + trailing-window earnings, the daily average and the derived APR.
+ * Trailing-window income, daily average and APR, derived per validator in one round trip.
  *
- * APR is `window payouts / days × 365 / bonded stake`. Two caveats, both surfaced in the UI: it is
- * backward-looking (past settlement volume, not a promised rate), and it divides by the stake as it
- * stands NOW — a delegation resized inside the window skews it.
+ * Two caveats, both surfaced on the view: APR is backward-looking (it annualises the settlement
+ * volume this address's validators actually earned in the window, not a promised rate), and the
+ * slice divides by the stake as it stands NOW because historical delegation sizes are not
+ * recoverable from the indexer.
  */
 export async function getDelegationEarnings(
   network: NetworkId,
-  address: string,
-  bondedUpokt: string,
+  set: DelegationSet,
   days = EARNINGS_WINDOW_DAYS,
 ): Promise<DelegationEarnings | null> {
   const start = await windowStartBlock(network, days);
   if (!start) return null;
 
+  const validators = set.rows.map((r) => r.validatorAddress);
   let d: {
-    lifetime: { totalCount: number; aggregates: { sum: { amount: string | null } | null } | null } | null;
-    window: { totalCount: number; aggregates: { sum: { amount: string | null } | null } | null } | null;
-    first: { nodes: { blockId: string; block: { timestamp: string } | null }[] } | null;
+    eventValidatorRewardDistributions: {
+      totalCount: number;
+      byValidator: {
+        keys: string[] | null;
+        sum: { delegatorsRewardAmount: string | null } | null;
+        average: { totalDelegatedStakeAmount: string | null } | null;
+        min: { totalDelegatedStakeAmount: string | null } | null;
+        max: { totalDelegatedStakeAmount: string | null } | null;
+        distinctCount: { id: string | null } | null;
+      }[] | null;
+    } | null;
   };
   try {
-    d = await gqlFetch(network, DELEGATION_EARNINGS, { address, windowStartBlock: start.height }, { revalidate: 60 });
+    d = await gqlFetch(network, DELEGATION_WINDOW, { validators, windowStartBlock: start.height }, { revalidate: 60 });
   } catch {
     return null;
   }
 
-  const lifetimeUpokt = d.lifetime?.aggregates?.sum?.amount ?? '0';
-  const windowUpokt = d.window?.aggregates?.sum?.amount ?? '0';
-  const firstPayoutAt = d.first?.nodes?.[0]?.block?.timestamp ?? null;
+  const stakeBy = new Map(set.rows.map((r) => [r.validatorAddress, Number(toBigInt(r.amountUpokt))]));
+  const byValidator: ValidatorEarning[] = [];
+  let windowUpokt = 0;
 
-  // A delegation younger than the window earned over less time than the window is long; dividing by
-  // the full 30 days would understate it. Clamp the divisor to the real earning period.
+  for (const g of d.eventValidatorRewardDistributions?.byValidator ?? []) {
+    const validatorAddress = g.keys?.[0];
+    if (!validatorAddress) continue;
+    const pool = Number(g.sum?.delegatorsRewardAmount ?? 0);
+    // The average is the right divisor for a summed pool: sum(pool) / mean(stake) is the mean slice
+    // weighted by nothing, which is exact while the stake holds still and a fair estimate when it
+    // does not. min !== max is the tell that it did not.
+    const avgStake = Number(g.average?.totalDelegatedStakeAmount ?? 0);
+    const myShareUpokt = slice(pool, stakeBy.get(validatorAddress) ?? 0, avgStake);
+    byValidator.push({
+      validatorAddress,
+      settlements: Number(g.distinctCount?.id ?? 0),
+      poolUpokt: pool,
+      myShareUpokt,
+      poolDrifted: (g.min?.totalDelegatedStakeAmount ?? null) !== (g.max?.totalDelegatedStakeAmount ?? null),
+    });
+    windowUpokt += myShareUpokt;
+  }
+
+  // The window can only cover as much history as the chain has; clamp so a young chain or a thin
+  // window never inflates the daily average by dividing by days that were not actually observed.
   const startedAt = toDate(start.timestamp)?.getTime() ?? null;
-  const firstAt = toDate(firstPayoutAt)?.getTime() ?? null;
-  const from = firstAt != null && startedAt != null ? Math.max(startedAt, firstAt) : (startedAt ?? firstAt);
-  const windowDays = from != null ? Math.max((Date.now() - from) / 86_400_000, 1 / 24) : days;
+  const windowDays = startedAt != null ? Math.max((Date.now() - startedAt) / 86_400_000, 1 / 24) : days;
 
-  const dailyAvgUpokt = Number(toBigInt(windowUpokt)) / windowDays;
-  const bonded = Number(toBigInt(bondedUpokt));
+  const dailyAvgUpokt = windowUpokt / windowDays;
+  const bonded = Number(toBigInt(set.totalUpokt));
   const aprPct = bonded > 0 ? ((dailyAvgUpokt * 365) / bonded) * 100 : null;
 
+  byValidator.sort((a, b) => b.myShareUpokt - a.myShareUpokt);
   return {
-    lifetimeUpokt,
-    lifetimePayouts: d.lifetime?.totalCount ?? 0,
     windowUpokt,
-    windowPayouts: d.window?.totalCount ?? 0,
+    settlements: d.eventValidatorRewardDistributions?.totalCount ?? 0,
     windowDays,
     dailyAvgUpokt,
     aprPct,
-    firstPayoutAt,
+    byValidator,
+    approximate: byValidator.some((v) => v.poolDrifted),
   };
 }
 
-/** Daily average as whole POKT, for the summary card. */
-export function dailyAvgPokt(e: DelegationEarnings): number {
-  return e.dailyAvgUpokt / UPOKT_PER_POKT;
+/** upokt → POKT, for the summary cards. */
+export function toPokt(upokt: number): number {
+  return upokt / UPOKT_PER_POKT;
 }

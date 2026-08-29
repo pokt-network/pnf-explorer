@@ -1,45 +1,51 @@
 // Staking-delegation queries (address page, `?as=delegation`).
 //
-// The staking delegations themselves are NOT indexed — there is no Delegation entity in the
-// schema (`MsgDelegateToGateway` is the unrelated app→gateway delegation). Delegations and
-// pending rewards are therefore always-LCD, exactly like the validator Delegators tab (§2).
+// The delegations themselves are NOT indexed — there is no Delegation entity in the schema
+// (`MsgDelegateToGateway` is the unrelated app→gateway delegation, and Cosmos staking messages are
+// not indexed either). Delegations and the claimable balance are always-LCD, exactly like the
+// validator Delegators tab (§2).
 //
-// What the indexer DOES have is the realised payout: every settlement that credits a staking
-// delegator lands as a module→account transfer with opReason TLM_RELAY_BURN_EQUALS_MINT_DELEGATOR_RD
-// and recipientId = the delegator's pokt1 address. That is exact, on-chain money received — not a
-// pro-rata estimate — so it is what the tab lists and what every headline figure is computed from.
+// WHERE A DELEGATOR'S INCOME ACTUALLY COMES FROM (verified live 2026-08-29 against
+// pokt199ckyvz3d80u0qn58e8hxx9n5cxg5zudmhsjv8, 1,000,000 POKT bonded to two validators):
 //
-// PERFORMANCE (probed live 2026-08-29): filtering `modToAcctTransfers` by recipientId ALONE times
-// out server-side ("canceling statement due to statement timeout"), the same trap the rev-share
-// income query hit. Adding opReason to the filter makes it index-backed and sub-second. Every query
-// below therefore always carries BOTH predicates — never drop the opReason.
+// Shannon pays the validator pool's share of relay settlement DIRECTLY to delegator wallets at each
+// session end. `eventValidatorRewardDistributions` is the record: one row per validator per session
+// carrying `delegatorsRewardAmount` (the whole pool's cut) and `totalDelegatedStakeAmount` (the
+// stake it is divided over). A delegator's income is its pro-rata slice:
+//
+//     myShare = delegatorsRewardAmount × (myBondedStake / totalDelegatedStakeAmount)
+//
+// Cross-checked against the wallet: 327.03 POKT derived over a 17.2h window vs 321.32 POKT of
+// observed balance growth — the ~1.8% gap is the window boundaries being eyeballed, not the model.
+//
+// DO NOT USE `modToAcctTransfers` WITH opReason TLM_RELAY_BURN_EQUALS_MINT_DELEGATOR_RD FOR THIS.
+// It looks authoritative — exact amounts, real recipient, anchored to blocks — and it is neither the
+// right money nor live. Over one 12,853-block window it carried 69.54 POKT against 3,536.76 POKT of
+// actual delegator income (~2%), and the entire stream stops network-wide at block 892853 while
+// balances keep growing. The separately-claimable LCD balance is the Cosmos distribution pool fed by
+// the protocol's minimum inflation (which cannot be set to zero), not deferred delegation rewards.
 
-/** The delegator payout op-reason. Both queries filter on it; see the perf note above. */
-export const DELEGATOR_RD = 'TLM_RELAY_BURN_EQUALS_MINT_DELEGATOR_RD';
-
-/** One page of realised payouts, newest first, plus the lifetime count/sum for the header. */
-export const DELEGATION_PAYOUTS = /* GraphQL */ `
-  query delegationPayouts($address: String!, $limit: Int!, $offset: Int!) {
-    modToAcctTransfers(
+/** One page of settlements across every validator the address delegates to, newest first. */
+export const DELEGATION_SETTLEMENTS = /* GraphQL */ `
+  query delegationSettlements($validators: [String!], $limit: Int!, $offset: Int!) {
+    eventValidatorRewardDistributions(
       first: $limit
       offset: $offset
       orderBy: BLOCK_ID_DESC
-      filter: {
-        recipientId: { equalTo: $address }
-        opReason: { equalTo: TLM_RELAY_BURN_EQUALS_MINT_DELEGATOR_RD }
-      }
+      filter: { validatorOperatorAddress: { in: $validators } }
     ) {
       totalCount
-      aggregates {
-        sum {
-          amount
-        }
-      }
       nodes {
         id
-        amount
-        denom
         blockId
+        sessionEndBlockHeight
+        validatorOperatorAddress
+        commissionRate
+        poolShareAmount
+        commissionAmount
+        delegatorsRewardAmount
+        totalDelegatedStakeAmount
+        numDelegators
         block {
           id
           timestamp
@@ -50,53 +56,36 @@ export const DELEGATION_PAYOUTS = /* GraphQL */ `
 `;
 
 /**
- * Lifetime total + the trailing-window total in one round trip.
+ * Per-validator totals over a block window, in ONE round trip.
  *
- * `windowStartBlock` is resolved from a real block timestamp (see DELEGATION_WINDOW_BLOCK) rather
- * than derived from an assumed block time — Shannon's ~60s is a nominal, not a guarantee, and an
- * APR is too sensitive to the window length to rest on an assumption.
+ * Grouping by validator matters because each validator divides its pool over a different
+ * `totalDelegatedStakeAmount`, so the address's slice differs per validator and a single global sum
+ * would be meaningless. `min`/`max` come back alongside the average so the caller can tell whether
+ * the pool held steady across the window (min === max → the derived slice is exact) or drifted
+ * (→ the average makes it an approximation, and the UI says so).
  */
-export const DELEGATION_EARNINGS = /* GraphQL */ `
-  query delegationEarnings($address: String!, $windowStartBlock: BigFloat!) {
-    lifetime: modToAcctTransfers(
-      filter: {
-        recipientId: { equalTo: $address }
-        opReason: { equalTo: TLM_RELAY_BURN_EQUALS_MINT_DELEGATOR_RD }
-      }
+export const DELEGATION_WINDOW = /* GraphQL */ `
+  query delegationWindow($validators: [String!], $windowStartBlock: BigFloat!) {
+    eventValidatorRewardDistributions(
+      filter: { validatorOperatorAddress: { in: $validators }, blockId: { greaterThanOrEqualTo: $windowStartBlock } }
     ) {
       totalCount
-      aggregates {
+      byValidator: groupedAggregates(groupBy: VALIDATOR_OPERATOR_ADDRESS) {
+        keys
         sum {
-          amount
+          delegatorsRewardAmount
         }
-      }
-    }
-    window: modToAcctTransfers(
-      filter: {
-        recipientId: { equalTo: $address }
-        opReason: { equalTo: TLM_RELAY_BURN_EQUALS_MINT_DELEGATOR_RD }
-        blockId: { greaterThanOrEqualTo: $windowStartBlock }
-      }
-    ) {
-      totalCount
-      aggregates {
-        sum {
-          amount
+        average {
+          totalDelegatedStakeAmount
         }
-      }
-    }
-    first: modToAcctTransfers(
-      first: 1
-      orderBy: BLOCK_ID_ASC
-      filter: {
-        recipientId: { equalTo: $address }
-        opReason: { equalTo: TLM_RELAY_BURN_EQUALS_MINT_DELEGATOR_RD }
-      }
-    ) {
-      nodes {
-        blockId
-        block {
-          timestamp
+        min {
+          totalDelegatedStakeAmount
+        }
+        max {
+          totalDelegatedStakeAmount
+        }
+        distinctCount {
+          id
         }
       }
     }
