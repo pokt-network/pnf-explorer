@@ -13,9 +13,11 @@ import { ApplicationRoleView } from '@/components/account/roles/ApplicationRoleV
 import { GatewayRoleView } from '@/components/account/roles/GatewayRoleView';
 import { ServiceOwnerRoleView } from '@/components/account/roles/ServiceOwnerRoleView';
 import { RevShareRoleView } from '@/components/account/roles/RevShareRoleView';
+import { DelegationRoleView } from '@/components/account/roles/DelegationRoleView';
 import { getUseRpcData } from '@/lib/metadata';
 import { getAccountProfile } from '@/lib/data/accounts';
 import { getSupplierRole, getApplicationRole, getGatewayRole } from '@/lib/data/roles';
+import { getDelegations, getDelegationEarnings } from '@/lib/data/delegations';
 import { heldRoles, resolveRole, ROLES } from '@/lib/roles';
 import type { NetworkId } from '@/lib/networks';
 import { truncate } from '@/lib/format';
@@ -34,6 +36,7 @@ interface AddressSearchParams {
   apps?: string;
   revshare?: string;
   svcs?: string;
+  payouts?: string;
   earn?: string;
   txs?: string;
   transfers?: string;
@@ -127,6 +130,17 @@ export default async function AccountDetailPage({
     }
     case 'service': {
       body = <ServiceOwnerRoleView network={network} address={id} serviceCount={profile.ownedServiceCount} svcsPage={sp.svcs} />;
+      break;
+    }
+    case 'delegation': {
+      // `getDelegations` is cache()-deduped with the profile probe above, so this is free.
+      const set = await getDelegations(network, id).catch(() => null);
+      if (set) {
+        const earnings = await getDelegationEarnings(network, id, set.totalUpokt).catch(() => null);
+        body = <DelegationRoleView network={network} address={id} set={set} earnings={earnings} payoutsPage={sp.payouts} />;
+      } else {
+        body = <RoleUnavailable what="delegation" />;
+      }
       break;
     }
     case 'revshare': {

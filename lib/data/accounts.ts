@@ -1,4 +1,5 @@
 import { gqlFetch } from '@/lib/graphql';
+import { getDelegations } from '@/lib/data/delegations';
 import type { NetworkId } from '@/lib/networks';
 import {
   ACCOUNT_LIST,
@@ -112,6 +113,14 @@ export interface AccountProfile {
   ownedServiceCount: number;
   /** # of supplier service-configs whose revShare[] pays this address (0 = not a recipient). */
   revShareRecipientConfigs: number;
+  /**
+   * # of validators this address has staked POKT with (0 = not a delegator). Always-LCD — the
+   * indexer has no Delegation entity — so this is the one field on the profile that does not come
+   * from the roles query. See lib/data/delegations.ts.
+   */
+  delegationCount: number;
+  /** Total bonded across those delegations, upokt. */
+  delegatedUpokt: string;
 }
 
 export interface OwnedOperatorRow {
@@ -219,7 +228,12 @@ interface AccountRolesResult {
  */
 export async function getAccountProfile(network: NetworkId, id: string): Promise<AccountProfile> {
   // rsMatch: JSON-containment probe — configs whose revShare[] include an entry for this address.
-  const d = await gqlFetch<AccountRolesResult>(network, ACCOUNT_ROLES, { id, rsMatch: [{ address: id }] }, { revalidate: 30 });
+  // The staking delegation probe is LCD-only and independent of the roles query, so run it
+  // alongside rather than after. A dead LCD costs us the delegation role, never the whole page.
+  const [d, delegations] = await Promise.all([
+    gqlFetch<AccountRolesResult>(network, ACCOUNT_ROLES, { id, rsMatch: [{ address: id }] }, { revalidate: 30 }),
+    getDelegations(network, id).catch(() => null),
+  ]);
   const owner =
     d.ownedOperators?.totalCount > 0
       ? { operatorCount: d.ownedOperators.totalCount, totalStakeUpokt: d.ownedOperators.aggregates?.sum?.stakeAmount ?? '0' }
@@ -252,6 +266,8 @@ export async function getAccountProfile(network: NetworkId, id: string): Promise
     ownedServices: d.ownedServices?.nodes ?? [],
     ownedServiceCount: d.ownedServices?.totalCount ?? 0,
     revShareRecipientConfigs: d.revShareRecipient?.totalCount ?? 0,
+    delegationCount: delegations?.rows.length ?? 0,
+    delegatedUpokt: delegations?.totalUpokt ?? '0',
   };
 }
 

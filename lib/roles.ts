@@ -5,7 +5,7 @@ import type { AccountProfile } from '@/lib/data/accounts';
 // once; this file is the single place that knows which roles exist, how they're ranked, and how
 // they're named/tinted, so adding a future actor type is one entry here plus its panels.
 
-export const ROLE_IDS = ['supplier', 'owner', 'application', 'gateway', 'validator', 'service', 'revshare', 'account'] as const;
+export const ROLE_IDS = ['supplier', 'owner', 'application', 'gateway', 'validator', 'delegation', 'service', 'revshare', 'account'] as const;
 export type RoleId = (typeof ROLE_IDS)[number];
 
 export interface RoleMeta {
@@ -24,6 +24,7 @@ export const ROLES: Record<RoleId, RoleMeta> = {
   application: { id: 'application', label: 'Application', title: 'Application', entity: 'application' },
   gateway: { id: 'gateway', label: 'Gateway', title: 'Gateway', entity: 'gateway' },
   validator: { id: 'validator', label: 'Validator', title: 'Validator', entity: 'validator' },
+  delegation: { id: 'delegation', label: 'Delegation', title: 'Staking Delegator', entity: 'validator' },
   service: { id: 'service', label: 'Service Owner', title: 'Service Owner', entity: 'service' },
   revshare: { id: 'revshare', label: 'Rev-share Income', title: 'Rev-share Recipient', entity: 'service' },
   account: { id: 'account', label: 'Account', title: 'Account', entity: 'account' },
@@ -34,7 +35,7 @@ export const ROLES: Record<RoleId, RoleMeta> = {
  * view (the more specific identity); a plain wallet falls through to `account`, unchanged from
  * before this redesign.
  */
-export const ROLE_RANK: RoleId[] = ['supplier', 'owner', 'application', 'gateway', 'validator', 'service', 'revshare', 'account'];
+export const ROLE_RANK: RoleId[] = ['supplier', 'owner', 'application', 'gateway', 'validator', 'delegation', 'service', 'revshare', 'account'];
 
 export function isRoleId(v: string | undefined | null): v is RoleId {
   return v != null && (ROLE_IDS as readonly string[]).includes(v);
@@ -68,6 +69,9 @@ export function heldRoles(profile: AccountProfile): HeldRole[] {
   }
   if (profile.validator) {
     out.push({ meta: ROLES.validator, hint: 'consensus', externalHref: `/validator/${profile.validator.id}` });
+  }
+  if (profile.delegationCount > 0) {
+    out.push({ meta: ROLES.delegation, hint: plural(profile.delegationCount, 'validator') });
   }
   if (profile.ownedServiceCount > 0) {
     out.push({ meta: ROLES.service, hint: plural(profile.ownedServiceCount, 'service') });

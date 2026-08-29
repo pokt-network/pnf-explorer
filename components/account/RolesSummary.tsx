@@ -26,8 +26,10 @@ function UnbondLine({ endHeight, currentHeight, reason }: { endHeight: string | 
  * with no stake roles falls through to a single explanatory line.
  */
 export function RolesSummary({ profile, address, currentHeight }: { profile: AccountProfile; address: string; currentHeight: number | null }) {
-  const { supplier, owner, validator, application, gateway, ownedServices, ownedServiceCount, revShareRecipientConfigs } = profile;
-  const hasAnyRole = supplier || owner || validator || application || gateway || ownedServiceCount > 0 || revShareRecipientConfigs > 0;
+  const { supplier, owner, validator, application, gateway, ownedServices, ownedServiceCount, revShareRecipientConfigs, delegationCount, delegatedUpokt } =
+    profile;
+  const hasAnyRole =
+    supplier || owner || validator || application || gateway || ownedServiceCount > 0 || revShareRecipientConfigs > 0 || delegationCount > 0;
 
   return (
     <div className="card kv" style={{ paddingTop: 0 }}>
@@ -108,6 +110,17 @@ export function RolesSummary({ profile, address, currentHeight }: { profile: Acc
             {gateway.stakeStatus === 'Unstaking' ? (
               <UnbondLine endHeight={gateway.unstakingEndHeight} currentHeight={currentHeight} />
             ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {delegationCount > 0 ? (
+        <div className="line">
+          <div className="k">Staking Delegator</div>
+          <div className="v">
+            <b>{formatNumber(delegationCount)}</b> validator{delegationCount === 1 ? '' : 's'}{' '}
+            <span className="dim">· {formatPokt(delegatedUpokt)} POKT bonded</span>
+            <div className="muted" style={{ marginTop: 4 }}>See the Delegation tab for payouts and rate.</div>
           </div>
         </div>
       ) : null}
