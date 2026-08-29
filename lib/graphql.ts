@@ -46,8 +46,18 @@ export async function gqlFetch<T>(
 
   if (!res.ok) {
     const denyReason = res.headers.get('x-deny-reason') ?? undefined;
+    // A GraphQL validation error (bad variable, unknown field) comes back as 400 WITH the reason in
+    // the body. Read it — throwing on status alone turns a one-line "variable $x of non-null type
+    // was not provided" into an unattributable 400.
+    let detail = '';
+    try {
+      const body = (await res.json()) as { errors?: { message: string }[] };
+      if (body.errors?.length) detail = `: ${body.errors.map((e) => e.message).join('; ')}`;
+    } catch {
+      /* non-JSON body — status alone is all we get */
+    }
     throw new DataError(
-      denyReason ? `Indexer request denied: ${denyReason}` : `Indexer responded ${res.status}`,
+      denyReason ? `Indexer request denied: ${denyReason}` : `Indexer responded ${res.status}${detail}`,
       'server',
       res.status,
       denyReason,

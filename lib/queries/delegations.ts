@@ -92,14 +92,5 @@ export const DELEGATION_WINDOW = /* GraphQL */ `
   }
 `;
 
-/** Newest block at or before a wall-clock cutoff — turns "30 days ago" into a real block height. */
-export const DELEGATION_WINDOW_BLOCK = /* GraphQL */ `
-  query delegationWindowBlock($cutoff: Datetime!) {
-    blocks(first: 1, orderBy: ID_DESC, filter: { timestamp: { lessThanOrEqualTo: $cutoff } }) {
-      nodes {
-        id
-        timestamp
-      }
-    }
-  }
-`;
+// The trailing window's start block is resolved by the shared helper in lib/data/window.ts —
+// never from a nominal block time. See that file for why.

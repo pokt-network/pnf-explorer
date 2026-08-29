@@ -5,7 +5,8 @@ import type { NetworkId } from '@/lib/networks';
 import { UPOKT_PER_POKT } from '@/lib/config';
 import { toBigInt } from '@/lib/format';
 import { toDate } from '@/lib/time';
-import { DELEGATION_SETTLEMENTS, DELEGATION_WINDOW, DELEGATION_WINDOW_BLOCK } from '@/lib/queries/delegations';
+import { DELEGATION_SETTLEMENTS, DELEGATION_WINDOW } from '@/lib/queries/delegations';
+import { resolveWindowStart } from '@/lib/data/window';
 
 // Staking-delegation data layer. See lib/queries/delegations.ts for the verified model; the short
 // version is that Shannon pays the validator pool's settlement share DIRECTLY to delegator wallets
@@ -230,28 +231,6 @@ export interface DelegationEarnings {
 }
 
 /**
- * Resolve the window's starting block from a real block timestamp. Deriving it from an assumed 60s
- * block time would bake a multi-day error into the APR as soon as block time drifts.
- */
-async function windowStartBlock(network: NetworkId, days: number): Promise<{ height: string; timestamp: string } | null> {
-  const cutoff = new Date(Date.now() - days * 86_400_000);
-  // Indexer timestamps are UTC-naive ("2026-07-30T17:59:36.047"), so send the cutoff the same way.
-  const iso = cutoff.toISOString().replace('Z', '');
-  try {
-    const d = await gqlFetch<{ blocks: { nodes: { id: string; timestamp: string }[] } }>(
-      network,
-      DELEGATION_WINDOW_BLOCK,
-      { cutoff: iso },
-      { revalidate: 300 },
-    );
-    const n = d.blocks.nodes[0];
-    return n ? { height: n.id, timestamp: n.timestamp } : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Trailing-window income, daily average and APR, derived per validator in one round trip.
  *
  * Two caveats, both surfaced on the view: APR is backward-looking (it annualises the settlement
@@ -264,7 +243,7 @@ export async function getDelegationEarnings(
   set: DelegationSet,
   days = EARNINGS_WINDOW_DAYS,
 ): Promise<DelegationEarnings | null> {
-  const start = await windowStartBlock(network, days);
+  const start = await resolveWindowStart(network, days);
   if (!start) return null;
 
   const validators = set.rows.map((r) => r.validatorAddress);

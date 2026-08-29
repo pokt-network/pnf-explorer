@@ -4,7 +4,10 @@ import { lcdFetch } from '@/lib/lcd';
 import { getMetadata } from '@/lib/metadata';
 import type { NetworkId } from '@/lib/networks';
 import { validatorMoniker } from '@/lib/validator';
-import { VALIDATORS_LIST, VALIDATOR_BY_ID, VALIDATOR_UPTIME } from '@/lib/queries/validators';
+import { VALIDATORS_LIST, VALIDATOR_BY_ID, VALIDATOR_UPTIME, VALIDATOR_DELEGATOR_APR } from '@/lib/queries/validators';
+import { resolveWindowStart } from '@/lib/data/window';
+import { toBigInt } from '@/lib/format';
+import { toDate } from '@/lib/time';
 
 // Validator data layer. commission + description are JSON OBJECTS (parse via lib/validator).
 // stakeStatus is the StakeStatus enum (Staked/Unstaking/Unstaked) — NOT Bonded/Unbonding.
@@ -108,10 +111,14 @@ export const getConsensusValidatorMap = cache(async (network: NetworkId): Promis
 });
 
 // ---- voting power (total bonded tokens, always-LCD) ----
-// The indexer's `stakeAmount` is the operator SELF-stake only (the amount the operator staked at
-// create time). True voting power / security weight is the validator's total bonded `tokens`
-// (self-stake + all delegations), which the indexer does not expose — only the Cosmos LCD does.
-// Like Delegators (§2), this is inherently always-LCD; callers fall back to `stakeAmount` if absent.
+// CORRECTION (verified 2026-08-29 across 8 validators): the indexer's `stakeAmount` is NOT the
+// operator's self-stake. It equals the LCD's `tokens` exactly, which equals the sum of every
+// delegation — i.e. it is already TOTAL BONDED. This file previously claimed otherwise and the
+// validator page rendered it as "Self-stake", showing the same number twice under two labels.
+// Self-stake is not readily recoverable: the operator's own delegation does not appear under the
+// signer address in the delegations list, and `selfDelegationRewardAmount` implies it is ~1 POKT.
+// The LCD remains the primary source here (always-LCD like Delegators, §2); `stakeAmount` is a
+// fallback for the same figure, not a different one.
 interface LcdValidatorTokens {
   operator_address?: string;
   tokens?: string;
@@ -293,4 +300,95 @@ export async function getDelegators(network: NetworkId, valoper: string): Promis
   } catch {
     return [];
   }
+}
+
+// ---- delegator APR ----
+
+/** Trailing window for the validator's advertised delegator return. */
+export const APR_WINDOW_DAYS = 30;
+
+export interface DelegatorApr {
+  /** Net annualised return to a delegator, percent. Already after commission — see the query. */
+  aprPct: number;
+  /** POKT (upokt) paid to delegators over the window, after commission. */
+  delegatorUpokt: string;
+  /** Commission the operator took over the same window, upokt. */
+  commissionUpokt: string;
+  /** Mean stake the rewards were divided over, upokt. */
+  avgStakeUpokt: string;
+  settlements: number;
+  /** Days the validator was actually settling inside the window. */
+  activeDays: number;
+  /** True when the validator was not settling for the whole window (joined or paused inside it). */
+  partialWindow: boolean;
+  /** True when the bonded stake moved during the window, making the mean an approximation. */
+  stakeDrifted: boolean;
+}
+
+/**
+ * Net delegator APR for one validator over a trailing window.
+ *
+ * `delegatorsRewardAmount` is already net of commission, so this is what a delegator actually
+ * receives — do NOT subtract commission again.
+ *
+ * Backward-looking by construction: it annualises the relay settlement this validator actually
+ * earned in the window. It is not a promised or forward rate, and it moves with network demand.
+ */
+export async function getValidatorDelegatorApr(
+  network: NetworkId,
+  valoper: string,
+  days = APR_WINDOW_DAYS,
+): Promise<DelegatorApr | null> {
+  const start = await resolveWindowStart(network, days);
+  if (!start) return null;
+
+  interface Edge {
+    nodes: { blockId: string; block: { timestamp: string } | null }[];
+  }
+  let d: {
+    window: {
+      totalCount: number;
+      aggregates: {
+        sum: { delegatorsRewardAmount: string | null; commissionAmount: string | null } | null;
+        average: { totalDelegatedStakeAmount: string | null } | null;
+        min: { totalDelegatedStakeAmount: string | null } | null;
+        max: { totalDelegatedStakeAmount: string | null } | null;
+      } | null;
+    } | null;
+    first: Edge | null;
+    last: Edge | null;
+  };
+  try {
+    d = await gqlFetch(network, VALIDATOR_DELEGATOR_APR, { id: valoper, startBlock: start.height }, { revalidate: 300 });
+  } catch {
+    return null;
+  }
+
+  const settlements = d.window?.totalCount ?? 0;
+  const agg = d.window?.aggregates;
+  const avgStake = Number(agg?.average?.totalDelegatedStakeAmount ?? 0);
+  // Two settlements is the minimum that defines a span; below that there is no rate to report.
+  if (settlements < 2 || !(avgStake > 0)) return null;
+
+  const firstAt = toDate(d.first?.nodes?.[0]?.block?.timestamp)?.getTime() ?? null;
+  const lastAt = toDate(d.last?.nodes?.[0]?.block?.timestamp)?.getTime() ?? null;
+  if (firstAt == null || lastAt == null || lastAt <= firstAt) return null;
+
+  // The span between first and last settlement covers n-1 intervals but the sum covers n
+  // settlements; scale up so a validator with few settlements is not under-rated.
+  const spanDays = ((lastAt - firstAt) / 86_400_000) * (settlements / (settlements - 1));
+  const delegator = Number(toBigInt(agg?.sum?.delegatorsRewardAmount));
+  const aprPct = ((delegator / spanDays) * 365 * 100) / avgStake;
+
+  return {
+    aprPct,
+    delegatorUpokt: toBigInt(agg?.sum?.delegatorsRewardAmount).toString(),
+    commissionUpokt: toBigInt(agg?.sum?.commissionAmount).toString(),
+    avgStakeUpokt: Math.round(avgStake).toString(),
+    settlements,
+    activeDays: spanDays,
+    // Allow a session's slack: a full window still starts a few minutes after the boundary block.
+    partialWindow: spanDays < days - 0.5,
+    stakeDrifted: (agg?.min?.totalDelegatedStakeAmount ?? null) !== (agg?.max?.totalDelegatedStakeAmount ?? null),
+  };
 }

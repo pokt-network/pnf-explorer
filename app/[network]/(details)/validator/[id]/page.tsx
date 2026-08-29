@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { NetLink as Link } from '@/components/shell/NetLink';
@@ -11,6 +12,7 @@ import { StakeStatusPill } from '@/components/ui/StatusPill';
 import { AddressTransactionsPanel, AddressTransfersPanel, addressTabCounts } from '@/components/address/AddressPanels';
 import { UptimeGrid } from '@/components/validator/UptimeGrid';
 import { DelegatorsPanel } from '@/components/validator/DelegatorsPanel';
+import { DelegatorAprCard, DelegatorAprSkeleton } from '@/components/validator/DelegatorAprCard';
 import { getUseRpcData } from '@/lib/metadata';
 import { getValidator, getValidatorUptime, getDelegators, getValidatorBondedTokens, getValidatorUnbonding } from '@/lib/data/validators';
 import type { NetworkId } from '@/lib/networks';
@@ -61,8 +63,10 @@ export default async function ValidatorDetailPage({
   // Voting power is the total bonded `tokens` (self-stake + delegations) — the security weight —
   // NOT the indexer's `stakeAmount`, which is the operator self-stake only. LCD is the only source
   // for the total; fall back to the self-stake if the LCD is unavailable.
-  const selfStakeUpokt = validator.stakeAmount ?? '0';
-  const votingPowerUpokt = bondedTokens ?? selfStakeUpokt;
+  // The indexer's `stakeAmount` is the validator's TOTAL bonded stake, not its self-stake — verified
+  // across 8 validators, where stakeAmount === the LCD's `tokens` === the sum of every delegation.
+  // It is only a fallback for the LCD figure here; do not present it as self-stake.
+  const votingPowerUpokt = bondedTokens ?? validator.stakeAmount ?? '0';
 
   const delegatorPanel = <DelegatorsPanel network={network} valoper={validator.id} signerId={operator} />;
   const uptimePanel = <UptimeGrid uptime={uptime} />;
@@ -117,7 +121,7 @@ export default async function ValidatorDetailPage({
         </div>
       </div>
 
-      <div className="toprow">
+      <div className="toprow c3">
         <div className="card balance">
           <div className="lbl">Voting Power (Bonded)</div>
           <div className="big">
@@ -125,12 +129,17 @@ export default async function ValidatorDetailPage({
             <span className="u"> POKT</span>
           </div>
           <div className="upokt">{formatUpokt(votingPowerUpokt)} upokt</div>
-          <div className="upd">Self-stake {formatPokt(selfStakeUpokt)} POKT</div>
           <div className="upd">
             Signer balance{' '}
             {signerBalance && Number(signerBalance.amount) > 0 ? `${formatPokt(signerBalance.amount)} POKT` : '—'}
           </div>
         </div>
+
+        {/* Net delegator return, streamed: a ~2s indexer aggregate must not hold the page. The
+            skeleton is the same shape as the card, so the 3-up row never shifts. */}
+        <Suspense fallback={<DelegatorAprSkeleton />}>
+          <DelegatorAprCard network={network} valoper={validator.id} commission={validator.commission} />
+        </Suspense>
 
         <div className="card kv" style={{ paddingTop: 0 }}>
           <div className="ttl">Validator Info</div>
