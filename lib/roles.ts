@@ -52,9 +52,17 @@ export interface HeldRole {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
 
-/** Every role this address actually holds, in rail order. `account` is always last and always present. */
+/**
+ * Every role this address actually holds, in tab order. `account` is always present and always
+ * FIRST — the wallet is the one identity every address has, so it anchors the left edge of the tab
+ * strip and stays put as the actor tabs beside it change from address to address.
+ *
+ * Tab order is presentation only. Which role a paramless URL OPENS on is `resolveRole`, which ranks
+ * by ROLE_RANK (most specific first) and is deliberately unaffected by this order — a supplier
+ * address still opens on Supplier, not on its wallet.
+ */
 export function heldRoles(profile: AccountProfile): HeldRole[] {
-  const out: HeldRole[] = [];
+  const out: HeldRole[] = [{ meta: ROLES.account, hint: 'wallet' }];
   if (profile.supplier) {
     out.push({ meta: ROLES.supplier, hint: plural(profile.supplier.serviceConfigs.totalCount, 'service') });
   }
@@ -79,7 +87,6 @@ export function heldRoles(profile: AccountProfile): HeldRole[] {
   if (profile.revShareRecipientConfigs > 0) {
     out.push({ meta: ROLES.revshare, hint: plural(profile.revShareRecipientConfigs, 'config') });
   }
-  out.push({ meta: ROLES.account, hint: 'wallet' });
   return out;
 }
 
