@@ -176,6 +176,10 @@ main{max-width:var(--maxw);margin:0 auto;padding:8px 24px 64px}
 .rolecard .rl b{font-size:13.5px;font-weight:600;color:var(--text-secondary)}
 .rolecard.active .rl b{color:var(--text-primary)}
 .rolecard .rl em{font-style:normal;font-size:11.5px;color:var(--text-tertiary);font-variant-numeric:tabular-nums}
+/* Tertiary is too low-contrast to read against the active tab's tint — size and weight already
+   carry the hierarchy here, so the sub-label goes full white (its own primary in light). */
+.rolecard.active .rl em{color:#fff}
+[data-theme=light] .rolecard.active .rl em{color:var(--text-primary)}
 
 /* ---- merged role summary box (the panel the role tabs open onto) ---- */
 /* One full-width box per role instead of a row of free-floating cards. Children arrive as their own
