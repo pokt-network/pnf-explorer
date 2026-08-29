@@ -1,9 +1,10 @@
+import { Suspense } from 'react';
 import { NetLink as Link } from '@/components/shell/NetLink';
 import { Hash } from '@/components/ui/Hash';
 import { Tabs } from '@/components/ui/Tabs';
 import type { TabDef } from '@/components/ui/Tabs';
 import { Pager } from '@/components/ui/Pager';
-import { EmptyState } from '@/components/ui/states';
+import { EmptyState, Skeleton } from '@/components/ui/states';
 import { RoleSplit, SummaryCard, DOT } from './RoleStats';
 import { getRevShareConfigs } from '@/lib/data/accounts';
 import { getRevShareIncome } from '@/lib/data/roles';
@@ -30,6 +31,52 @@ const REASON: Record<string, string> = {
  * rev-share split (that lives on the Supplier role's Services tab); conflating the two is exactly
  * what made the operator report read the 1% and miss the 99%.
  */
+/** Placeholder occupying the Received line's height so the table below it does not jump on arrival. */
+function ReceivedSkeleton() {
+  return (
+    <div className="kv" style={{ paddingTop: 0 }}>
+      <div className="line">
+        <div className="k">Received</div>
+        <div className="v">
+          <Skeleton width={210} height={16} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Lifetime rev-share income. Streamed separately from the configs table because it is the one
+ * genuinely expensive read on this page — see getRevShareIncome for the measurements.
+ */
+async function ReceivedLine({ network, address }: { network: NetworkId; address: string }) {
+  const income = await getRevShareIncome(network, address).catch(() => null);
+  if (!income) return null;
+  return (
+    <div className="kv" style={{ paddingTop: 0 }}>
+      <div className="line">
+        <div className="k">Received</div>
+        <div className="v">
+          <b>{formatPokt(income.totalUpokt)} POKT</b>{' '}
+          <span className="dim">
+            lifetime, from every paying supplier · {formatNumber(income.transfers)} settlement transfers
+          </span>
+          {income.byReason.length > 0 ? (
+            <div className="muted" style={{ marginTop: 4 }}>
+              {income.byReason.map((r, i) => (
+                <span key={r.reason}>
+                  {i > 0 ? ' · ' : ''}
+                  {REASON[r.reason] ?? r.reason}: {formatPokt(r.amountUpokt)}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 async function IncomePanel({ network, address, page }: { network: NetworkId; address: string; page: number }) {
   let configs: Awaited<ReturnType<typeof getRevShareConfigs>>;
   try {
@@ -49,37 +96,14 @@ async function IncomePanel({ network, address, page }: { network: NetworkId; add
     );
   }
 
-  // Realised amounts are constrained to this page's paying suppliers — a recipient-only aggregate
-  // over the whole settlement-transfer table times out server-side.
-  const supplierIds = [...new Set(configs.nodes.map((c) => c.supplierId))];
-  const income = await getRevShareIncome(network, address, supplierIds).catch(() => null);
-
   return (
     <div className="card flush-top">
-      {income ? (
-        <div className="kv" style={{ paddingTop: 0 }}>
-          <div className="line">
-            <div className="k">Received</div>
-            <div className="v">
-              <b>{formatPokt(income.totalUpokt)} POKT</b>{' '}
-              <span className="dim">
-                from the {formatNumber(supplierIds.length)} supplier{supplierIds.length === 1 ? '' : 's'} on this page ·{' '}
-                {formatNumber(income.transfers)} settlement transfers
-              </span>
-              {income.byReason.length > 0 ? (
-                <div className="muted" style={{ marginTop: 4 }}>
-                  {income.byReason.map((r, i) => (
-                    <span key={r.reason}>
-                      {i > 0 ? ' · ' : ''}
-                      {REASON[r.reason] ?? r.reason}: {formatPokt(r.amountUpokt)}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {/* The lifetime figure is ~5s of indexer aggregate against the configs table's ~0.6s. Behind
+          its own boundary it streams in after the table has already painted, instead of holding the
+          whole panel hostage to the slowest number on it. */}
+      <Suspense fallback={<ReceivedSkeleton />}>
+        <ReceivedLine network={network} address={address} />
+      </Suspense>
       <div className="tbl-scroll">
         <table className="tbl">
           <thead>

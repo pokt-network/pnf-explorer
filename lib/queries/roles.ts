@@ -318,14 +318,31 @@ export const SERVICE_OWNER_ROLE = /* GraphQL */ `
 `;
 
 // ---- rev-share income (reverse lookup) ----
-// "Which suppliers pay THIS address, and what has it actually received." The amount half is
-// constrained to the paying suppliers on the current page — a recipientId-only aggregate over the
-// whole transfer table times out. modToAcctTransfers carries no supplierId column, so a per-supplier
-// split isn't groupable here; the per-recipient breakdown lives on each supplier's Earnings tab.
+// "What has this address actually been paid as a rev-share recipient", lifetime, across every
+// supplier that pays it.
+//
+// PERFORMANCE (measured 2026-08-29 against a 395-config recipient, 72,901 transfers):
+//   groupedAggregates(groupBy: OP_REASON)  59.00s   <- what this used to do
+//   same filter, no groupedAggregates       4.95s
+//   per-reason aliases, recipient only      5.28s   <- what it does now
+// The by-reason grouping was 54 of those 59 seconds. Splitting it into one aliased aggregate per
+// reason is index-backed, ~11x faster, and returns the SAME breakdown — the grouping was doing a
+// full scan to discover reason keys we already know from the enum.
+//
+// Dropping the `eventClaimSettled.supplierId` join also drops the page's supplier ids out of the
+// cache key, so the figure is computed once per recipient instead of once per page of results. It
+// is a lifetime total now rather than "from the suppliers on this page", which is both the more
+// meaningful number and the one that survives pagination.
+//
+// The recipientId+opReason pair is the index that makes this viable — recipientId alone times out
+// server-side. Never drop the opReason (same trap as the delegation queries).
 export const REVSHARE_INCOME_AMOUNTS = /* GraphQL */ `
-  query revShareIncomeAmounts($recipient: String!, $supplierIds: [String!]) {
-    modToAcctTransfers(
-      filter: { recipientId: { equalTo: $recipient }, eventClaimSettled: { supplierId: { in: $supplierIds } } }
+  query revShareIncomeAmounts($recipient: String!) {
+    relay: modToAcctTransfers(
+      filter: {
+        recipientId: { equalTo: $recipient }
+        opReason: { equalTo: TLM_RELAY_BURN_EQUALS_MINT_SUPPLIER_SHAREHOLDER_RD }
+      }
     ) {
       totalCount
       aggregates {
@@ -333,8 +350,15 @@ export const REVSHARE_INCOME_AMOUNTS = /* GraphQL */ `
           amount
         }
       }
-      byReason: groupedAggregates(groupBy: [OP_REASON]) {
-        keys
+    }
+    mint: modToAcctTransfers(
+      filter: {
+        recipientId: { equalTo: $recipient }
+        opReason: { equalTo: TLM_GLOBAL_MINT_SUPPLIER_SHAREHOLDER_REWARD_DISTRIBUTION }
+      }
+    ) {
+      totalCount
+      aggregates {
         sum {
           amount
         }
