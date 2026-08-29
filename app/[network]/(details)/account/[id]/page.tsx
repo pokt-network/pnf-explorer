@@ -42,7 +42,7 @@ interface AddressSearchParams {
 /** An actor the address holds but whose data the indexer couldn't return on this request. */
 function RoleUnavailable({ what }: { what: string }) {
   return (
-    <div className="card">
+    <div className="card rolebox">
       <EmptyState>Couldn’t load the {what} view right now.</EmptyState>
     </div>
   );
@@ -167,7 +167,9 @@ export default async function AccountDetailPage({
 
       <RoleSwitcher address={id} held={held} active={active} />
 
-      {body}
+      {/* `railed` = the role tabs rendered, so the role's summary box squares off its top corners
+          and joins them. A single-role address has no tabs, so the box stays a plain card. */}
+      <div className={held.length > 1 ? 'roleview railed' : 'roleview'}>{body}</div>
     </>
   );
 }

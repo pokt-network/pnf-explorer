@@ -2,9 +2,9 @@ import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { Tic } from '@/components/ui/Icons';
 import { Skeleton } from '@/components/ui/states';
 
-// Skeleton for the role-organised address page: title, the role rail, then a stat row + detail
-// card. The rail width is a guess (the held roles aren't known until the profile resolves), so it
-// renders two placeholder cards — enough to reserve the row without implying a specific role count.
+// Skeleton for the role-organised address page: title, the role tabs, then the merged summary box +
+// detail card. The strip width is a guess (the held roles aren't known until the profile resolves),
+// so it renders two placeholder tabs — enough to reserve the row without implying a role count.
 export default function Loading() {
   return (
     <>
@@ -23,7 +23,7 @@ export default function Loading() {
 
       <div className="rolerail">
         {Array.from({ length: 2 }).map((_, i) => (
-          <div className="rolecard" key={i}>
+          <div className={`rolecard${i === 0 ? ' active' : ''}`} key={i}>
             <Skeleton width={30} height={30} />
             <span className="rl">
               <Skeleton width={78} height={12} />
@@ -35,28 +35,30 @@ export default function Loading() {
         ))}
       </div>
 
-      <div className="sumrow">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div className="card sum" key={i}>
-            <Skeleton width={80} height={11} />
-            <div style={{ marginTop: 8 }}>
-              <Skeleton width={110} height={20} />
+      <div className="roleview railed">
+        <div className="card rolebox statsbox">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div className="card sum" key={i}>
+              <Skeleton width={80} height={11} />
+              <div style={{ marginTop: 8 }}>
+                <Skeleton width={110} height={20} />
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
 
-      <div className="card kv" style={{ paddingTop: 15 }}>
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div className="line" key={i}>
-            <div className="k">
-              <Skeleton width={90} />
+        <div className="card kv" style={{ paddingTop: 15 }}>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div className="line" key={i}>
+              <div className="k">
+                <Skeleton width={90} />
+              </div>
+              <div className="v">
+                <Skeleton width={`${40 + (i % 3) * 15}%`} />
+              </div>
             </div>
-            <div className="v">
-              <Skeleton width={`${40 + (i % 3) * 15}%`} />
-            </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </>
   );

@@ -4,7 +4,7 @@ import { Tabs } from '@/components/ui/Tabs';
 import type { TabDef } from '@/components/ui/Tabs';
 import { Pager } from '@/components/ui/Pager';
 import { EmptyState } from '@/components/ui/states';
-import { RoleStats, SummaryCard, DOT } from './RoleStats';
+import { RoleSplit, SummaryCard, DOT } from './RoleStats';
 import { getRevShareConfigs } from '@/lib/data/accounts';
 import { getRevShareIncome } from '@/lib/data/roles';
 import type { NetworkId } from '@/lib/networks';
@@ -140,23 +140,22 @@ export function RevShareRoleView({
 
   return (
     <>
-      <RoleStats>
+      <RoleSplit>
         <SummaryCard label="Paying Configs" dot={DOT.mint} value={formatNumber(configCount)} />
-      </RoleStats>
-
-      <div className="card kv" style={{ paddingTop: 0 }}>
-        <div className="ttl">Rev-share Recipient</div>
-        <div className="line">
-          <div className="k">Earns from</div>
-          <div className="v">
-            <b>{formatNumber(configCount)}</b> supplier service config{configCount === 1 ? '' : 's'}
-            <div className="muted" style={{ marginTop: 4 }}>
-              This is income <i>into</i> this address. A supplier’s own outgoing split lives on that supplier’s Services and
-              Earnings tabs.
+        <div className="kv" style={{ paddingTop: 0 }}>
+          <div className="ttl">Rev-share Recipient</div>
+          <div className="line">
+            <div className="k">Earns from</div>
+            <div className="v">
+              <b>{formatNumber(configCount)}</b> supplier service config{configCount === 1 ? '' : 's'}
+              <div className="muted" style={{ marginTop: 4 }}>
+                This is income <i>into</i> this address. A supplier’s own outgoing split lives on that supplier’s Services and
+                Earnings tabs.
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      </RoleSplit>
 
       <Tabs tabs={tabs} />
     </>

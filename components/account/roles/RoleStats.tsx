@@ -3,9 +3,21 @@ import { SummaryCard, DOT } from '@/components/ui/SummaryCard';
 import { formatNumber } from '@/lib/format';
 import { etaFromBlocks } from '@/lib/time';
 
-/** Stat row above a role's tabs. 4-up on desktop, matching the list pages' summary row. */
+/**
+ * The role's summary box: one full-width panel hanging off the role tabs, not a row of separate
+ * cards. 4-up on desktop, 2-up under 820px, divided by hairlines rather than gaps.
+ */
 export function RoleStats({ children }: { children: React.ReactNode }) {
-  return <div className="sumrow">{children}</div>;
+  return <div className="card rolebox statsbox">{children}</div>;
+}
+
+/**
+ * Same box, two panels: a lead stat on the left and its explainer on the right. For roles whose
+ * whole quantitative story is a single number (rev-share income, service owner), where a lone stat
+ * card floating above an explainer card reads as two orphans.
+ */
+export function RoleSplit({ children }: { children: React.ReactNode }) {
+  return <div className="card rolebox splitbox lead">{children}</div>;
 }
 
 export { SummaryCard, DOT };

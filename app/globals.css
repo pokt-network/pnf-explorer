@@ -160,18 +160,43 @@ main{max-width:var(--maxw);margin:0 auto;padding:8px 24px 64px}
 .dim{color:var(--text-tertiary)}
 .muted{color:var(--text-tertiary)}
 
-/* ---- role rail (primary actor switch on an address page) ---- */
-/* Sits above the tab bar and must NOT read as tabs: cards, not underlines. Each entry is one
-   on-chain actor the address is; the tab bar below belongs to whichever entry is active. */
-.rolerail{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0 2px}
-.rolecard{display:flex;align-items:center;gap:10px;padding:9px 14px 9px 10px;border:1px solid var(--border);border-radius:11px;background:var(--bg-card);text-decoration:none;transition:all .15s ease}
+/* ---- role tabs (primary actor switch on an address page) ---- */
+/* Real tabs, not a card rail: the active tab carries its actor's icon tint and merges into the
+   summary box directly below it, so control and panel read as one unit. The strip scrolls
+   horizontally instead of wrapping — a wrapped row would break the join to the box. */
+.rolerail{display:flex;align-items:flex-end;gap:5px;margin:18px 0 0;padding:2px 2px 0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+.rolerail::-webkit-scrollbar{display:none}
+.rolecard{position:relative;flex:none;display:flex;align-items:center;gap:10px;padding:9px 15px 10px 11px;margin-bottom:-1px;border:1px solid var(--border);border-bottom:none;border-radius:11px 11px 0 0;background:var(--bg-surface);text-decoration:none;transition:background .15s ease,border-color .15s ease}
 .rolecard:hover{background:var(--bg-card-hover);border-color:var(--border-hover)}
-.rolecard.active{border-color:var(--blue-soft);background:var(--bg-card-hover)}
+/* Active tab: its entity tint as the fill, its entity colour as the top accent, and a 1px overlap
+   (z-index above the box) so the box's top border stops at the tab and the two become one shape. */
+.rolecard.active{z-index:2;background-color:var(--bg-card);background-image:linear-gradient(var(--role-tint,transparent),var(--role-tint,transparent));border-color:var(--border);box-shadow:inset 0 2px 0 var(--role-color,var(--blue-soft))}
 .rolerail .tic{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:none}
-.rolecard .rl{display:flex;flex-direction:column;line-height:1.25}
+.rolecard .rl{display:flex;flex-direction:column;line-height:1.25;white-space:nowrap}
 .rolecard .rl b{font-size:13.5px;font-weight:600;color:var(--text-secondary)}
 .rolecard.active .rl b{color:var(--text-primary)}
 .rolecard .rl em{font-style:normal;font-size:11.5px;color:var(--text-tertiary);font-variant-numeric:tabular-nums}
+
+/* ---- merged role summary box (the panel the role tabs open onto) ---- */
+/* One full-width box per role instead of a row of free-floating cards. Children arrive as their own
+   .card (SummaryCard, RolesSummary, the balance card) and are flattened into panels divided by
+   hairlines. `.railed` = the role tabs are actually on screen, so square off the top corners. */
+.rolebox{margin-bottom:18px;overflow:hidden}
+.roleview.railed>.rolebox{border-top-left-radius:0;border-top-right-radius:0}
+.rolebox>.card{background:none;border:none;border-radius:0;min-width:0}
+.rolebox+.tabs{margin-top:14px}
+.rolebox.statsbox{display:grid;grid-template-columns:repeat(4,1fr)}
+.rolebox.statsbox>.card{padding:16px 20px;border-left:1px solid var(--border)}
+.rolebox.statsbox>.card:first-child{border-left:none}
+.rolebox.splitbox{display:grid;grid-template-columns:1fr 1fr}
+.rolebox.splitbox>*{min-width:0}
+.rolebox.splitbox>*+*{border-left:1px solid var(--border)}
+/* Stat + explainer: the stat only needs a column, not a half. */
+.rolebox.splitbox.lead{grid-template-columns:minmax(200px,280px) 1fr}
+.rolebox.splitbox>.sum{padding:18px 22px}
+/* Panels now share one box, so their section labels have to share one baseline. */
+.rolebox.splitbox>.balance{padding:18px 22px 22px}
+.rolebox .kv .ttl{padding-top:18px}
 
 /* ---- tabs ---- */
 .tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin:26px 0 0;padding:0 4px;flex-wrap:wrap}
@@ -419,6 +444,11 @@ footer .rt a:hover{color:var(--blue-soft)}
 @media(max-width:820px){
   .toprow{grid-template-columns:1fr}
   .sumrow,.sumrow.c3{grid-template-columns:repeat(2,1fr)}
+  .rolebox.statsbox{grid-template-columns:repeat(2,1fr)}
+  .rolebox.statsbox>.card:nth-child(odd){border-left:none}
+  .rolebox.statsbox>.card:nth-child(n+3){border-top:1px solid var(--border)}
+  .rolebox.splitbox,.rolebox.splitbox.lead{grid-template-columns:1fr}
+  .rolebox.splitbox>*+*{border-left:none;border-top:1px solid var(--border)}
 }
 @media(max-width:720px){
   .kv .k{width:150px}.kv.narrow .k{width:140px}

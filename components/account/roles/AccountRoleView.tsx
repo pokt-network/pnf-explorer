@@ -65,7 +65,7 @@ export async function AccountRoleView({
 
   return (
     <>
-      <div className="toprow">
+      <div className="card rolebox splitbox">
         <div className="card balance">
           <div className="lbl">Balance</div>
           <div className="big">
