@@ -83,7 +83,7 @@ export async function AccountRoleView({
           ) : null}
         </div>
 
-        <RolesSummary profile={profile} address={address} currentHeight={currentHeight} />
+        <RolesSummary network={network} profile={profile} address={address} currentHeight={currentHeight} />
       </div>
 
       <Tabs tabs={tabs} />

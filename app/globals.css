@@ -21,6 +21,9 @@
 :root{
   --blue:#025af2; --blue-soft:#4c9bf5; --gold:#ffc547;
   --mint:#48e5c2; --coral:#ff5a5f; --lavender:#b8b8ff;
+  /* Validator active-set ramp. --lime and --orange are the half-steps that turn the existing
+     mint -> gold -> coral trio into an even five-stop scale (see .s-active … .s-removed). */
+  --lime:#a5dd6b; --orange:#ff8f53;
   --radius-card:12px; --radius-lg:16px; --maxw:1200px;
   --mono:ui-monospace,Menlo,monospace;
 }
@@ -246,6 +249,15 @@ main{max-width:var(--maxw);margin:0 auto;padding:8px 24px 64px}
 .s-ok{background:rgba(72,229,194,.12);color:var(--mint)}
 .s-fail{background:rgba(255,90,95,.12);color:var(--coral)}
 .s-unstk{background:rgba(255,197,71,.14);color:var(--gold)}
+/* Validator active-set states, ramped green -> yellow-green -> yellow -> orange -> red by how far
+   the validator is from producing blocks. Only .s-active has consensus voting power. */
+.s-active{background:rgba(72,229,194,.12);color:var(--mint)}
+.s-inactive{background:rgba(165,221,107,.14);color:var(--lime)}
+.s-leaving{background:rgba(255,197,71,.14);color:var(--gold)}
+.s-jailed{background:rgba(255,143,83,.14);color:var(--orange)}
+.s-removed{background:rgba(255,90,95,.12);color:var(--coral)}
+/* The pills carry a title= explainer, so flag them as such rather than leaving a bare cursor. */
+.statuspill[title]{cursor:help}
 
 /* ---- entity type tags ---- */
 .typetag{font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:7px}

@@ -3,17 +3,17 @@ import { NetLink as Link } from '@/components/shell/NetLink';
 import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { Tic } from '@/components/ui/Icons';
 import { Pager } from '@/components/ui/Pager';
-import { StakeStatusPill } from '@/components/ui/StatusPill';
+import { ValidatorStatePill } from '@/components/ui/StatusPill';
 import { EmptyState } from '@/components/ui/states';
 import {
   getValidatorList,
-  getBondedTokensMap,
+  getValidatorChainStates,
   getValidatorDelegatorAprMap,
   APR_WINDOW_DAYS,
 } from '@/lib/data/validators';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, truncate } from '@/lib/format';
-import { formatCommission, validatorMoniker } from '@/lib/validator';
+import { formatCommission, validatorMoniker, deriveValidatorState } from '@/lib/validator';
 import { sumUpokt } from '@/lib/tx';
 
 export const metadata: Metadata = { title: 'Validators' };
@@ -33,9 +33,11 @@ export default async function ValidatorsPage({
   const { page: pageParam } = await searchParams;
   const page = Math.max(1, Number(pageParam) || 1);
 
-  const [{ nodes, totalCount }, bondedTokens, aprByValidator] = await Promise.all([
+  const [{ nodes, totalCount }, chain, aprByValidator] = await Promise.all([
     getValidatorList(network, FETCH_LIMIT, 0),
-    getBondedTokensMap(network),
+    // Active-set standing + tokens in one LCD read. The indexer's stakeStatus cannot tell a
+    // below-the-cutoff candidate from a jailed validator — both are "Unstaked" there.
+    getValidatorChainStates(network),
     // One grouped roll-up for the whole set — see getValidatorDelegatorAprMap. A validator missing
     // from the map has no rate, which renders as a dash rather than 0%.
     getValidatorDelegatorAprMap(network),
@@ -45,11 +47,14 @@ export default async function ValidatorsPage({
   // weight — NOT the indexer's `stakeAmount` (operator self-stake only). Fall back per-row to
   // stakeAmount when the LCD map is empty/missing a validator.
   const votingPowerOf = (v: (typeof nodes)[number]) =>
-    bondedTokens.get(v.id) ?? v.stakeAmount ?? '0';
+    chain.byValoper.get(v.id)?.tokens ?? v.stakeAmount ?? '0';
 
-  // Honest share denominator: sum of bonded voting power (upokt) across the validator set.
-  const totalStake = sumUpokt(nodes.map((v) => ({ denom: v.stakeDenom ?? 'upokt', amount: votingPowerOf(v) })));
-  const totalStakeNum = Number(totalStake);
+  // Share denominator is the ACTIVE set only, matching the chain's own `bonded_tokens` pool.
+  // Summing every validator instead folds in stake held by non-bonded ones, inflating the
+  // denominator and understating every real share. Falls back to the all-rows sum if the LCD failed.
+  const totalStakeNum = chain.ok
+    ? Number(chain.bondedTotalUpokt)
+    : Number(sumUpokt(nodes.map((v) => ({ denom: v.stakeDenom ?? 'upokt', amount: votingPowerOf(v) }))));
 
   // Rank by voting power (bonded tokens) descending so the "#" column is meaningful. BigInt
   // compare keeps large upokt amounts exact. All validators are fetched before paging, so the
@@ -96,7 +101,11 @@ export default async function ValidatorsPage({
                 const moniker = validatorMoniker(v.description) ?? truncate(v.id, 10, 6);
                 const votingPower = votingPowerOf(v);
                 const stakeNum = Number(sumUpokt([{ denom: v.stakeDenom ?? 'upokt', amount: votingPower }]));
-                const sharePct = totalStakeNum > 0 ? (stakeNum / totalStakeNum) * 100 : 0;
+                const state = deriveValidatorState(chain.byValoper.get(v.id), chain.ok);
+                // Only the active set has consensus weight; a share for anyone else would imply
+                // voting influence they do not have.
+                const hasShare = state === 'active' || state === 'unknown';
+                const sharePct = hasShare && totalStakeNum > 0 ? (stakeNum / totalStakeNum) * 100 : 0;
                 const apr = aprByValidator.get(v.id);
                 return (
                   <tr key={v.id}>
@@ -109,14 +118,25 @@ export default async function ValidatorsPage({
                       </span>
                     </td>
                     <td>
-                      <StakeStatusPill status={v.stakeStatus} sm />
+                      <ValidatorStatePill
+                        state={state}
+                        fallbackStatus={v.stakeStatus}
+                        maxValidators={chain.maxValidators}
+                        sm
+                      />
                     </td>
                     <td className="num mono">{formatPokt(votingPower)} POKT</td>
                     <td className="num dim">
-                      {sharePct.toFixed(1)}%
-                      <span className="bar-mini">
-                        <i style={{ width: `${Math.min(100, sharePct)}%` }} />
-                      </span>
+                      {hasShare ? (
+                        <>
+                          {sharePct.toFixed(1)}%
+                          <span className="bar-mini">
+                            <i style={{ width: `${Math.min(100, sharePct)}%` }} />
+                          </span>
+                        </>
+                      ) : (
+                        <span className="dim">—</span>
+                      )}
                     </td>
                     <td className="num">{formatCommission(v.commission)}</td>
                     {/* Net delegator return over the trailing window — already after this
@@ -145,7 +165,10 @@ export default async function ValidatorsPage({
         ) : (
           <>
             <p className="tbl-note">
-              * Est. APR is the net return paid to delegators over the trailing {APR_WINDOW_DAYS}-day window, after
+              Only the <b>Active</b> set{chain.maxValidators ? ` — the top ${chain.maxValidators} validators by stake — ` : ' '}
+              signs blocks and earns rewards, so Share is shown for those alone. <b>Inactive</b> validators are staked
+              below that cutoff with their delegations intact, which is not the same as having unstaked.
+              <br />* Est. APR is the net return paid to delegators over the trailing {APR_WINDOW_DAYS}-day window, after
               the validator&rsquo;s commission, annualised. It is a historic estimate that moves with network demand
               &mdash; not a promised rate, and not an indicator of future performance. A dash means the validator had
               too little settlement in the window to derive a rate{'; '}

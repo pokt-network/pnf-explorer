@@ -128,42 +128,84 @@ export const getConsensusValidatorMap = cache(async (network: NetworkId): Promis
 interface LcdValidatorTokens {
   operator_address?: string;
   tokens?: string;
+  status?: string;
+  jailed?: boolean;
 }
 interface LcdValidatorsListResponse {
   validators?: LcdValidatorTokens[];
 }
 
-/** valoper → total bonded tokens (upokt). One LCD call for the whole set, cache()-deduped + ISR. */
-export const getBondedTokensMap = cache(async (network: NetworkId): Promise<Map<string, string>> => {
-  const map = new Map<string, string>();
-  try {
-    const res = await lcdFetch<LcdValidatorsListResponse>(
-      network,
-      '/cosmos/staking/v1beta1/validators?pagination.limit=500',
-      { revalidate: 30 },
-    );
-    for (const v of res.validators ?? []) {
-      if (v.operator_address) map.set(v.operator_address, v.tokens ?? '0');
-    }
-  } catch {
-    /* empty map → callers fall back to indexer stakeAmount */
-  }
-  return map;
-});
-
-/** Total bonded tokens (upokt) for one validator — its voting/security weight. null on failure. */
-export async function getValidatorBondedTokens(network: NetworkId, valoper: string): Promise<string | null> {
-  try {
-    const res = await lcdFetch<{ validator?: LcdValidatorTokens }>(
-      network,
-      `/cosmos/staking/v1beta1/validators/${valoper}`,
-      { revalidate: 30 },
-    );
-    return res.validator?.tokens ?? null;
-  } catch {
-    return null;
-  }
+/**
+ * Everything the chain knows about one validator's standing, straight off the staking module.
+ *
+ * The indexer cannot answer this: its `Validator` type carries only `stakeStatus`
+ * (Staked/Unstaking/Unstaked), a 1:1 mapping of the Cosmos bond status that cannot express
+ * "bonded stake, but below the active-set cutoff". Only `jailed` + `status` together separate a
+ * candidate from a punished validator. See `deriveValidatorState` in lib/validator.ts.
+ */
+export interface ValidatorChainEntry {
+  /** Total tokens delegated (upokt). Only counts as voting power while BONDED. */
+  tokens: string;
+  /** Raw Cosmos bond status: BOND_STATUS_BONDED | _UNBONDING | _UNBONDED. */
+  status: string;
+  jailed: boolean;
 }
+
+export interface ValidatorChainStates {
+  /**
+   * False when the LCD could not be reached. Load-bearing: absence from `byValoper` means
+   * "removed from the staking store" ONLY when the read succeeded. Without this flag a single
+   * failed LCD call would relabel every validator on the page as Removed.
+   */
+  ok: boolean;
+  byValoper: Map<string, ValidatorChainEntry>;
+  /**
+   * Sum of tokens across the ACTIVE set (upokt) — the honest denominator for a voting-power
+   * share. Verified equal to `/cosmos/staking/v1beta1/pool`'s `bonded_tokens`; including
+   * non-bonded validators inflates it and understates everyone's share.
+   */
+  bondedTotalUpokt: string;
+  /** Governance cap on the active set (`max_validators`), null when unavailable. Never assume it. */
+  maxValidators: number | null;
+}
+
+/**
+ * Chain-side standing for the whole validator set. One LCD list call plus the staking params,
+ * cache()-deduped + ISR, so every consumer on a page shares a single round trip.
+ */
+export const getValidatorChainStates = cache(async (network: NetworkId): Promise<ValidatorChainStates> => {
+  const byValoper = new Map<string, ValidatorChainEntry>();
+
+  const [list, params] = await Promise.all([
+    lcdFetch<LcdValidatorsListResponse>(network, '/cosmos/staking/v1beta1/validators?pagination.limit=500', {
+      revalidate: 30,
+    }).catch(() => null),
+    // max_validators is a governance param and moves by proposal — read it, never hardcode the 21.
+    lcdFetch<{ params?: { max_validators?: number } }>(network, '/cosmos/staking/v1beta1/params', {
+      revalidate: 300,
+    }).catch(() => null),
+  ]);
+
+  if (!list) {
+    return { ok: false, byValoper, bondedTotalUpokt: '0', maxValidators: params?.params?.max_validators ?? null };
+  }
+
+  let bonded = 0n;
+  for (const v of list.validators ?? []) {
+    if (!v.operator_address) continue;
+    const tokens = v.tokens ?? '0';
+    const status = v.status ?? '';
+    byValoper.set(v.operator_address, { tokens, status, jailed: v.jailed === true });
+    if (status === 'BOND_STATUS_BONDED') bonded += toBigInt(tokens);
+  }
+
+  return {
+    ok: true,
+    byValoper,
+    bondedTotalUpokt: bonded.toString(),
+    maxValidators: params?.params?.max_validators ?? null,
+  };
+});
 
 export interface ValidatorUnbonding {
   /** Block height at which unbonding completes. */

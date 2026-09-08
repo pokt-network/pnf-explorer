@@ -8,18 +8,18 @@ import { Hash } from '@/components/ui/Hash';
 import { Tabs } from '@/components/ui/Tabs';
 import { RawJson } from '@/components/ui/RawJson';
 import { IndexerBanner } from '@/components/ui/IndexerBanner';
-import { StakeStatusPill } from '@/components/ui/StatusPill';
+import { ValidatorStatePill } from '@/components/ui/StatusPill';
 import { AddressTransactionsPanel, AddressTransfersPanel, addressTabCounts } from '@/components/address/AddressPanels';
 import { UptimeGrid } from '@/components/validator/UptimeGrid';
 import { DelegatorsPanel } from '@/components/validator/DelegatorsPanel';
 import { DelegatorAprCard, DelegatorAprSkeleton } from '@/components/validator/DelegatorAprCard';
 import { getUseRpcData } from '@/lib/metadata';
-import { getValidator, getValidatorUptime, getDelegators, getValidatorBondedTokens, getValidatorUnbonding } from '@/lib/data/validators';
+import { getValidator, getValidatorUptime, getDelegators, getValidatorChainStates, getValidatorUnbonding } from '@/lib/data/validators';
 import type { NetworkId } from '@/lib/networks';
 import { formatPokt, formatPoktCompact, formatUpokt, formatNumber, truncate } from '@/lib/format';
 import { parsePage } from '@/lib/paging';
 import { absoluteUtc } from '@/lib/time';
-import { formatCommission, validatorMoniker } from '@/lib/validator';
+import { formatCommission, validatorMoniker, deriveValidatorState } from '@/lib/validator';
 
 export async function generateMetadata({ params }: { params: Promise<{ network: NetworkId; id: string }> }): Promise<Metadata> {
   const { network, id } = await params;
@@ -52,13 +52,19 @@ export default async function ValidatorDetailPage({
 
   // Parallelize the tab data that the page needs to seed badges + the always-LCD/uptime panels.
   // Unbonding is Cosmos-side (LCD) and only relevant while the validator is Unstaking.
-  const [counts, uptime, delegators, bondedTokens, unbonding] = await Promise.all([
+  const [counts, uptime, delegators, chain, unbonding] = await Promise.all([
     addressTabCounts(network, operator),
     getValidatorUptime(network, validator.id),
     getDelegators(network, validator.id),
-    getValidatorBondedTokens(network, validator.id),
+    // Tokens AND active-set standing in one read. The indexer knows only Staked/Unstaking/Unstaked,
+    // which cannot separate a below-the-cutoff candidate from a validator jailed for downtime.
+    getValidatorChainStates(network),
     validator.stakeStatus === 'Unstaking' ? getValidatorUnbonding(network, validator.id) : Promise.resolve(null),
   ]);
+
+  const chainEntry = chain.byValoper.get(validator.id);
+  const state = deriveValidatorState(chainEntry, chain.ok);
+  const inActiveSet = state === 'active';
 
   // Voting power is the total bonded `tokens` (self-stake + delegations) — the security weight —
   // NOT the indexer's `stakeAmount`, which is the operator self-stake only. LCD is the only source
@@ -66,7 +72,7 @@ export default async function ValidatorDetailPage({
   // The indexer's `stakeAmount` is the validator's TOTAL bonded stake, not its self-stake — verified
   // across 8 validators, where stakeAmount === the LCD's `tokens` === the sum of every delegation.
   // It is only a fallback for the LCD figure here; do not present it as self-stake.
-  const votingPowerUpokt = bondedTokens ?? validator.stakeAmount ?? '0';
+  const votingPowerUpokt = chainEntry?.tokens ?? validator.stakeAmount ?? '0';
 
   const delegatorPanel = <DelegatorsPanel network={network} valoper={validator.id} signerId={operator} />;
   const uptimePanel = <UptimeGrid uptime={uptime} />;
@@ -113,7 +119,11 @@ export default async function ValidatorDetailPage({
             <span className="typetag tt-val" style={{ marginLeft: 10 }}>
               Validator
             </span>{' '}
-            <StakeStatusPill status={validator.stakeStatus} />
+            <ValidatorStatePill
+              state={state}
+              fallbackStatus={validator.stakeStatus}
+              maxValidators={chain.maxValidators}
+            />
           </h1>
           <div className="hash">
             <Hash value={validator.id} full copy />
@@ -123,7 +133,7 @@ export default async function ValidatorDetailPage({
 
       <div className="toprow c3">
         <div className="card balance">
-          <div className="lbl">Voting Power (Bonded)</div>
+          <div className="lbl">{inActiveSet ? 'Voting Power (Bonded)' : 'Delegated Stake'}</div>
           <div className="big">
             {formatPoktCompact(votingPowerUpokt)}
             <span className="u"> POKT</span>
@@ -146,7 +156,17 @@ export default async function ValidatorDetailPage({
           <div className="line">
             <div className="k">Status</div>
             <div className="v">
-              <StakeStatusPill status={validator.stakeStatus} />
+              <ValidatorStatePill
+                state={state}
+                fallbackStatus={validator.stakeStatus}
+                maxValidators={chain.maxValidators}
+              />
+              {state === 'inactive' && chain.maxValidators ? (
+                <div className="muted" style={{ marginTop: 4 }}>
+                  Staked below the active-set cutoff (top {chain.maxValidators} by stake) — delegations are intact, but
+                  it signs no blocks and earns nothing until it moves up.
+                </div>
+              ) : null}
             </div>
           </div>
           <div className="line">

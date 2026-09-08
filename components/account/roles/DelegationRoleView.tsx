@@ -6,15 +6,15 @@ import { Pager } from '@/components/ui/Pager';
 import { RawJson } from '@/components/ui/RawJson';
 import { LcdSourceStrip } from '@/components/ui/LcdSourceStrip';
 import { EmptyState } from '@/components/ui/states';
-import { StakeStatusPill } from '@/components/ui/StatusPill';
+import { ValidatorStatePill } from '@/components/ui/StatusPill';
 import { RoleStats, SummaryCard, DOT } from './RoleStats';
 import { getDelegationSettlements, toPokt, EARNINGS_WINDOW_DAYS } from '@/lib/data/delegations';
 import type { DelegationSet, DelegationEarnings } from '@/lib/data/delegations';
-import { getValidatorList } from '@/lib/data/validators';
+import { getValidatorList, getValidatorChainStates } from '@/lib/data/validators';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, formatPoktCompact, formatCompact, truncate } from '@/lib/format';
 import { relativeTime, absoluteUtc } from '@/lib/time';
-import { validatorMoniker, formatCommission } from '@/lib/validator';
+import { validatorMoniker, formatCommission, deriveValidatorState } from '@/lib/validator';
 import { parsePage } from '@/lib/paging';
 
 const LIMIT = 25;
@@ -63,7 +63,9 @@ async function ValidatorsPanel({
   set: DelegationSet;
   earnings: DelegationEarnings | null;
 }) {
-  const meta = await validatorMeta(network);
+  // Where someone decides who to delegate to next, so the active-set distinction matters most
+  // here: a validator below the cutoff is a live choice, a jailed one is not.
+  const [meta, chain] = await Promise.all([validatorMeta(network), getValidatorChainStates(network)]);
   const earnBy = new Map((earnings?.byValidator ?? []).map((v) => [v.validatorAddress, v]));
   const win = earnings ? windowLabel(earnings.windowDays) : `${EARNINGS_WINDOW_DAYS}d`;
 
@@ -99,7 +101,14 @@ async function ValidatorsPanel({
                       </div>
                     ) : null}
                   </td>
-                  <td>{m?.stakeStatus ? <StakeStatusPill status={m.stakeStatus} sm /> : <span className="dim">—</span>}</td>
+                  <td>
+                    <ValidatorStatePill
+                      state={deriveValidatorState(chain.byValoper.get(r.validatorAddress), chain.ok)}
+                      fallbackStatus={m?.stakeStatus}
+                      maxValidators={chain.maxValidators}
+                      sm
+                    />
+                  </td>
                   <td className="num mono">{m?.commission ? formatCommission(m.commission) : '—'}</td>
                   <td className="num mono">{formatPokt(r.amountUpokt)}</td>
                   <td className="num mono">

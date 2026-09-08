@@ -1,10 +1,12 @@
 import { NetLink as Link } from '@/components/shell/NetLink';
 import { Hash } from '@/components/ui/Hash';
-import { StakeStatusPill } from '@/components/ui/StatusPill';
+import { StakeStatusPill, ValidatorStatePill } from '@/components/ui/StatusPill';
 import type { AccountProfile } from '@/lib/data/accounts';
+import { getValidatorChainStates } from '@/lib/data/validators';
+import type { NetworkId } from '@/lib/networks';
 import { formatPokt, formatPoktCompact, formatNumber } from '@/lib/format';
 import { etaFromBlocks } from '@/lib/time';
-import { validatorMoniker, formatCommission } from '@/lib/validator';
+import { validatorMoniker, formatCommission, deriveValidatorState } from '@/lib/validator';
 
 /** Unbond ETA sub-line — only rendered while an actor is Unstaking. */
 function UnbondLine({ endHeight, currentHeight, reason }: { endHeight: string | null; currentHeight: number | null; reason?: string | null }) {
@@ -25,9 +27,25 @@ function UnbondLine({ endHeight, currentHeight, reason }: { endHeight: string | 
  * (operator, owner-of-operators, validator, application, gateway, service owner). A plain wallet
  * with no stake roles falls through to a single explanatory line.
  */
-export function RolesSummary({ profile, address, currentHeight }: { profile: AccountProfile; address: string; currentHeight: number | null }) {
+export async function RolesSummary({
+  network,
+  profile,
+  address,
+  currentHeight,
+}: {
+  network: NetworkId;
+  profile: AccountProfile;
+  address: string;
+  currentHeight: number | null;
+}) {
   const { supplier, owner, validator, application, gateway, ownedServices, ownedServiceCount, revShareRecipientConfigs, delegationCount, delegatedUpokt } =
     profile;
+
+  // Validator standing comes from the chain, not the indexer enum — an operator sitting below the
+  // active-set cutoff still holds every delegation, and "Unstaked" would say the opposite.
+  // cache()-deduped, so this shares the round trip with anything else on the page that needs it.
+  const chain = validator ? await getValidatorChainStates(network) : null;
+  const validatorState = chain && validator ? deriveValidatorState(chain.byValoper.get(validator.id), chain.ok) : 'unknown';
   const hasAnyRole =
     supplier || owner || validator || application || gateway || ownedServiceCount > 0 || revShareRecipientConfigs > 0 || delegationCount > 0;
 
@@ -72,7 +90,12 @@ export function RolesSummary({ profile, address, currentHeight }: { profile: Acc
         <div className="line">
           <div className="k">Validator</div>
           <div className="v">
-            <StakeStatusPill status={validator.stakeStatus} sm />{' '}
+            <ValidatorStatePill
+              state={validatorState}
+              fallbackStatus={validator.stakeStatus}
+              maxValidators={chain?.maxValidators ?? null}
+              sm
+            />{' '}
             <span className="dim">
               · {validatorMoniker(validator.description) ?? 'unnamed'} · {formatCommission(validator.commission)} commission
             </span>
