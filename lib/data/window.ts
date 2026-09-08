@@ -1,4 +1,5 @@
 import { gqlFetch } from '@/lib/graphql';
+import { toDate } from '@/lib/time';
 import type { NetworkId } from '@/lib/networks';
 
 // Shared trailing-window resolution for rate/APR figures.
@@ -47,4 +48,47 @@ export async function resolveWindowStart(network: NetworkId, days: number): Prom
   } catch {
     return null;
   }
+}
+
+// Timestamps for an explicit set of block heights. Grouped aggregates can only hand back the
+// min/max blockId that bracket a validator's activity, and turning those heights into an elapsed
+// span with a nominal block time is exactly the drift this module exists to avoid — so resolve
+// them. One query for the whole set: boundary heights repeat heavily across validators.
+const BLOCK_TIMESTAMPS = /* GraphQL */ `
+  query blockTimestamps($ids: [BigFloat!]) {
+    blocks(filter: { id: { in: $ids } }) {
+      nodes {
+        id
+        timestamp
+      }
+    }
+  }
+`;
+
+/**
+ * Map of block height → epoch millis for the given heights. Heights that the indexer cannot
+ * resolve are simply absent; callers should treat a missing height as "no rate available".
+ */
+export async function resolveBlockTimestamps(
+  network: NetworkId,
+  heights: (string | null | undefined)[],
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const ids = [...new Set(heights.filter((h): h is string => !!h))];
+  if (ids.length === 0) return out;
+  try {
+    const d = await gqlFetch<{ blocks: { nodes: { id: string; timestamp: string }[] } }>(
+      network,
+      BLOCK_TIMESTAMPS,
+      { ids },
+      { revalidate: 300 },
+    );
+    for (const n of d.blocks.nodes) {
+      const ms = toDate(n.timestamp)?.getTime();
+      if (ms != null) out.set(String(n.id), ms);
+    }
+  } catch {
+    /* callers treat an unresolved height as "no rate" */
+  }
+  return out;
 }

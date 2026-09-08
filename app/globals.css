@@ -275,6 +275,10 @@ main{max-width:var(--maxw);margin:0 auto;padding:8px 24px 64px}
 .sum .val{font-size:21px;font-weight:600;margin-top:6px;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
 .sum .val .u{font-size:12px;font-weight:500;color:var(--text-secondary);margin-left:3px}
 
+/* ---- table footnote ---- */
+/* Asterisk/dagger explainer that sits between a table and its pager, inside the same card. */
+.tbl-note{padding:13px 22px;border-top:1px solid var(--border);font-size:12.5px;line-height:1.55;color:var(--text-tertiary);margin:0}
+
 /* ---- pager ---- */
 .pager{display:flex;align-items:center;justify-content:space-between;padding:15px 22px;border-top:1px solid var(--border);font-size:13px;color:var(--text-secondary);flex-wrap:wrap;gap:12px}
 .pager .pg{display:flex;gap:6px}

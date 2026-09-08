@@ -120,3 +120,38 @@ export const VALIDATOR_DELEGATOR_APR = /* GraphQL */ `
     }
   }
 `;
+
+// ---- delegator APR for the whole set (validators list) ----
+// Same events and same arithmetic as VALIDATOR_DELEGATOR_APR, rolled up in one round trip so the
+// list does not fan out one query per validator. `min`/`max` on `blockId` bracket each validator's
+// active span the way `first`/`last` do for a single validator; the caller resolves those heights
+// to real block timestamps (a nominal block time would quietly skew every annualised rate).
+//
+// Validators with no settlement in the window are simply absent from the groups — the list shows a
+// dash for them rather than a zero, which would read as "earns nothing" instead of "no data".
+export const VALIDATORS_DELEGATOR_APR = /* GraphQL */ `
+  query validatorsDelegatorApr($startBlock: BigFloat!) {
+    window: eventValidatorRewardDistributions(filter: { blockId: { greaterThanOrEqualTo: $startBlock } }) {
+      groupedAggregates(groupBy: VALIDATOR_OPERATOR_ADDRESS) {
+        keys
+        distinctCount {
+          id
+        }
+        sum {
+          delegatorsRewardAmount
+        }
+        average {
+          totalDelegatedStakeAmount
+        }
+        min {
+          blockId
+          totalDelegatedStakeAmount
+        }
+        max {
+          blockId
+          totalDelegatedStakeAmount
+        }
+      }
+    }
+  }
+`;

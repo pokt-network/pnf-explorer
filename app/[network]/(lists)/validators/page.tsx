@@ -5,7 +5,12 @@ import { Tic } from '@/components/ui/Icons';
 import { Pager } from '@/components/ui/Pager';
 import { StakeStatusPill } from '@/components/ui/StatusPill';
 import { EmptyState } from '@/components/ui/states';
-import { getValidatorList, getBondedTokensMap } from '@/lib/data/validators';
+import {
+  getValidatorList,
+  getBondedTokensMap,
+  getValidatorDelegatorAprMap,
+  APR_WINDOW_DAYS,
+} from '@/lib/data/validators';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, truncate } from '@/lib/format';
 import { formatCommission, validatorMoniker } from '@/lib/validator';
@@ -28,9 +33,12 @@ export default async function ValidatorsPage({
   const { page: pageParam } = await searchParams;
   const page = Math.max(1, Number(pageParam) || 1);
 
-  const [{ nodes, totalCount }, bondedTokens] = await Promise.all([
+  const [{ nodes, totalCount }, bondedTokens, aprByValidator] = await Promise.all([
     getValidatorList(network, FETCH_LIMIT, 0),
     getBondedTokensMap(network),
+    // One grouped roll-up for the whole set — see getValidatorDelegatorAprMap. A validator missing
+    // from the map has no rate, which renders as a dash rather than 0%.
+    getValidatorDelegatorAprMap(network),
   ]);
 
   // Voting power is total bonded `tokens` (self-stake + delegations) from the LCD — the security
@@ -79,7 +87,7 @@ export default async function ValidatorsPage({
                 <th className="num">Voting Power</th>
                 <th className="num">Share</th>
                 <th className="num">Commission</th>
-                <th className="num">Self-Deleg.</th>
+                <th className="num">Est. APR*</th>
               </tr>
             </thead>
             <tbody>
@@ -89,6 +97,7 @@ export default async function ValidatorsPage({
                 const votingPower = votingPowerOf(v);
                 const stakeNum = Number(sumUpokt([{ denom: v.stakeDenom ?? 'upokt', amount: votingPower }]));
                 const sharePct = totalStakeNum > 0 ? (stakeNum / totalStakeNum) * 100 : 0;
+                const apr = aprByValidator.get(v.id);
                 return (
                   <tr key={v.id}>
                     <td className="rank">{rank}</td>
@@ -110,9 +119,21 @@ export default async function ValidatorsPage({
                       </span>
                     </td>
                     <td className="num">{formatCommission(v.commission)}</td>
-                    {/* Operator self-delegation = the validator's own stake (stakeAmount), NOT
-                        minSelfDelegation (the tiny ~1 upokt protocol-minimum threshold). */}
-                    <td className="num mono">{formatPokt(v.stakeAmount ?? '0')} POKT</td>
+                    {/* Net delegator return over the trailing window — already after this
+                        validator's commission. Matches the figure on its detail page. */}
+                    <td className="num mono">
+                      {apr ? (
+                        <span
+                          title={
+                            apr.partialWindow ? `Settled for only part of the ${APR_WINDOW_DAYS}-day window.` : undefined
+                          }
+                        >
+                          {apr.aprPct.toFixed(2)}%{apr.partialWindow ? <span className="dim">†</span> : null}
+                        </span>
+                      ) : (
+                        <span className="dim">—</span>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -122,7 +143,16 @@ export default async function ValidatorsPage({
         {pageRows.length === 0 ? (
           <EmptyState>No validators found.</EmptyState>
         ) : (
-          <Pager page={page} pageSize={PAGE_SIZE} totalCount={totalCount} />
+          <>
+            <p className="tbl-note">
+              * Est. APR is the net return paid to delegators over the trailing {APR_WINDOW_DAYS}-day window, after
+              the validator&rsquo;s commission, annualised. It is a historic estimate that moves with network demand
+              &mdash; not a promised rate, and not an indicator of future performance. A dash means the validator had
+              too little settlement in the window to derive a rate{'; '}
+              <span className="dim">&dagger;</span> marks one that was only settling for part of it.
+            </p>
+            <Pager page={page} pageSize={PAGE_SIZE} totalCount={totalCount} />
+          </>
         )}
       </div>
     </>
