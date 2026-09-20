@@ -80,6 +80,8 @@ export default async function ServiceDetailPage({
         </div>
       </div>
 
+      {summary.description && <p className="pagelede">{summary.description}</p>}
+
       <div className="toprow">
         <div className="card balance">
           <div className="lbl">Active Suppliers</div>

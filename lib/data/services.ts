@@ -1,4 +1,5 @@
 import { gqlFetch } from '@/lib/graphql';
+import { lcdFetch } from '@/lib/lcd';
 import type { NetworkId } from '@/lib/networks';
 import { SERVICES_LIST, SERVICE_BY_ID, SERVICE_SUPPLIERS, SERVICE_APPLICATIONS, SERVICE_DIFFICULTY } from '@/lib/queries/services';
 
@@ -6,8 +7,9 @@ import { SERVICES_LIST, SERVICE_BY_ID, SERVICE_SUPPLIERS, SERVICE_APPLICATIONS, 
 // active-supplier counts use a long (12h) ISR window — adequate for a top-level overview.
 const SERVICES_TTL = 12 * 60 * 60;
 
-// Services data layer (indexer-only; no LCD). "Active" counts/lists filter to currently-Staked
-// suppliers/apps — see lib/queries/services.ts for why a filtered totalCount is the distinct count.
+// Services data layer (indexer, plus one LCD read for the on-chain metadata-card description —
+// getServiceCardDescription). "Active" counts/lists filter to currently-Staked suppliers/apps —
+// see lib/queries/services.ts for why a filtered totalCount is the distinct count.
 
 export interface ServiceDifficultyPoint {
   blockId: string;
@@ -30,6 +32,9 @@ export interface ServiceSummary {
   activeSuppliers: number | null;
   totalSuppliers: number | null;
   activeApps: number | null;
+  /** Human description from the on-chain metadata card (`pocket-service-card/v1`), or null if the
+   *  service has no card / no description. See getServiceCardDescription. */
+  description: string | null;
 }
 
 export interface ServiceListRow {
@@ -99,20 +104,51 @@ export async function getAllServicesWithCounts(network: NetworkId): Promise<Serv
   return all.map((n) => ({ ...n, activeSuppliers: counts.get(n.id) ?? 0 }));
 }
 
-/** Service header + active supplier/app counts + latest relay-mining difficulty. null → notFound. */
+/**
+ * The service's human description, read from its on-chain metadata card. The indexer does not
+ * expose the card, so this is the one LCD read in the otherwise indexer-only services layer. The
+ * card is stored as raw bytes and returned base64 by the LCD under `service.metadata.card`; ~half
+ * of mainnet services carry one. Cards change rarely → 12h ISR. Any missing/malformed layer
+ * (null metadata, absent card, undecodable base64, non-object JSON, blank description) → null, so
+ * the caller simply renders nothing.
+ */
+export async function getServiceCardDescription(network: NetworkId, id: string): Promise<string | null> {
+  try {
+    const data = await lcdFetch<{ service?: { metadata?: { card?: string | null } | null } | null }>(
+      network,
+      `/pokt-network/poktroll/service/service/${encodeURIComponent(id)}`,
+      { revalidate: SERVICES_TTL },
+    );
+    const b64 = data.service?.metadata?.card;
+    if (!b64) return null;
+    const card = JSON.parse(Buffer.from(b64, 'base64').toString('utf-8')) as unknown;
+    if (typeof card !== 'object' || card === null) return null;
+    const desc = (card as { description?: unknown }).description;
+    return typeof desc === 'string' && desc.trim() ? desc.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Service header + active supplier/app counts + latest relay-mining difficulty + card description.
+ *  null → notFound. */
 export async function getService(network: NetworkId, id: string): Promise<ServiceSummary | null> {
-  const data = await gqlFetch<{
-    service: ServiceDetail | null;
-    activeSuppliers: { totalCount: number } | null;
-    totalSuppliers: { totalCount: number } | null;
-    activeApps: { totalCount: number } | null;
-  }>(network, SERVICE_BY_ID, { id }, { revalidate: 60 });
+  const [data, description] = await Promise.all([
+    gqlFetch<{
+      service: ServiceDetail | null;
+      activeSuppliers: { totalCount: number } | null;
+      totalSuppliers: { totalCount: number } | null;
+      activeApps: { totalCount: number } | null;
+    }>(network, SERVICE_BY_ID, { id }, { revalidate: 60 }),
+    getServiceCardDescription(network, id),
+  ]);
   if (!data.service) return null;
   return {
     service: data.service,
     activeSuppliers: data.activeSuppliers?.totalCount ?? null,
     totalSuppliers: data.totalSuppliers?.totalCount ?? null,
     activeApps: data.activeApps?.totalCount ?? null,
+    description,
   };
 }
 
