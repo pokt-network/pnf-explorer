@@ -145,7 +145,7 @@ main{max-width:var(--maxw);margin:0 auto;padding:8px 24px 64px}
 .pagetitle h1{font-size:21px;font-weight:600;letter-spacing:-.01em;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .pagetitle .hash{font-family:var(--mono);font-size:13.5px;color:var(--text-secondary);word-break:break-all;margin-top:3px}
 /* Lede paragraph under a page title (e.g. service metadata-card description). */
-.pagelede{margin:-6px 0 20px;max-width:78ch;color:var(--text-secondary);font-size:14px;line-height:1.65}
+.pagelede{margin:-6px 0 20px;color:var(--text-secondary);font-size:14px;line-height:1.65}
 
 /* ---- key-value summary ---- */
 .kv{padding:6px 0}
