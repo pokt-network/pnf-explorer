@@ -16,7 +16,10 @@ import { formatNumber, formatPokt, truncate } from '@/lib/format';
 import { formatCommission, validatorMoniker, deriveValidatorState } from '@/lib/validator';
 import { sumUpokt } from '@/lib/tx';
 
-export const metadata: Metadata = { title: 'Validators' };
+export const metadata: Metadata = {
+  title: 'Validators',
+  description: 'Validators securing Pocket Network — status, voting power, and commission.',
+};
 
 // ~35 validators total — fetch enough to compute an honest network share in one page.
 const FETCH_LIMIT = 100;

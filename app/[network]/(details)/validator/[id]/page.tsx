@@ -25,7 +25,11 @@ export async function generateMetadata({ params }: { params: Promise<{ network: 
   const { network, id } = await params;
   const validator = await getValidator(network, id).catch(() => null);
   const moniker = validator ? validatorMoniker(validator.description) : null;
-  return { title: moniker ? `Validator ${moniker}` : `Validator ${truncate(id, 10, 6)}` };
+  const name = moniker ?? truncate(id, 10, 6);
+  return {
+    title: `Validator ${name}`,
+    description: `Validator ${name} on Pocket Network — status, voting power, commission, and delegators.`,
+  };
 }
 
 export default async function ValidatorDetailPage({

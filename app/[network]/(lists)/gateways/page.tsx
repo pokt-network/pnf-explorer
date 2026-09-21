@@ -9,7 +9,10 @@ import { getGatewayList } from '@/lib/data/gateways';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt } from '@/lib/format';
 
-export const metadata: Metadata = { title: 'Gateways' };
+export const metadata: Metadata = {
+  title: 'Gateways',
+  description: 'Gateways staked on Pocket Network and the applications delegating to them.',
+};
 
 const PAGE_SIZE = 25;
 

@@ -9,7 +9,10 @@ import { getSupplierList } from '@/lib/data/suppliers';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt } from '@/lib/format';
 
-export const metadata: Metadata = { title: 'Suppliers' };
+export const metadata: Metadata = {
+  title: 'Suppliers',
+  description: 'Suppliers staked on Pocket Network and the services they serve.',
+};
 
 const PAGE_SIZE = 25;
 

@@ -18,14 +18,29 @@ import { getUseRpcData } from '@/lib/metadata';
 import { getAccountProfile } from '@/lib/data/accounts';
 import { getSupplierRole, getApplicationRole, getGatewayRole } from '@/lib/data/roles';
 import { getDelegations, getDelegationEarnings } from '@/lib/data/delegations';
-import { heldRoles, resolveRole, ROLES } from '@/lib/roles';
+import { heldRoles, resolveRole, ROLES, isRoleId } from '@/lib/roles';
 import type { NetworkId } from '@/lib/networks';
 import { truncate } from '@/lib/format';
 
-export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ as?: string }>;
+}): Promise<Metadata> {
   const { id } = await params;
+  const { as } = await searchParams;
   const short = id.length > 7 ? `${id.slice(0, 7)}…` : id;
-  return { title: `Account ${short}` };
+  // The supplier/gateway/application alias routes redirect here with an explicit `?as=`; honour it
+  // so those shared links preview as e.g. "Supplier pokt1…" rather than a bare "Account". We trust
+  // the query rather than fetching the profile — metadata stays cheap.
+  const role = isRoleId(as) && as !== 'account' ? ROLES[as] : null;
+  const title = role ? `${role.title} ${short}` : `Account ${short}`;
+  const description = role
+    ? `${role.title} ${id} on Pocket Network.`
+    : `Pocket Network account ${id} — balance, stake, transactions, and on-chain roles.`;
+  return { title, description };
 }
 
 interface AddressSearchParams {

@@ -10,7 +10,10 @@ import { getAccountList, getAccountSummary, getTotalSupplyUpokt } from '@/lib/da
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt } from '@/lib/format';
 
-export const metadata: Metadata = { title: 'Top Accounts' };
+export const metadata: Metadata = {
+  title: 'Top Accounts',
+  description: 'The largest POKT balances on Pocket Network.',
+};
 
 const PAGE_SIZE = 10;
 

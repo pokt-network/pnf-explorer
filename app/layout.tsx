@@ -17,21 +17,21 @@ const DESCRIPTION =
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: { default: 'Pocket Explorer', template: '%s · Pocket Explorer' },
+  title: { default: 'Pocket Network Explorer', template: '%s · Pocket Explorer' },
   description: DESCRIPTION,
   applicationName: 'Pocket Explorer',
   // icons + opengraph-image are auto-detected from app/{icon,apple-icon,opengraph-image}.tsx.
+  // openGraph/twitter deliberately omit title & description: Next fills og:title / og:description /
+  // twitter:title / twitter:description from each page's resolved `title` and `description`, so a
+  // shared deep link previews as that page — not this site-wide default. (Setting them here would
+  // be inherited by every page instead.) type/siteName/card stay shared; the OG image is merged in
+  // from app/opengraph-image.tsx. Pages must NOT set `openGraph`, or that merge is lost.
   openGraph: {
     type: 'website',
     siteName: 'Pocket Explorer',
-    title: 'Pocket Network Explorer',
-    description: DESCRIPTION,
-    url: SITE_URL,
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Pocket Network Explorer',
-    description: DESCRIPTION,
   },
 };
 

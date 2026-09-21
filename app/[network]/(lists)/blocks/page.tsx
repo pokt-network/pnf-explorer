@@ -11,7 +11,10 @@ import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatBlockTime } from '@/lib/format';
 import { relativeTime, absoluteUtc } from '@/lib/time';
 
-export const metadata: Metadata = { title: 'Blocks' };
+export const metadata: Metadata = {
+  title: 'Blocks',
+  description: 'Latest blocks on Pocket Network — heights, proposers, and transaction counts.',
+};
 
 const PAGE_SIZE = 10;
 

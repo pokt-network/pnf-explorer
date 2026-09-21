@@ -9,7 +9,10 @@ import { getApplicationList } from '@/lib/data/applications';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt } from '@/lib/format';
 
-export const metadata: Metadata = { title: 'Applications' };
+export const metadata: Metadata = {
+  title: 'Applications',
+  description: 'Applications staked on Pocket Network and the services they consume.',
+};
 
 const PAGE_SIZE = 25;
 

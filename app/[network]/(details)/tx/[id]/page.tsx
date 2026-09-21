@@ -24,7 +24,11 @@ const POKT_ADDR = /^pokt1[0-9a-z]{20,90}$/;
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
-  return { title: `Tx ${truncate(id, 6, 4)}` };
+  const short = truncate(id, 6, 4);
+  return {
+    title: `Tx ${short}`,
+    description: `Transaction ${short} on Pocket Network — messages, events, status, and fees.`,
+  };
 }
 
 // ---- Messages tab (ALWAYS-LCD) ----

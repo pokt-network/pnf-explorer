@@ -6,7 +6,10 @@ import { getParams, formatParamValue } from '@/lib/data/params';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber } from '@/lib/format';
 
-export const metadata: Metadata = { title: 'On-Chain Parameters' };
+export const metadata: Metadata = {
+  title: 'On-Chain Parameters',
+  description: 'Live on-chain governance parameters for Pocket Network.',
+};
 
 export default async function ParamsPage({ params }: { params: Promise<{ network: NetworkId }> }) {
   const { network } = await params;

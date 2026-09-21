@@ -24,8 +24,11 @@ const TX_TAB_LIMIT = 25;
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
-  const title = /^\d+$/.test(id) ? `Block #${formatNumber(id)}` : `Block ${id.slice(0, 10)}…`;
-  return { title };
+  const which = /^\d+$/.test(id) ? `#${formatNumber(id)}` : `${id.slice(0, 10)}…`;
+  return {
+    title: `Block ${which}`,
+    description: `Block ${which} on Pocket Network — transactions, proposer, and consensus details.`,
+  };
 }
 
 function StakedLine({ label, count, tokens }: { label: string; count: number; tokens?: string | null }) {

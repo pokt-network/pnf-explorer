@@ -15,7 +15,10 @@ export async function generateMetadata({ params }: { params: Promise<{ network: 
   const { network, id } = await params;
   const summary = await getService(network, id).catch(() => null);
   const name = summary?.service.name ?? id;
-  return { title: `Service ${name}` };
+  const description =
+    summary?.description?.trim() ||
+    `Service ${name} on Pocket Network — active suppliers, applications, and relay mining.`;
+  return { title: `Service ${name}`, description };
 }
 
 export default async function ServiceDetailPage({

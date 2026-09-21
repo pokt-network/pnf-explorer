@@ -9,7 +9,10 @@ import { getAllServicesWithCounts } from '@/lib/data/services';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber } from '@/lib/format';
 
-export const metadata: Metadata = { title: 'Services' };
+export const metadata: Metadata = {
+  title: 'Services',
+  description: 'Services available on Pocket Network and the suppliers serving them.',
+};
 
 const PAGE_SIZE = 25;
 type SortKey = 'name' | 'cu' | 'suppliers';

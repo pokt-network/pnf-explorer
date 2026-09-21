@@ -9,7 +9,10 @@ import { getTransactionsList, getTransactionsSummary, txFilterKey } from '@/lib/
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber } from '@/lib/format';
 
-export const metadata: Metadata = { title: 'Transactions' };
+export const metadata: Metadata = {
+  title: 'Transactions',
+  description: 'Latest transactions on Pocket Network — types, status, and fees.',
+};
 
 const PAGE_SIZE = 10;
 
