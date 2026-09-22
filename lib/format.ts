@@ -38,6 +38,25 @@ export function formatPokt(upokt: Numeric, decimals = 2): string {
   return (neg ? '-' : '') + out;
 }
 
+/**
+ * Format a upokt amount as its EXACT POKT value (÷1e6). Shows at least `minDecimals` (default 2)
+ * fractional digits, expanding up to the full 6 so a small nonzero amount is never rounded away to
+ * "0.00" — micro-POKT transfers add up over time and must stay visible. Trailing zeros past
+ * `minDecimals` are trimmed. e.g. 1_000_000→"1.00", 1→"0.000001", 1_234_500→"1.2345".
+ */
+export function formatPoktExact(upokt: Numeric, minDecimals = 2): string {
+  const micro = toBigInt(upokt);
+  const neg = micro < BigInt(0);
+  const abs = neg ? -micro : micro;
+  const whole = abs / BigInt(UPOKT_PER_POKT);
+  const fracStr = (abs % BigInt(UPOKT_PER_POKT)).toString().padStart(6, '0');
+  let end = 6;
+  while (end > minDecimals && fracStr[end - 1] === '0') end--;
+  const frac = fracStr.slice(0, end);
+  const out = groupThousands(whole.toString()) + (frac ? '.' + frac : '');
+  return (neg ? '-' : '') + out;
+}
+
 /** Raw upokt with separators, e.g. "142,908,410,000 upokt" (for hover/raw rows). */
 export function formatUpokt(upokt: Numeric): string {
   return groupThousands(toBigInt(upokt).toString());

@@ -2,7 +2,7 @@ import { NetLink as Link } from '@/components/shell/NetLink';
 import { Hash } from '@/components/ui/Hash';
 import { EmptyState } from '@/components/ui/states';
 import { sumUpokt } from '@/lib/tx';
-import { formatPokt, formatNumber } from '@/lib/format';
+import { formatPoktExact, formatUpokt, formatNumber } from '@/lib/format';
 import type { Transfer } from '@/lib/data/address';
 
 /** Native transfers (MsgSend) relative to a subject address: IN/OUT direction + signed amount. */
@@ -24,7 +24,8 @@ export function TransferTable({ transfers, address, empty = 'No transfers for th
           {transfers.map((t) => {
             const out = t.senderId === address;
             const counterparty = out ? t.recipientId : t.senderId;
-            const pokt = formatPokt(sumUpokt(t.amounts));
+            const upokt = sumUpokt(t.amounts);
+            const pokt = formatPoktExact(upokt);
             return (
               <tr key={t.id}>
                 <td>
@@ -39,7 +40,7 @@ export function TransferTable({ transfers, address, empty = 'No transfers for th
                 <td>
                   {t.block ? <Link href={`/block/${t.block.height}`}>{formatNumber(t.block.height)}</Link> : <span className="dim">—</span>}
                 </td>
-                <td className={`num mono ${out ? 'out' : 'in'}`}>
+                <td className={`num mono ${out ? 'out' : 'in'}`} title={`${formatUpokt(upokt)} upokt`}>
                   {out ? '−' : '+'}
                   {pokt} POKT
                 </td>
