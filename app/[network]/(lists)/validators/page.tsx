@@ -11,6 +11,7 @@ import {
   getValidatorDelegatorAprMap,
   APR_WINDOW_DAYS,
 } from '@/lib/data/validators';
+import { STILL_PROCESSING, STILL_PROCESSING_HINT } from '@/lib/data/window';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, truncate } from '@/lib/format';
 import { formatCommission, validatorMoniker, deriveValidatorState } from '@/lib/validator';
@@ -146,8 +147,8 @@ export default async function ValidatorsPage({
                         validator's commission. Matches the figure on its detail page. */}
                     <td className="num mono">
                       {apr && apr.aprPct == null ? (
-                        <span className="dim" title="Settling for under a day — too short for an annual rate.">
-                          —
+                        <span className="dim" title={STILL_PROCESSING_HINT}>
+                          {STILL_PROCESSING}
                         </span>
                       ) : apr && apr.aprPct != null ? (
                         <span

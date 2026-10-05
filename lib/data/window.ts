@@ -13,6 +13,12 @@
  * 2026 as of 2026-10-05, moving toward genesis; beta: genesis); a trailing 30-day window starts
  * well inside it.
  */
+/** Shortest active span (days of settlements inside the window) an APR is quoted for. */
+export const MIN_SPAN_DAYS = 7;
+/** What a rate shows below MIN_SPAN_DAYS, and why. */
+export const STILL_PROCESSING = 'Still processing';
+export const STILL_PROCESSING_HINT = 'Less than a week of settlements in the last 30 days — too little data for an annual rate.';
+
 export function trailingRange(days: number, stepSeconds: number): { rangeStart: string; rangeEnd: string } {
   const step = stepSeconds * 1000;
   const end = Math.floor(Date.now() / step) * step;

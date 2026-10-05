@@ -10,7 +10,7 @@ import {
   VALIDATOR_UPTIME,
   VALIDATOR_REWARDS,
 } from '@/lib/queries/validators';
-import { trailingRange } from '@/lib/data/window';
+import { trailingRange, MIN_SPAN_DAYS } from '@/lib/data/window';
 import { toBigInt } from '@/lib/format';
 
 // Validator data layer. commission + description are JSON OBJECTS (parse via lib/validator).
@@ -353,12 +353,9 @@ export async function getDelegators(network: NetworkId, valoper: string): Promis
 /** Trailing window for the validator's advertised delegator return. */
 export const APR_WINDOW_DAYS = 30;
 
-/** Shortest active span an APR is quoted for; below it the validator shows no rate. */
-export const MIN_SPAN_DAYS = 1;
-
 export interface DelegatorApr {
   /** Net annualised return to a delegator, percent. Already after commission — see the query.
-   *  Null when the validator has settled for under a day: too short to annualise. */
+   *  Null when the validator has settled for under MIN_SPAN_DAYS: too little data to annualise. */
   aprPct: number | null;
   /** POKT (upokt) paid to delegators over the window, after commission. */
   delegatorUpokt: string;
@@ -533,8 +530,8 @@ function annualise(w: RewardsWindow, days: number): { aprPct: number | null; spa
   if (!(w.lastAt > w.firstAt)) return null;
 
   // The span runs from the start of the hour of the first settlement to the end of the hour of the
-  // last one, clipped to the window. Under a day of activity, an hour's rounding and the burstiness
-  // of settlement make an annualised figure meaningless: report the validator without a rate.
+  // last one, clipped to the window. Under MIN_SPAN_DAYS of activity there is too little data for an
+  // annualised figure: report the validator without a rate.
   const spanDays = (w.lastAt - w.firstAt) / DAY_MS;
   return {
     aprPct: spanDays < MIN_SPAN_DAYS ? null : ((Number(w.delegatorUpokt) / spanDays) * 365 * 100) / w.avgStakeUpokt,
@@ -547,8 +544,10 @@ function annualise(w: RewardsWindow, days: number): { aprPct: number | null; spa
 /** One validator's entry in the list-wide APR roll-up. */
 export interface DelegatorAprSummary {
   /** Net annualised return to a delegator, percent. Already after commission — see the query.
-   *  Null when the validator has settled for under a day: too short to annualise. */
+   *  Null when the validator has settled for under MIN_SPAN_DAYS: too little data to annualise. */
   aprPct: number | null;
+  /** Days the validator was actually settling inside the window. */
+  activeDays: number;
   /** True when the validator was not settling for the whole window (joined or paused inside it). */
   partialWindow: boolean;
   /** True when the bonded stake moved during the window, making the mean an approximation. */
@@ -576,7 +575,7 @@ export const getValidatorDelegatorAprMap = cache(async function getValidatorDele
   for (const [valoper, w] of windows) {
     const rate = annualise(w, days);
     if (!rate) continue;
-    out.set(valoper, { aprPct: rate.aprPct, partialWindow: rate.partialWindow, stakeDrifted: w.stakeDrifted });
+    out.set(valoper, { aprPct: rate.aprPct, activeDays: rate.spanDays, partialWindow: rate.partialWindow, stakeDrifted: w.stakeDrifted });
   }
   return out;
 });
