@@ -117,7 +117,7 @@ async function ValidatorsPanel({
                   <td className="num mono">{formatPokt(r.amountUpokt)}</td>
                   <td className="num mono">
                     {e ? formatPokt(Math.round(e.myShareUpokt)) : <span className="dim">—</span>}
-                    {e ? (
+                    {e?.settlements != null ? (
                       <div className="dim" style={{ fontSize: 12 }}>
                         {formatNumber(e.settlements)} settlements
                       </div>
@@ -151,9 +151,11 @@ async function ValidatorsPanel({
                   </td>
                   <td className="num mono">
                     {formatPokt(Math.round(e.myShareUpokt))}
-                    <div className="dim" style={{ fontSize: 12 }}>
-                      {formatNumber(e.settlements)} settlements
-                    </div>
+                    {e.lastPaidAt ? (
+                      <div className="dim" style={{ fontSize: 12 }}>
+                        last paid {e.lastPaidAt.slice(0, 10)}
+                      </div>
+                    ) : null}
                   </td>
                   <td className="num mono">
                     <span className="dim">—</span>
@@ -227,10 +229,13 @@ async function SettlementsPanel({
           <div className="v">
             {earnings ? (
               <>
-                <b>{formatPokt(Math.round(earnings.windowUpokt))} POKT</b>{' '}
-                <span className="dim">
-                  across {formatNumber(earnings.settlements)} settlement{earnings.settlements === 1 ? '' : 's'}
-                </span>
+                <b>{formatPokt(Math.round(earnings.windowUpokt))} POKT</b>
+                {earnings.settlements != null ? (
+                  <span className="dim">
+                    {' '}
+                    across {formatNumber(earnings.settlements)} settlement{earnings.settlements === 1 ? '' : 's'}
+                  </span>
+                ) : null}
               </>
             ) : (
               <span className="dim">—</span>
@@ -303,8 +308,10 @@ function RatePanel({ set, earnings }: { set: DelegationSet; earnings: Delegation
           <div className="v">
             Trailing <b>{win}</b>{' '}
             <span className="dim">
-              · {formatNumber(earnings.settlements)} settlement{earnings.settlements === 1 ? '' : 's'} ·{' '}
-              {formatPokt(Math.round(earnings.windowUpokt))} POKT
+              {earnings.settlements != null
+                ? `· ${formatNumber(earnings.settlements)} settlement${earnings.settlements === 1 ? '' : 's'} `
+                : ''}
+              · {formatPokt(Math.round(earnings.windowUpokt))} POKT
             </span>
           </div>
         </div>

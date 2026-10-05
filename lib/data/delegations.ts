@@ -130,13 +130,13 @@ export const getDelegations = cache(async (network: NetworkId, address: string):
 const DELEGATED_AT_TIMEOUT_MS = 3000;
 
 /**
- * Whether the address held any delegation at `atMs`: the chain's own record (historical LCD read at
+ * The validators the address delegated to at `atMs` (empty: none): the chain's own record (historical LCD read at
  * the block of that time), since the indexer exposes no delegations. `atMs` should sit on a stable
  * boundary (the caller passes the hour), so the block and the LCD read are cached for an hour rather
  * than once per minute. Null — unknown — when either read fails or times out (LCD down, or the
  * height pruned: HTTP 500 "version does not exist").
  */
-async function delegatedAt(network: NetworkId, address: string, atMs: number): Promise<boolean | null> {
+async function delegatedAt(network: NetworkId, address: string, atMs: number): Promise<Set<string> | null> {
   const signal = AbortSignal.timeout(DELEGATED_AT_TIMEOUT_MS);
   try {
     const b = await gqlFetch<{ blocks: { nodes: { id: string }[] } }>(
@@ -148,12 +148,12 @@ async function delegatedAt(network: NetworkId, address: string, atMs: number): P
     );
     const height = b.blocks.nodes[0]?.id;
     if (!height) return null;
-    const res = await lcdFetch<LcdDelegationResponse>(network, `/cosmos/staking/v1beta1/delegations/${address}?pagination.limit=1`, {
-      revalidate: 3600,
-      height,
-      signal,
-    });
-    return (res.delegation_responses ?? []).length > 0;
+    const res = await lcdFetch<LcdDelegationResponse>(
+      network,
+      `/cosmos/staking/v1beta1/delegations/${address}?pagination.limit=${DELEGATION_PAGE}`,
+      { revalidate: 3600, height, signal },
+    );
+    return new Set((res.delegation_responses ?? []).map((r) => r.delegation?.validator_address).filter((v): v is string => !!v));
   } catch {
     return null;
   }
@@ -239,7 +239,12 @@ export async function getDelegationSettlements(
 /** Per-validator contribution to the window total. */
 export interface ValidatorEarning {
   validatorAddress: string;
-  settlements: number;
+  /** The validator's settlements over the window, which paid this address only when it delegated to it
+   *  for the whole window: null otherwise (a former delegation, or one that started inside the window).
+   *  The catalog has no per-delegator payout count. */
+  settlements: number | null;
+  /** Start of the last UTC day it paid this address (ISO). */
+  lastPaidAt: string | null;
   /** The validator's whole delegator pool over the window, upokt. */
   poolUpokt: number;
   /** What this address received from it, upokt. */
@@ -251,8 +256,9 @@ export interface ValidatorEarning {
 export interface DelegationEarnings {
   /** Income received over the window, upokt. */
   windowUpokt: number;
-  /** Settlements counted. */
-  settlements: number;
+  /** Settlements that paid this address, summed over the current delegations; null when no count is
+   *  known to be true (see ValidatorEarning.settlements). */
+  settlements: number | null;
   /** Days the window actually covers. */
   windowDays: number;
   /** Days the address has been delegating inside the window: the whole window when it already held a
@@ -300,13 +306,17 @@ export async function getDelegationEarnings(
 
   // Day rows per validator: sum them, and note the first day the address was paid.
   const mineBy = new Map<string, number>();
+  const lastPaidBy = new Map<string, string>();
   let windowUpokt = 0;
   let firstDay = Infinity;
   for (const r of d.income ?? []) {
     const amount = Number(r.amount_upokt ?? 0);
     windowUpokt += amount;
     if (amount > 0) firstDay = Math.min(firstDay, Date.parse(r.bucket_start));
-    if (r.validator_operator) mineBy.set(r.validator_operator, (mineBy.get(r.validator_operator) ?? 0) + amount);
+    if (!r.validator_operator) continue;
+    mineBy.set(r.validator_operator, (mineBy.get(r.validator_operator) ?? 0) + amount);
+    const last = lastPaidBy.get(r.validator_operator);
+    if (amount > 0 && (last == null || r.bucket_start > last)) lastPaidBy.set(r.validator_operator, r.bucket_start);
   }
 
   const poolBy = new Map((d.pools ?? []).map((p) => [p.validator_operator, p]));
@@ -315,7 +325,8 @@ export async function getDelegationEarnings(
     const pool = poolBy.get(validatorAddress);
     byValidator.push({
       validatorAddress,
-      settlements: Number(pool?.distributions ?? 0),
+      settlements: null,
+      lastPaidAt: lastPaidBy.get(validatorAddress) ?? null,
       poolUpokt: Number(pool?.delegators_upokt ?? 0),
       myShareUpokt,
       former: !current.has(validatorAddress),
@@ -330,7 +341,8 @@ export async function getDelegationEarnings(
   // one leaves the span unknown, and no rate is shown rather than a wrong one.
   const from = Date.parse(range.rangeStart);
   const to = Date.parse(range.rangeEnd);
-  const bondedAt = await bondedAtStart;
+  const atStart = await bondedAtStart;
+  const bondedAt = atStart == null ? null : atStart.size > 0;
   let firstAt = from;
   let startUnknown = false;
   if (bondedAt !== true && Number.isFinite(firstDay)) {
@@ -358,9 +370,16 @@ export async function getDelegationEarnings(
     else firstAt = to;
   }
   const activeDays = (to - firstAt) / 86_400_000;
-  // Settlements of every validator the window covers: the current ones and those that paid.
-  const counted = new Set([...current, ...byValidator.map((v) => v.validatorAddress)]);
-  const settlements = [...counted].reduce((n, v) => n + Number(poolBy.get(v)?.distributions ?? 0), 0);
+  // A validator's settlement count is the number that paid this address only for a delegation held
+  // over the whole window: to a validator it delegated to at the window's start and still does (it
+  // could have left and come back inside the window, which this cannot see). Other rows get no count,
+  // and the total sums the counted ones only when every row that paid has one.
+  for (const v of byValidator) {
+    if (!v.former && atStart?.has(v.validatorAddress)) v.settlements = Number(poolBy.get(v.validatorAddress)?.distributions ?? 0);
+  }
+  const settlements = byValidator.every((v) => v.settlements != null)
+    ? byValidator.reduce((n, v) => n + (v.settlements ?? 0), 0)
+    : null;
 
   const windowDays = days;
   const dailyAvgUpokt = startUnknown ? null : activeDays > 0 ? windowUpokt / activeDays : 0;
