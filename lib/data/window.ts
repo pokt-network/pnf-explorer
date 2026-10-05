@@ -22,9 +22,11 @@ export const STILL_PROCESSING_HINT = 'Less than a week of settlements in the las
 export const START_UNKNOWN_HINT = 'Couldn’t determine when this delegation started.';
 /** What a validator's rate shows below MIN_SPAN_DAYS when it has stopped settling (last settlement over a day old). */
 export const INACTIVE = 'Inactive';
-export const INACTIVE_HINT = 'No settlement for over a day, and less than a week of settlements in the last 30 days.';
+export const INACTIVE_HINT =
+  'Last settlement over a day behind the network’s latest settlement, and less than a week of settlements in the last 30 days.';
 /** Tooltip on a rate quoted for a validator that has stopped settling. */
-export const STOPPED_HINT = 'Stopped settling inside the 30-day window; the rate covers its active days only.';
+export const STOPPED_HINT =
+  'Last settlement over a day behind the network’s latest settlement; the rate covers its active days only.';
 
 export function trailingRange(days: number, stepSeconds: number): { rangeStart: string; rangeEnd: string } {
   const step = stepSeconds * 1000;
