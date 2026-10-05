@@ -370,7 +370,8 @@ export interface DelegatorApr {
   partialWindow: boolean;
   /** True when the bonded stake moved during the window, making the mean an approximation. */
   stakeDrifted: boolean;
-  /** True when its last settlement is over a day old: it is not settling now (jailed, out of the set, …). */
+  /** True when its last settlement is over a day older than the network's latest validator settlement: it is not
+   *  settling now (jailed, out of the set, …). Relative to the network, not to now, because beta goes days without any. */
   inactive: boolean;
 }
 
@@ -395,7 +396,8 @@ interface RewardsWindow {
   /** Mean stake over every settlement of the window (the day means weighted by their settlements). */
   avgStakeUpokt: number;
   stakeDrifted: boolean;
-  /** True when its last settlement is over a day old: it is not settling now (jailed, out of the set, …). */
+  /** True when its last settlement is over a day older than the network's latest validator settlement: it is not
+   *  settling now (jailed, out of the set, …). Relative to the network, not to now, because beta goes days without any. */
   inactive: boolean;
   /** Epoch ms bracketing the hours it settled, clipped to the window. */
   firstAt: number;
@@ -405,13 +407,16 @@ interface RewardsWindow {
 const DAY_MS = 86_400_000;
 const dayOf = (ms: number) => Math.floor(ms / DAY_MS) * DAY_MS;
 
-/** Per-validator windows from the trailing-window catalog call. */
-async function getRewardsWindows(network: NetworkId, validators: string[] | null, days: number): Promise<Map<string, RewardsWindow>> {
+/**
+ * Per-validator windows from the trailing-window catalog call, for every validator: the detail card
+ * needs the network's latest settlement for `inactive`, and it shares the list's fetch-cache entries.
+ */
+async function getRewardsWindows(network: NetworkId, days: number): Promise<Map<string, RewardsWindow>> {
   const range = trailingRange(days, 300);
   const d = await gqlFetch<{ getValidatorRewardsJson: RewardsDay[] | null }>(
     network,
     VALIDATOR_REWARDS,
-    { validators, ...range, bucket: 'day' },
+    { validators: null, ...range, bucket: 'day' },
     { revalidate: 300 },
   );
   const from = Date.parse(range.rangeStart);
@@ -456,7 +461,7 @@ async function getRewardsWindows(network: NetworkId, validators: string[] | null
         network,
         VALIDATOR_REWARDS,
         {
-          validators,
+          validators: null,
           rangeStart: new Date(Math.max(day, from)).toISOString(),
           rangeEnd: new Date(Math.min(day + DAY_MS, to)).toISOString(),
           bucket: 'hour',
@@ -482,7 +487,8 @@ async function getRewardsWindows(network: NetworkId, validators: string[] | null
     if (Number.isFinite(e.first)) w.firstAt = e.first;
     if (Number.isFinite(e.last)) w.lastAt = e.last;
   }
-  for (const w of out.values()) w.inactive = w.lastAt < to - DAY_MS;
+  const latest = Math.max(...[...out.values()].map((w) => w.lastAt));
+  for (const w of out.values()) w.inactive = w.lastAt < latest - DAY_MS;
   return out;
 }
 
@@ -502,7 +508,7 @@ export async function getValidatorDelegatorApr(
 ): Promise<DelegatorApr | null> {
   let w: RewardsWindow | undefined;
   try {
-    w = (await getRewardsWindows(network, [valoper], days)).get(valoper);
+    w = (await getRewardsWindows(network, days)).get(valoper);
   } catch {
     return null;
   }
@@ -558,7 +564,8 @@ export interface DelegatorAprSummary {
   partialWindow: boolean;
   /** True when the bonded stake moved during the window, making the mean an approximation. */
   stakeDrifted: boolean;
-  /** True when its last settlement is over a day old: it is not settling now (jailed, out of the set, …). */
+  /** True when its last settlement is over a day older than the network's latest validator settlement: it is not
+   *  settling now (jailed, out of the set, …). Relative to the network, not to now, because beta goes days without any. */
   inactive: boolean;
 }
 
@@ -576,7 +583,7 @@ export const getValidatorDelegatorAprMap = cache(async function getValidatorDele
   const out = new Map<string, DelegatorAprSummary>();
   let windows: Map<string, RewardsWindow>;
   try {
-    windows = await getRewardsWindows(network, null, days);
+    windows = await getRewardsWindows(network, days);
   } catch {
     return out;
   }
