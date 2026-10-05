@@ -5,10 +5,13 @@ interface FetchOpts {
   revalidate?: number | false;
   cache?: RequestCache;
   signal?: AbortSignal;
+  /** Read the chain state at this height (`x-cosmos-block-height`) instead of the latest. */
+  height?: string;
 }
 
 async function jsonFetch<T>(base: string, path: string, opts: FetchOpts): Promise<T> {
   const init: RequestInit & { next?: { revalidate?: number | false } } = { signal: opts.signal };
+  if (opts.height) init.headers = { 'x-cosmos-block-height': opts.height };
   if (opts.cache) init.cache = opts.cache;
   else if (opts.revalidate === false) init.cache = 'force-cache';
   else if (typeof opts.revalidate === 'number') init.next = { revalidate: opts.revalidate };

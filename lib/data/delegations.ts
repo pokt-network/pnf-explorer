@@ -4,7 +4,7 @@ import { lcdFetch } from '@/lib/lcd';
 import type { NetworkId } from '@/lib/networks';
 import { UPOKT_PER_POKT } from '@/lib/config';
 import { toBigInt } from '@/lib/format';
-import { DELEGATION_FIRST_HOUR, DELEGATION_SETTLEMENTS, DELEGATION_WINDOW } from '@/lib/queries/delegations';
+import { DELEGATION_FIRST_HOUR, DELEGATION_SETTLEMENTS, DELEGATION_WINDOW, WINDOW_START_BLOCK } from '@/lib/queries/delegations';
 import { MIN_SPAN_DAYS, trailingRange } from '@/lib/data/window';
 
 // Staking-delegation data layer. See lib/queries/delegations.ts for the verified model; the short
@@ -126,6 +126,31 @@ export const getDelegations = cache(async (network: NetworkId, address: string):
 
 // ---- derived income ----
 
+/**
+ * Whether the address held any delegation at the block the window starts at: the chain's own record
+ * (historical LCD read), since the indexer exposes no delegations. Null when either read fails.
+ */
+async function delegatedAt(network: NetworkId, address: string, at: string): Promise<boolean | null> {
+  try {
+    const b = await gqlFetch<{ blocks: { nodes: { id: string }[] } }>(
+      network,
+      WINDOW_START_BLOCK,
+      // Indexer timestamps are UTC-naive, so the cutoff goes without the trailing Z.
+      { cutoff: at.replace('Z', '') },
+      { revalidate: 300 },
+    );
+    const height = b.blocks.nodes[0]?.id;
+    if (!height) return null;
+    const res = await lcdFetch<LcdDelegationResponse>(network, `/cosmos/staking/v1beta1/delegations/${address}?pagination.limit=1`, {
+      revalidate: false,
+      height,
+    });
+    return (res.delegation_responses ?? []).length > 0;
+  } catch {
+    return null;
+  }
+}
+
 /** Pro-rata slice of a pool. Returns 0 rather than NaN when the pool's stake is missing/zero. */
 function slice(poolUpokt: number, myStakeUpokt: number, totalStakeUpokt: number): number {
   if (!(totalStakeUpokt > 0)) return 0;
@@ -222,7 +247,8 @@ export interface DelegationEarnings {
   settlements: number;
   /** Days the window actually covers. */
   windowDays: number;
-  /** Days from the address's first payment inside the window to now (the window, when it was paid from the start). */
+  /** Days the address has been delegating inside the window: the whole window when it already held a
+   *  delegation at its start, otherwise from its first payment. */
   activeDays: number;
   /** Income per active day. */
   dailyAvgUpokt: number;
@@ -249,6 +275,7 @@ export async function getDelegationEarnings(
 ): Promise<DelegationEarnings | null> {
   const current = new Set(set.rows.map((r) => r.validatorAddress));
   const range = trailingRange(days, 60);
+  const bondedAtStart = delegatedAt(network, address, range.rangeStart);
   let d: {
     income: { bucket_start: string; validator_operator: string; amount_upokt: string | null }[] | null;
     pools: { validator_operator: string; delegators_upokt: string | null; distributions: string | null }[] | null;
@@ -283,12 +310,15 @@ export async function getDelegationEarnings(
     });
   }
 
-  // The active span starts at the hour of the first payment inside the window (re-read by hour over
-  // that day); with no payment at all it is the whole window.
+  // The active span is the whole window when the address already held a delegation at its start
+  // (whether or not its validators paid early on). Otherwise it began delegating inside the window,
+  // and the span starts at the hour of its first payment (re-read by hour over that day) — later
+  // than the delegation itself only if its validator paid nothing at first. A failed check keeps the
+  // whole window, which can only understate the rate.
   const from = Date.parse(range.rangeStart);
   const to = Date.parse(range.rangeEnd);
   let firstAt = from;
-  if (Number.isFinite(firstDay)) {
+  if ((await bondedAtStart) === false && Number.isFinite(firstDay)) {
     firstAt = Math.max(firstDay, from);
     try {
       const h = await gqlFetch<{ getDelegatorIncomeJson: { bucket_start: string; amount_upokt: string | null }[] | null }>(

@@ -314,7 +314,7 @@ function RatePanel({ set, earnings }: { set: DelegationSet; earnings: Delegation
             <b>{formatPokt(Math.round(earnings.dailyAvgUpokt))} POKT</b>{' '}
             <span className="dim">
               per day
-              {earnings.activeDays < earnings.windowDays - 0.5 ? ` · over the ${earnings.activeDays.toFixed(1)} days since its first payment` : ''}
+              {earnings.activeDays < earnings.windowDays - 0.5 ? ` · over the ${earnings.activeDays.toFixed(1)} days it has been delegating` : ''}
             </span>
           </div>
         </div>

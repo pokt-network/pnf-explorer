@@ -76,10 +76,22 @@ export const DELEGATION_WINDOW = /* GraphQL */ `
   }
 `;
 
+/** The newest block at or before a time: the height the trailing window starts at. */
+export const WINDOW_START_BLOCK = /* GraphQL */ `
+  query windowStartBlock($cutoff: Datetime!) {
+    blocks(first: 1, orderBy: ID_DESC, filter: { timestamp: { lessThanOrEqualTo: $cutoff } }) {
+      nodes {
+        id
+      }
+    }
+  }
+`;
+
 /**
- * The address's income by hour over one day: the day its income starts inside the window, so the
- * active span (and with it the daily average and APR) starts at the hour of its first payment, not
- * at the window start — an address that began delegating 3 days ago has earned over 3 days, not 30.
+ * The address's income by hour over one day: the day its income starts inside the window. Read only
+ * when the address held no delegation at the window's start, so the active span (and with it the daily
+ * average and APR) starts at the hour of its first payment — an address that began delegating 3 days
+ * ago has earned over 3 days, not 30.
  */
 export const DELEGATION_FIRST_HOUR = /* GraphQL */ `
   query delegationFirstHour($delegators: [String], $rangeStart: Datetime!, $rangeEnd: Datetime!) {
