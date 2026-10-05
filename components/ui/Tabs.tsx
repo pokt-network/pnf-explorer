@@ -20,7 +20,8 @@ export interface TabDef {
  * The active tab is shareable via `?tab=<slug>`: an incoming param (matched against either a tab's
  * `key` or its slugified label) selects the initial tab; clicking a tab updates the param through
  * `history.replaceState` — URL-bar only, no navigation or server refetch. Absent/unknown → `initial`
- * then the first tab (unchanged from before for paramless URLs).
+ * then the first tab (unchanged from before for paramless URLs). The selection is read from the URL on
+ * every render, so Back/Forward land on the tab the server rendered for that URL.
  *
  * A tab whose `panel` is `null` is deferred: the server left it out because its query is expensive
  * and few visitors open it. Selecting it navigates to `?tab=<slug>`, so the server renders it then.
@@ -28,14 +29,17 @@ export interface TabDef {
 export function Tabs({ tabs, initial }: { tabs: TabDef[]; initial?: string }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [, startTransition] = useTransition();
-  const [active, setActive] = useState(selectTab(tabs, useSearchParams().get('tab'), initial));
+  const fromUrl = selectTab(tabs, useSearchParams().get('tab'), initial);
+  // A deferred tab shows as selected (with a skeleton) while its navigation is in flight.
+  const [loading, startTransition] = useTransition();
+  const [requested, setRequested] = useState<string | null>(null);
+  const active = loading && requested ? requested : fromUrl;
 
   function select(t: TabDef) {
-    setActive(t.key);
     const sp = new URLSearchParams(window.location.search);
     sp.set('tab', slugify(t.label));
     if (t.panel === null) {
+      setRequested(t.key);
       startTransition(() => router.replace(`${pathname}?${sp.toString()}${window.location.hash}`, { scroll: false }));
       return;
     }
