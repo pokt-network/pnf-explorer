@@ -2,6 +2,7 @@ import { NetLink as Link } from '@/components/shell/NetLink';
 import { Hash } from '@/components/ui/Hash';
 import { Tabs } from '@/components/ui/Tabs';
 import type { TabDef } from '@/components/ui/Tabs';
+import { selectTab } from '@/components/ui/tabSelect';
 import { RawJson } from '@/components/ui/RawJson';
 import { LcdSourceStrip } from '@/components/ui/LcdSourceStrip';
 import { Pager } from '@/components/ui/Pager';
@@ -428,6 +429,7 @@ export function SupplierRoleView({
   legacy,
   currentHeight,
   earnPage,
+  tab,
 }: {
   network: NetworkId;
   view: SupplierView;
@@ -435,11 +437,28 @@ export function SupplierRoleView({
   legacy: SupplierRole;
   currentHeight: number | null;
   earnPage: string | undefined;
+  /** The `?tab=` value. Traffic and Earnings are rendered only while active: their queries are the
+   *  costliest of the page and most visits never open them. */
+  tab: string | undefined;
 }) {
+  const active = selectTab(
+    [
+      { key: 'svc', label: 'Services' },
+      { key: 'traffic', label: 'Traffic' },
+      { key: 'earn', label: 'Earnings' },
+      { key: 'hist', label: 'History' },
+      { key: 'raw', label: 'Raw' },
+    ],
+    tab,
+  );
   const tabs: TabDef[] = [
     { key: 'svc', label: 'Services', badge: view.services.length || undefined, panel: <ServicesPanel view={view} currentHeight={currentHeight} /> },
-    { key: 'traffic', label: 'Traffic', panel: <SupplierTrafficPanel network={network} supplier={legacy} currentHeight={currentHeight} /> },
-    { key: 'earn', label: 'Earnings', panel: <EarningsPanel network={network} view={view} page={parsePage(earnPage)} /> },
+    {
+      key: 'traffic',
+      label: 'Traffic',
+      panel: active === 'traffic' ? <SupplierTrafficPanel network={network} supplier={legacy} currentHeight={currentHeight} /> : null,
+    },
+    { key: 'earn', label: 'Earnings', panel: active === 'earn' ? <EarningsPanel network={network} view={view} page={parsePage(earnPage)} /> : null },
     { key: 'hist', label: 'History', badge: view.slashCount || undefined, panel: <HistoryPanel network={network} id={view.id} /> },
     { key: 'raw', label: 'Raw', panel: <RawPanel network={network} id={view.id} /> },
   ];

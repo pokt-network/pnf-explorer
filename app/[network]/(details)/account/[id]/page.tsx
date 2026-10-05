@@ -53,6 +53,7 @@ interface AddressSearchParams {
   svcs?: string;
   settlements?: string;
   earn?: string;
+  tab?: string;
   txs?: string;
   transfers?: string;
 }
@@ -111,7 +112,7 @@ export default async function AccountDetailPage({
       const view = await getSupplierRole(network, id).catch(() => null);
       body =
         view && profile.supplier ? (
-          <SupplierRoleView network={network} view={view} legacy={profile.supplier} currentHeight={currentHeight} earnPage={sp.earn} />
+          <SupplierRoleView network={network} view={view} legacy={profile.supplier} currentHeight={currentHeight} earnPage={sp.earn} tab={sp.tab} />
         ) : (
           <RoleUnavailable what="supplier" />
         );

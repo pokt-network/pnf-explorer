@@ -1,18 +1,16 @@
 'use client';
 
-import { useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useState, useTransition } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { TableSkeleton } from '@/components/ui/states';
+import { slugify, selectTab } from './tabSelect';
 
 export interface TabDef {
   key: string;
   label: string;
   badge?: number | string;
+  /** `null` = deferred: the server renders it only while it is the `?tab=` (see below). */
   panel: React.ReactNode;
-}
-
-/** Slug for the shareable `?tab=` value, e.g. "Rev-share" → "rev-share", "Delegated Gateways" → "delegated-gateways". */
-function slugify(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
 /**
@@ -23,18 +21,24 @@ function slugify(s: string): string {
  * `key` or its slugified label) selects the initial tab; clicking a tab updates the param through
  * `history.replaceState` — URL-bar only, no navigation or server refetch. Absent/unknown → `initial`
  * then the first tab (unchanged from before for paramless URLs).
+ *
+ * A tab whose `panel` is `null` is deferred: the server left it out because its query is expensive
+ * and few visitors open it. Selecting it navigates to `?tab=<slug>`, so the server renders it then.
  */
 export function Tabs({ tabs, initial }: { tabs: TabDef[]; initial?: string }) {
-  const requested = useSearchParams().get('tab');
-  const matched = requested
-    ? tabs.find((t) => t.key === requested || slugify(t.label) === slugify(requested))?.key
-    : undefined;
-  const [active, setActive] = useState(matched ?? initial ?? tabs[0]?.key);
+  const router = useRouter();
+  const pathname = usePathname();
+  const [, startTransition] = useTransition();
+  const [active, setActive] = useState(selectTab(tabs, useSearchParams().get('tab'), initial));
 
   function select(t: TabDef) {
     setActive(t.key);
     const sp = new URLSearchParams(window.location.search);
     sp.set('tab', slugify(t.label));
+    if (t.panel === null) {
+      startTransition(() => router.replace(`${pathname}?${sp.toString()}${window.location.hash}`, { scroll: false }));
+      return;
+    }
     window.history.replaceState(null, '', `${window.location.pathname}?${sp.toString()}${window.location.hash}`);
   }
 
@@ -58,7 +62,13 @@ export function Tabs({ tabs, initial }: { tabs: TabDef[]; initial?: string }) {
       </div>
       {tabs.map((t) => (
         <div key={t.key} role="tabpanel" id={`panel-${t.key}`} aria-labelledby={`tab-${t.key}`} hidden={active !== t.key}>
-          {t.panel}
+          {t.panel === null && active === t.key ? (
+            <div className="card flush-top">
+              <TableSkeleton rows={5} />
+            </div>
+          ) : (
+            t.panel
+          )}
         </div>
       ))}
     </>
