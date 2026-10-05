@@ -57,18 +57,46 @@ export async function getTransactionsList(network: NetworkId, limit: number, off
   return data.transactions;
 }
 
-export async function getTransactionsSummary(network: NetworkId) {
+interface TxSums {
+  totalTxs?: string | null;
+  successfulTxs: string | null;
+  failedTxs: string | null;
+}
+
+/** The all-time total behind a chip, where the per-block counters have it (all/success/failed). */
+const CHAIN_TOTAL: Partial<Record<TxFilterKey, keyof TxSums>> = { all: 'totalTxs', success: 'successfulTxs', failed: 'failedTxs' };
+
+/** True when `getTransactionsSummary` returns this chip's total, so the list need not count it. */
+export function hasChainTotal(filter: TxFilterKey): boolean {
+  return CHAIN_TOTAL[filter] != null;
+}
+
+/**
+ * Latest-block and 24h counts, plus the chip's all-time total when the per-block counters carry it
+ * (`chainTotal`, null otherwise — the list then counts its own filter).
+ */
+export async function getTransactionsSummary(network: NetworkId, filter: TxFilterKey) {
   const end = new Date();
   const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+  const chainKey = CHAIN_TOTAL[filter];
   const data = await gqlFetch<{
     blocks: { nodes: { totalTxs: number }[] };
-    validTxs: { totalCount: number };
-    failedTxs: { totalCount: number };
-  }>(network, TRANSACTIONS_SUMMARY, { startDate: start.toISOString(), endDate: end.toISOString() }, { revalidate: 15 });
+    day: { aggregates: { sum: TxSums | null } | null };
+    chain?: { aggregates: { sum: TxSums | null } | null };
+  }>(
+    network,
+    TRANSACTIONS_SUMMARY,
+    { startDate: start.toISOString(), endDate: end.toISOString(), withChain: chainKey != null },
+    { revalidate: 15 },
+  );
+  // GraphQL aggregate sums serialize as strings — coerce to number.
+  const day = data.day.aggregates?.sum;
+  const chain = chainKey ? data.chain?.aggregates?.sum?.[chainKey] : null;
   return {
     latestBlockTxs: data.blocks.nodes[0]?.totalTxs ?? null,
-    successful24h: data.validTxs.totalCount,
-    failed24h: data.failedTxs.totalCount,
+    successful24h: Number(day?.successfulTxs ?? 0),
+    failed24h: Number(day?.failedTxs ?? 0),
+    chainTotal: chain != null ? Number(chain) : null,
   };
 }
 
