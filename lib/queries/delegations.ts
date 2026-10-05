@@ -56,41 +56,21 @@ export const DELEGATION_SETTLEMENTS = /* GraphQL */ `
 `;
 
 /**
- * Per-validator totals over a block window, in ONE round trip.
+ * What the address received over a time window, per validator, in ONE round trip — from the money
+ * catalog, not derived here:
  *
- * Grouping by validator matters because each validator divides its pool over a different
- * `totalDelegatedStakeAmount`, so the address's slice differs per validator and a single global sum
- * would be meaningless. `min`/`max` come back alongside the average so the caller can tell whether
- * the pool held steady across the window (min === max → the derived slice is exact) or drifted
- * (→ the average makes it an approximation, and the UI says so).
+ *   - `income` (get_delegator_income): the exact amount the chain paid this delegator at each
+ *     settlement, from the delegations it held at that height. No current-stake approximation.
+ *     `validator_operator` '' is income the catalog could not attribute to one validator (replayed
+ *     heights 288,180–788,944 only); it counts in the total.
+ *   - `pools` (get_validator_rewards): each validator's delegator pool and settlement count over the
+ *     same window, for the per-validator detail.
+ *
+ * Both raise for a range the catalog does not cover; see trailingRange in lib/data/window.ts.
  */
 export const DELEGATION_WINDOW = /* GraphQL */ `
-  query delegationWindow($validators: [String!], $windowStartBlock: BigFloat!) {
-    eventValidatorRewardDistributions(
-      filter: { validatorOperatorAddress: { in: $validators }, blockId: { greaterThanOrEqualTo: $windowStartBlock } }
-    ) {
-      totalCount
-      byValidator: groupedAggregates(groupBy: VALIDATOR_OPERATOR_ADDRESS) {
-        keys
-        sum {
-          delegatorsRewardAmount
-        }
-        average {
-          totalDelegatedStakeAmount
-        }
-        min {
-          totalDelegatedStakeAmount
-        }
-        max {
-          totalDelegatedStakeAmount
-        }
-        distinctCount {
-          id
-        }
-      }
-    }
+  query delegationWindow($delegators: [String], $validators: [String], $rangeStart: Datetime!, $rangeEnd: Datetime!) {
+    income: getDelegatorIncomeJson(delegators: $delegators, rangeStart: $rangeStart, rangeEnd: $rangeEnd, byValidator: true)
+    pools: getValidatorRewardsJson(validators: $validators, rangeStart: $rangeStart, rangeEnd: $rangeEnd)
   }
 `;
-
-// The trailing window's start block is resolved by the shared helper in lib/data/window.ts —
-// never from a nominal block time. See that file for why.

@@ -152,7 +152,7 @@ export default async function AccountDetailPage({
       // `getDelegations` is cache()-deduped with the profile probe above, so this is free.
       const set = await getDelegations(network, id).catch(() => null);
       if (set) {
-        const earnings = await getDelegationEarnings(network, set).catch(() => null);
+        const earnings = await getDelegationEarnings(network, id, set).catch(() => null);
         body = <DelegationRoleView network={network} address={id} set={set} earnings={earnings} settlementsPage={sp.settlements} />;
       } else {
         body = <RoleUnavailable what="delegation" />;

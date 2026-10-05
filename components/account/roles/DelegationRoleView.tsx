@@ -51,8 +51,8 @@ async function validatorMeta(network: NetworkId) {
 /**
  * Validators tab — where the stake sits and what each validator returned over the window.
  *
- * Bonded amount and claimable balance are always-LCD; the per-validator earnings column is derived
- * from that validator's settlements (see lib/queries/delegations.ts).
+ * Bonded amount and claimable balance are always-LCD; the per-validator earnings column is what
+ * this address received from that validator (see lib/queries/delegations.ts).
  */
 async function ValidatorsPanel({
   network,
@@ -73,7 +73,7 @@ async function ValidatorsPanel({
     <div className="card flush-top">
       <LcdSourceStrip>
         The bonded amount and the claimable balance are read live from the chain — staking delegations are not served by the
-        GraphQL indexer. Earnings are derived from each validator’s settlement events.
+        GraphQL indexer. Earnings are what each validator’s settlements paid this address.
       </LcdSourceStrip>
       <div className="tbl-scroll">
         <table className="tbl">
@@ -289,15 +289,12 @@ function RatePanel({ set, earnings }: { set: DelegationSet; earnings: Delegation
         <div className="line">
           <div className="k">How it’s derived</div>
           <div className="v">
-            Shannon pays the validator pool’s share of relay settlement directly to delegator wallets at each session end. This
-            address’s income is its slice of that pool: <b>pool × (bonded stake ÷ total delegated stake)</b>, summed over the
-            window.
+            Shannon pays the validator pool’s share of relay settlement directly to delegator wallets at each session end. The
+            income above is the exact amount those settlements paid this address over the window, from the delegations it held
+            at each one — including validators it has since left.
             <div className="muted" style={{ marginTop: 4 }}>
-              The slice uses the stake bonded <i>today</i>. Cosmos staking messages are not indexed, so a delegation that changed
-              size inside the window cannot be corrected for and would skew both the daily average and the APR.
-              {earnings.approximate
-                ? ' A validator’s total delegated stake also moved during this window, so its share is a mean rather than an exact figure.'
-                : ' Every validator’s total delegated stake held steady across this window, so the slice is exact.'}
+              The APR divides that income by the stake bonded <i>today</i>, so a delegation that changed size inside the window
+              moves it.
             </div>
           </div>
         </div>

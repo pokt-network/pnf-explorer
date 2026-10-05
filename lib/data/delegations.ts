@@ -4,9 +4,8 @@ import { lcdFetch } from '@/lib/lcd';
 import type { NetworkId } from '@/lib/networks';
 import { UPOKT_PER_POKT } from '@/lib/config';
 import { toBigInt } from '@/lib/format';
-import { toDate } from '@/lib/time';
 import { DELEGATION_SETTLEMENTS, DELEGATION_WINDOW } from '@/lib/queries/delegations';
-import { resolveWindowStart } from '@/lib/data/window';
+import { trailingRange } from '@/lib/data/window';
 
 // Staking-delegation data layer. See lib/queries/delegations.ts for the verified model; the short
 // version is that Shannon pays the validator pool's settlement share DIRECTLY to delegator wallets
@@ -14,7 +13,8 @@ import { resolveWindowStart } from '@/lib/data/window';
 // separately-claimable LCD balance is the Cosmos minimum-inflation pool and is NOT that income.
 //
 //   - LCD → the delegations, and the claimable minimum-inflation balance.
-//   - GQL → eventValidatorRewardDistributions, from which income is derived per session.
+//   - GQL → eventValidatorRewardDistributions for the per-settlement list (derived share), and the
+//     money catalog for the window's exact income.
 
 /** Trailing window for earned/daily-average/APR. Long enough to smooth per-session variance. */
 export const EARNINGS_WINDOW_DAYS = 30;
@@ -209,14 +209,12 @@ export interface ValidatorEarning {
   settlements: number;
   /** The validator's whole delegator pool over the window, upokt. */
   poolUpokt: number;
-  /** This address's derived slice of it, upokt. */
+  /** What this address received from it, upokt. */
   myShareUpokt: number;
-  /** True when the pool's total staked amount moved during the window (slice is then a mean). */
-  poolDrifted: boolean;
 }
 
 export interface DelegationEarnings {
-  /** Derived income over the window, upokt. */
+  /** Income received over the window, upokt. */
   windowUpokt: number;
   /** Settlements counted. */
   settlements: number;
@@ -226,74 +224,50 @@ export interface DelegationEarnings {
   /** Annualised window income over the current bonded stake, percent. Null when nothing is bonded. */
   aprPct: number | null;
   byValidator: ValidatorEarning[];
-  /** True when any validator's pool moved during the window — the totals are then approximate. */
-  approximate: boolean;
 }
 
 /**
- * Trailing-window income, daily average and APR, derived per validator in one round trip.
+ * Trailing-window income, daily average and APR, in one round trip to the money catalog (see
+ * DELEGATION_WINDOW). The income is exact, including from validators the address has since left.
  *
- * Two caveats, both surfaced on the view: APR is backward-looking (it annualises the settlement
- * volume this address's validators actually earned in the window, not a promised rate), and the
- * slice divides by the stake as it stands NOW because historical delegation sizes are not
- * recoverable from the indexer.
+ * APR is backward-looking: it annualises what the window paid over the stake bonded NOW, not a
+ * promised rate.
  */
 export async function getDelegationEarnings(
   network: NetworkId,
+  address: string,
   set: DelegationSet,
   days = EARNINGS_WINDOW_DAYS,
 ): Promise<DelegationEarnings | null> {
-  const start = await resolveWindowStart(network, days);
-  if (!start) return null;
-
   const validators = set.rows.map((r) => r.validatorAddress);
   let d: {
-    eventValidatorRewardDistributions: {
-      totalCount: number;
-      byValidator: {
-        keys: string[] | null;
-        sum: { delegatorsRewardAmount: string | null } | null;
-        average: { totalDelegatedStakeAmount: string | null } | null;
-        min: { totalDelegatedStakeAmount: string | null } | null;
-        max: { totalDelegatedStakeAmount: string | null } | null;
-        distinctCount: { id: string | null } | null;
-      }[] | null;
-    } | null;
+    income: { validator_operator: string; amount_upokt: string | null }[] | null;
+    pools: { validator_operator: string; delegators_upokt: string | null; distributions: string | null }[] | null;
   };
   try {
-    d = await gqlFetch(network, DELEGATION_WINDOW, { validators, windowStartBlock: start.height }, { revalidate: 60 });
+    d = await gqlFetch(network, DELEGATION_WINDOW, { delegators: [address], validators, ...trailingRange(days, 60) }, { revalidate: 60 });
   } catch {
     return null;
   }
 
-  const stakeBy = new Map(set.rows.map((r) => [r.validatorAddress, Number(toBigInt(r.amountUpokt))]));
+  const poolBy = new Map((d.pools ?? []).map((p) => [p.validator_operator, p]));
   const byValidator: ValidatorEarning[] = [];
   let windowUpokt = 0;
-
-  for (const g of d.eventValidatorRewardDistributions?.byValidator ?? []) {
-    const validatorAddress = g.keys?.[0];
-    if (!validatorAddress) continue;
-    const pool = Number(g.sum?.delegatorsRewardAmount ?? 0);
-    // The average is the right divisor for a summed pool: sum(pool) / mean(stake) is the mean slice
-    // weighted by nothing, which is exact while the stake holds still and a fair estimate when it
-    // does not. min !== max is the tell that it did not.
-    const avgStake = Number(g.average?.totalDelegatedStakeAmount ?? 0);
-    const myShareUpokt = slice(pool, stakeBy.get(validatorAddress) ?? 0, avgStake);
-    byValidator.push({
-      validatorAddress,
-      settlements: Number(g.distinctCount?.id ?? 0),
-      poolUpokt: pool,
-      myShareUpokt,
-      poolDrifted: (g.min?.totalDelegatedStakeAmount ?? null) !== (g.max?.totalDelegatedStakeAmount ?? null),
-    });
+  for (const r of d.income ?? []) {
+    const myShareUpokt = Number(r.amount_upokt ?? 0);
     windowUpokt += myShareUpokt;
+    if (!r.validator_operator) continue;
+    const pool = poolBy.get(r.validator_operator);
+    byValidator.push({
+      validatorAddress: r.validator_operator,
+      settlements: Number(pool?.distributions ?? 0),
+      poolUpokt: Number(pool?.delegators_upokt ?? 0),
+      myShareUpokt,
+    });
   }
+  const settlements = validators.reduce((n, v) => n + Number(poolBy.get(v)?.distributions ?? 0), 0);
 
-  // The window can only cover as much history as the chain has; clamp so a young chain or a thin
-  // window never inflates the daily average by dividing by days that were not actually observed.
-  const startedAt = toDate(start.timestamp)?.getTime() ?? null;
-  const windowDays = startedAt != null ? Math.max((Date.now() - startedAt) / 86_400_000, 1 / 24) : days;
-
+  const windowDays = days;
   const dailyAvgUpokt = windowUpokt / windowDays;
   const bonded = Number(toBigInt(set.totalUpokt));
   const aprPct = bonded > 0 ? ((dailyAvgUpokt * 365) / bonded) * 100 : null;
@@ -301,12 +275,11 @@ export async function getDelegationEarnings(
   byValidator.sort((a, b) => b.myShareUpokt - a.myShareUpokt);
   return {
     windowUpokt,
-    settlements: d.eventValidatorRewardDistributions?.totalCount ?? 0,
+    settlements,
     windowDays,
     dailyAvgUpokt,
     aprPct,
     byValidator,
-    approximate: byValidator.some((v) => v.poolDrifted),
   };
 }
 

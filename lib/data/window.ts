@@ -50,6 +50,20 @@ export async function resolveWindowStart(network: NetworkId, days: number): Prom
   }
 }
 
+/**
+ * `[now − days, now)` for the money catalog functions (getDelegatorIncomeJson, getValidatorRewardsJson),
+ * which take the window as timestamps and resolve the blocks themselves. `now` is rounded down to
+ * `stepSeconds` so the request — and with it the fetch-cache key — stays the same for that long.
+ *
+ * The catalog covers mainnet settlements from 2026-04-08 on (beta from genesis) and raises for a
+ * range that starts earlier; a trailing window of the 30 days used here starts well inside it.
+ */
+export function trailingRange(days: number, stepSeconds: number): { rangeStart: string; rangeEnd: string } {
+  const step = stepSeconds * 1000;
+  const end = Math.floor(Date.now() / step) * step;
+  return { rangeStart: new Date(end - days * 86_400_000).toISOString(), rangeEnd: new Date(end).toISOString() };
+}
+
 // Timestamps for an explicit set of block heights. Grouped aggregates can only hand back the
 // min/max blockId that bracket a validator's activity, and turning those heights into an elapsed
 // span with a nominal block time is exactly the drift this module exists to avoid — so resolve
