@@ -7,7 +7,7 @@
 // suppliers that have since unstaked (eth: 8746 configs vs 4063 currently Staked).
 
 // List of services (173 total), ordered by display name. Active-supplier counts are fetched
-// separately (one aliased batch query) and cached 12h — see lib/data/services.ts.
+// separately (one grouped query) and cached 12h — see lib/data/services.ts.
 export const SERVICES_LIST = /* GraphQL */ `
   query servicesList($limit: Int!, $offset: Int!) {
     services(first: $limit, offset: $offset, orderBy: NAME_ASC) {
@@ -17,6 +17,21 @@ export const SERVICES_LIST = /* GraphQL */ `
         name
         computeUnitsPerRelay
         ownerId
+      }
+    }
+  }
+`;
+
+// Active-supplier count of every service in one statement: `distinctCount { id }` counts the
+// group's config rows, the same number as the per-service filtered `totalCount`.
+export const SERVICE_ACTIVE_SUPPLIER_COUNTS = /* GraphQL */ `
+  query serviceSupplierCounts {
+    supplierServiceConfigs(filter: { supplier: { stakeStatus: { equalTo: Staked } } }) {
+      groupedAggregates(groupBy: SERVICE_ID) {
+        keys
+        distinctCount {
+          id
+        }
       }
     }
   }
