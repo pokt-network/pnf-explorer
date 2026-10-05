@@ -1,17 +1,17 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import { NetLink as Link } from '@/components/shell/NetLink';
 import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { Tic } from '@/components/ui/Icons';
 import { Pager } from '@/components/ui/Pager';
 import { ValidatorStatePill } from '@/components/ui/StatusPill';
-import { EmptyState } from '@/components/ui/states';
+import { EmptyState, Skeleton } from '@/components/ui/states';
+import { AprCell } from '@/components/validator/AprCell';
 import {
   getValidatorList,
   getValidatorChainStates,
-  getValidatorDelegatorAprMap,
   APR_WINDOW_DAYS,
 } from '@/lib/data/validators';
-import { INACTIVE, INACTIVE_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT, STOPPED_HINT } from '@/lib/data/window';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, truncate } from '@/lib/format';
 import { formatCommission, validatorMoniker, deriveValidatorState } from '@/lib/validator';
@@ -37,14 +37,11 @@ export default async function ValidatorsPage({
   const { page: pageParam } = await searchParams;
   const page = Math.max(1, Number(pageParam) || 1);
 
-  const [{ nodes, totalCount }, chain, aprByValidator] = await Promise.all([
+  const [{ nodes, totalCount }, chain] = await Promise.all([
     getValidatorList(network, FETCH_LIMIT, 0),
     // Active-set standing + tokens in one LCD read. The indexer's stakeStatus cannot tell a
     // below-the-cutoff candidate from a jailed validator — both are "Unstaked" there.
     getValidatorChainStates(network),
-    // One grouped roll-up for the whole set — see getValidatorDelegatorAprMap. A validator missing
-    // from the map has no rate, which renders as a dash rather than 0%.
-    getValidatorDelegatorAprMap(network),
   ]);
 
   // Voting power is total bonded `tokens` (self-stake + delegations) from the LCD — the security
@@ -110,7 +107,6 @@ export default async function ValidatorsPage({
                 // voting influence they do not have.
                 const hasShare = state === 'active' || state === 'unknown';
                 const sharePct = hasShare && totalStakeNum > 0 ? (stakeNum / totalStakeNum) * 100 : 0;
-                const apr = aprByValidator.get(v.id);
                 return (
                   <tr key={v.id}>
                     <td className="rank">{rank}</td>
@@ -146,25 +142,9 @@ export default async function ValidatorsPage({
                     {/* Net delegator return over the trailing window — already after this
                         validator's commission. Matches the figure on its detail page. */}
                     <td className="num mono">
-                      {apr && apr.aprPct == null ? (
-                        <span className="dim" title={apr.inactive ? INACTIVE_HINT : STILL_PROCESSING_HINT}>
-                          {apr.inactive ? INACTIVE : STILL_PROCESSING}
-                        </span>
-                      ) : apr && apr.aprPct != null ? (
-                        <span
-                          title={
-                            apr.inactive
-                              ? STOPPED_HINT
-                              : apr.partialWindow
-                                ? `Settled for only part of the ${APR_WINDOW_DAYS}-day window.`
-                                : undefined
-                          }
-                        >
-                          {apr.aprPct.toFixed(2)}%{apr.partialWindow ? <span className="dim">†</span> : null}
-                        </span>
-                      ) : (
-                        <span className="dim">—</span>
-                      )}
+                      <Suspense fallback={<Skeleton width={48} />}>
+                        <AprCell network={network} valoper={v.id} />
+                      </Suspense>
                     </td>
                   </tr>
                 );

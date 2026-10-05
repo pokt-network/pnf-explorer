@@ -405,6 +405,8 @@ interface RewardsWindow {
 }
 
 const DAY_MS = 86_400_000;
+/** Budget for the catalog reads behind a validator's APR. */
+const REWARDS_TIMEOUT_MS = 10_000;
 const dayOf = (ms: number) => Math.floor(ms / DAY_MS) * DAY_MS;
 
 /**
@@ -412,12 +414,17 @@ const dayOf = (ms: number) => Math.floor(ms / DAY_MS) * DAY_MS;
  * needs the network's latest settlement for `inactive`, and it shares the list's fetch-cache entries.
  */
 async function getRewardsWindows(network: NetworkId, days: number): Promise<Map<string, RewardsWindow>> {
-  const range = trailingRange(days, 300);
+  // The window ends on the hour: the requests — and their fetch-cache keys — then change once an
+  // hour, so only the first visitor after the hour pays for the cold reads (revalidate still
+  // refreshes them every 5 minutes). Both reads give up after REWARDS_TIMEOUT_MS: the callers render
+  // no rate rather than wait.
+  const range = trailingRange(days, 3600);
+  const signal = AbortSignal.timeout(REWARDS_TIMEOUT_MS);
   const d = await gqlFetch<{ getValidatorRewardsJson: RewardsDay[] | null }>(
     network,
     VALIDATOR_REWARDS,
     { validators: null, ...range, bucket: 'day' },
-    { revalidate: 300 },
+    { revalidate: 300, signal },
   );
   const from = Date.parse(range.rangeStart);
   const to = Date.parse(range.rangeEnd);
@@ -449,13 +456,13 @@ async function getRewardsWindows(network: NetworkId, days: number): Promise<Map<
   // Day rows put the span edges on midnight, which would credit a validator that joined at 20:00
   // with the whole day (viewed at 20:30: 20.5 h instead of 0.5 h). Re-read each validator's first
   // and last day by hour — one call per distinct day, in parallel — so the span runs from the hour
-  // of its first settlement to the hour of its last.
+  // of its first settlement to the hour of its last. A day whose re-read fails keeps its midnight edges.
   const edgeDays = new Set<number>();
   for (const w of out.values()) {
     edgeDays.add(dayOf(w.firstAt));
     edgeDays.add(dayOf(w.lastAt - 1));
   }
-  const byHour = await Promise.all(
+  const byHour = await Promise.allSettled(
     [...edgeDays].map(async (day) => {
       const h = await gqlFetch<{ getValidatorRewardsJson: RewardsDay[] | null }>(
         network,
@@ -466,13 +473,15 @@ async function getRewardsWindows(network: NetworkId, days: number): Promise<Map<
           rangeEnd: new Date(Math.min(day + DAY_MS, to)).toISOString(),
           bucket: 'hour',
         },
-        { revalidate: 300 },
+        { revalidate: 300, signal },
       );
       return { day, rows: h.getValidatorRewardsJson ?? [] };
     }),
   );
   const edges = new Map<string, { first: number; last: number }>();
-  for (const { day, rows } of byHour) {
+  for (const settled of byHour) {
+    if (settled.status !== 'fulfilled') continue;
+    const { day, rows } = settled.value;
     for (const r of rows) {
       const w = out.get(r.validator_operator);
       if (!w || !(Number(r.distributions) > 0)) continue;
