@@ -145,7 +145,11 @@ export default async function ValidatorsPage({
                     {/* Net delegator return over the trailing window — already after this
                         validator's commission. Matches the figure on its detail page. */}
                     <td className="num mono">
-                      {apr ? (
+                      {apr && apr.aprPct == null ? (
+                        <span className="dim" title="Settling for under a day — too short for an annual rate.">
+                          —
+                        </span>
+                      ) : apr && apr.aprPct != null ? (
                         <span
                           title={
                             apr.partialWindow ? `Settled for only part of the ${APR_WINDOW_DAYS}-day window.` : undefined

@@ -353,9 +353,13 @@ export async function getDelegators(network: NetworkId, valoper: string): Promis
 /** Trailing window for the validator's advertised delegator return. */
 export const APR_WINDOW_DAYS = 30;
 
+/** Shortest active span an APR is quoted for; below it the validator shows no rate. */
+export const MIN_SPAN_DAYS = 1;
+
 export interface DelegatorApr {
-  /** Net annualised return to a delegator, percent. Already after commission — see the query. */
-  aprPct: number;
+  /** Net annualised return to a delegator, percent. Already after commission — see the query.
+   *  Null when the validator has settled for under a day: too short to annualise. */
+  aprPct: number | null;
   /** POKT (upokt) paid to delegators over the window, after commission. */
   delegatorUpokt: string;
   /** Commission the operator took over the same window, upokt. */
@@ -392,10 +396,13 @@ interface RewardsWindow {
   /** Mean stake over every settlement of the window (the day means weighted by their settlements). */
   avgStakeUpokt: number;
   stakeDrifted: boolean;
-  /** Epoch ms bracketing the days it settled, clipped to the window. */
+  /** Epoch ms bracketing the hours it settled, clipped to the window. */
   firstAt: number;
   lastAt: number;
 }
+
+const DAY_MS = 86_400_000;
+const dayOf = (ms: number) => Math.floor(ms / DAY_MS) * DAY_MS;
 
 /** Per-validator windows from the trailing-window catalog call. */
 async function getRewardsWindows(network: NetworkId, validators: string[] | null, days: number): Promise<Map<string, RewardsWindow>> {
@@ -403,7 +410,7 @@ async function getRewardsWindows(network: NetworkId, validators: string[] | null
   const d = await gqlFetch<{ getValidatorRewardsJson: RewardsDay[] | null }>(
     network,
     VALIDATOR_REWARDS,
-    { validators, ...range },
+    { validators, ...range, bucket: 'day' },
     { revalidate: 300 },
   );
   const from = Date.parse(range.rangeStart);
@@ -431,6 +438,48 @@ async function getRewardsWindows(network: NetworkId, validators: string[] | null
   for (const w of out.values()) {
     w.avgStakeUpokt = w.stakeSum / w.settlements;
     w.stakeDrifted = w.min !== w.max;
+  }
+
+  // Day rows put the span edges on midnight, which would credit a validator that joined at 20:00
+  // with the whole day (viewed at 20:30: 20.5 h instead of 0.5 h). Re-read each validator's first
+  // and last day by hour — one call per distinct day, in parallel — so the span runs from the hour
+  // of its first settlement to the hour of its last.
+  const edgeDays = new Set<number>();
+  for (const w of out.values()) {
+    edgeDays.add(dayOf(w.firstAt));
+    edgeDays.add(dayOf(w.lastAt - 1));
+  }
+  const byHour = await Promise.all(
+    [...edgeDays].map(async (day) => {
+      const h = await gqlFetch<{ getValidatorRewardsJson: RewardsDay[] | null }>(
+        network,
+        VALIDATOR_REWARDS,
+        {
+          validators,
+          rangeStart: new Date(Math.max(day, from)).toISOString(),
+          rangeEnd: new Date(Math.min(day + DAY_MS, to)).toISOString(),
+          bucket: 'hour',
+        },
+        { revalidate: 300 },
+      );
+      return { day, rows: h.getValidatorRewardsJson ?? [] };
+    }),
+  );
+  const edges = new Map<string, { first: number; last: number }>();
+  for (const { day, rows } of byHour) {
+    for (const r of rows) {
+      const w = out.get(r.validator_operator);
+      if (!w || !(Number(r.distributions) > 0)) continue;
+      const e = edges.get(r.validator_operator) ?? { first: Infinity, last: -Infinity };
+      edges.set(r.validator_operator, e);
+      if (dayOf(w.firstAt) === day) e.first = Math.min(e.first, Math.max(Date.parse(r.bucket_start), from));
+      if (dayOf(w.lastAt - 1) === day) e.last = Math.max(e.last, Math.min(Date.parse(r.bucket_end), to));
+    }
+  }
+  for (const [valoper, e] of edges) {
+    const w = out.get(valoper)!;
+    if (Number.isFinite(e.first)) w.firstAt = e.first;
+    if (Number.isFinite(e.last)) w.lastAt = e.last;
   }
   return out;
 }
@@ -478,17 +527,17 @@ export async function getValidatorDelegatorApr(
  * Null means "no rate to report", never "zero": under two settlements, no delegated stake, or an
  * unresolvable span all leave nothing to annualise.
  */
-function annualise(w: RewardsWindow, days: number): { aprPct: number; spanDays: number; partialWindow: boolean } | null {
+function annualise(w: RewardsWindow, days: number): { aprPct: number | null; spanDays: number; partialWindow: boolean } | null {
   // Two settlements is the minimum that defines a rate; below that there is no rate to report.
   if (w.settlements < 2 || !(w.avgStakeUpokt > 0)) return null;
   if (!(w.lastAt > w.firstAt)) return null;
 
-  // The span runs from the start of the first day with settlements to the end of the last one,
-  // clipped to the window: day granularity, so a validator that joined mid-day is credited the
-  // whole day.
-  const spanDays = (w.lastAt - w.firstAt) / 86_400_000;
+  // The span runs from the start of the hour of the first settlement to the end of the hour of the
+  // last one, clipped to the window. Under a day of activity, an hour's rounding and the burstiness
+  // of settlement make an annualised figure meaningless: report the validator without a rate.
+  const spanDays = (w.lastAt - w.firstAt) / DAY_MS;
   return {
-    aprPct: ((Number(w.delegatorUpokt) / spanDays) * 365 * 100) / w.avgStakeUpokt,
+    aprPct: spanDays < MIN_SPAN_DAYS ? null : ((Number(w.delegatorUpokt) / spanDays) * 365 * 100) / w.avgStakeUpokt,
     spanDays,
     // Allow a session's slack: a full window still starts a few minutes after the boundary block.
     partialWindow: spanDays < days - 0.5,
@@ -497,8 +546,9 @@ function annualise(w: RewardsWindow, days: number): { aprPct: number; spanDays: 
 
 /** One validator's entry in the list-wide APR roll-up. */
 export interface DelegatorAprSummary {
-  /** Net annualised return to a delegator, percent. Already after commission — see the query. */
-  aprPct: number;
+  /** Net annualised return to a delegator, percent. Already after commission — see the query.
+   *  Null when the validator has settled for under a day: too short to annualise. */
+  aprPct: number | null;
   /** True when the validator was not settling for the whole window (joined or paused inside it). */
   partialWindow: boolean;
   /** True when the bonded stake moved during the window, making the mean an approximation. */

@@ -73,11 +73,12 @@ export const VALIDATOR_UPTIME = /* GraphQL */ `
 // again is the obvious mistake here and would understate the delegator's return by the commission
 // rate.
 //
-// The first and last days with settlements bracket the validator's ACTIVE span inside the window. A
-// validator that started (or stopped) mid-window earned over less time than the window is long, and
-// dividing by the full 30 days would understate its rate.
+// The first and last hours with settlements bracket the validator's ACTIVE span inside the window
+// (day rows for the window, then hour rows for its first and last day). A validator that started
+// (or stopped) mid-window earned over less time than the window is long, and dividing by the full
+// 30 days would understate its rate.
 export const VALIDATOR_REWARDS = /* GraphQL */ `
-  query validatorRewards($validators: [String], $rangeStart: Datetime!, $rangeEnd: Datetime!) {
-    getValidatorRewardsJson(validators: $validators, rangeStart: $rangeStart, rangeEnd: $rangeEnd, bucket: "day")
+  query validatorRewards($validators: [String], $rangeStart: Datetime!, $rangeEnd: Datetime!, $bucket: String!) {
+    getValidatorRewardsJson(validators: $validators, rangeStart: $rangeStart, rangeEnd: $rangeEnd, bucket: $bucket)
   }
 `;
