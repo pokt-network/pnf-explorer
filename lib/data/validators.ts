@@ -8,12 +8,10 @@ import {
   VALIDATORS_LIST,
   VALIDATOR_BY_ID,
   VALIDATOR_UPTIME,
-  VALIDATOR_DELEGATOR_APR,
-  VALIDATORS_DELEGATOR_APR,
+  VALIDATOR_REWARDS,
 } from '@/lib/queries/validators';
-import { resolveWindowStart, resolveBlockTimestamps } from '@/lib/data/window';
+import { trailingRange } from '@/lib/data/window';
 import { toBigInt } from '@/lib/format';
-import { toDate } from '@/lib/time';
 
 // Validator data layer. commission + description are JSON OBJECTS (parse via lib/validator).
 // stakeStatus is the StakeStatus enum (Staked/Unstaking/Unstaked) — NOT Bonded/Unbonding.
@@ -373,10 +371,74 @@ export interface DelegatorApr {
   stakeDrifted: boolean;
 }
 
+/** One validator and UTC day of getValidatorRewardsJson (numbers serialize as strings). */
+interface RewardsDay {
+  bucket_start: string;
+  bucket_end: string;
+  validator_operator: string;
+  commission_upokt: string | null;
+  delegators_upokt: string | null;
+  distributions: string;
+  delegated_stake_avg_upokt: string | null;
+  delegated_stake_min_upokt: string | null;
+  delegated_stake_max_upokt: string | null;
+}
+
+/** A validator's window, summed from its day rows. */
+interface RewardsWindow {
+  settlements: number;
+  delegatorUpokt: bigint;
+  commissionUpokt: bigint;
+  /** Mean stake over every settlement of the window (the day means weighted by their settlements). */
+  avgStakeUpokt: number;
+  stakeDrifted: boolean;
+  /** Epoch ms bracketing the days it settled, clipped to the window. */
+  firstAt: number;
+  lastAt: number;
+}
+
+/** Per-validator windows from the trailing-window catalog call. */
+async function getRewardsWindows(network: NetworkId, validators: string[] | null, days: number): Promise<Map<string, RewardsWindow>> {
+  const range = trailingRange(days, 300);
+  const d = await gqlFetch<{ getValidatorRewardsJson: RewardsDay[] | null }>(
+    network,
+    VALIDATOR_REWARDS,
+    { validators, ...range },
+    { revalidate: 300 },
+  );
+  const from = Date.parse(range.rangeStart);
+  const to = Date.parse(range.rangeEnd);
+  const out = new Map<string, RewardsWindow & { stakeSum: number; min: bigint | null; max: bigint | null }>();
+  for (const r of d.getValidatorRewardsJson ?? []) {
+    const n = Number(r.distributions);
+    if (!(n > 0)) continue;
+    let w = out.get(r.validator_operator);
+    if (!w) {
+      w = { settlements: 0, delegatorUpokt: BigInt(0), commissionUpokt: BigInt(0), avgStakeUpokt: 0, stakeDrifted: false, firstAt: Infinity, lastAt: -Infinity, stakeSum: 0, min: null, max: null };
+      out.set(r.validator_operator, w);
+    }
+    w.settlements += n;
+    w.delegatorUpokt += toBigInt(r.delegators_upokt);
+    w.commissionUpokt += toBigInt(r.commission_upokt);
+    w.stakeSum += Number(r.delegated_stake_avg_upokt ?? 0) * n;
+    const lo = toBigInt(r.delegated_stake_min_upokt);
+    const hi = toBigInt(r.delegated_stake_max_upokt);
+    if (w.min == null || lo < w.min) w.min = lo;
+    if (w.max == null || hi > w.max) w.max = hi;
+    w.firstAt = Math.min(w.firstAt, Math.max(Date.parse(r.bucket_start), from));
+    w.lastAt = Math.max(w.lastAt, Math.min(Date.parse(r.bucket_end), to));
+  }
+  for (const w of out.values()) {
+    w.avgStakeUpokt = w.stakeSum / w.settlements;
+    w.stakeDrifted = w.min !== w.max;
+  }
+  return out;
+}
+
 /**
  * Net delegator APR for one validator over a trailing window.
  *
- * `delegatorsRewardAmount` is already net of commission, so this is what a delegator actually
+ * `delegators_upokt` is already net of commission, so this is what a delegator actually
  * receives — do NOT subtract commission again.
  *
  * Backward-looking by construction: it annualises the relay settlement this validator actually
@@ -387,53 +449,25 @@ export async function getValidatorDelegatorApr(
   valoper: string,
   days = APR_WINDOW_DAYS,
 ): Promise<DelegatorApr | null> {
-  const start = await resolveWindowStart(network, days);
-  if (!start) return null;
-
-  interface Edge {
-    nodes: { blockId: string; block: { timestamp: string } | null }[];
-  }
-  let d: {
-    window: {
-      totalCount: number;
-      aggregates: {
-        sum: { delegatorsRewardAmount: string | null; commissionAmount: string | null } | null;
-        average: { totalDelegatedStakeAmount: string | null } | null;
-        min: { totalDelegatedStakeAmount: string | null } | null;
-        max: { totalDelegatedStakeAmount: string | null } | null;
-      } | null;
-    } | null;
-    first: Edge | null;
-    last: Edge | null;
-  };
+  let w: RewardsWindow | undefined;
   try {
-    d = await gqlFetch(network, VALIDATOR_DELEGATOR_APR, { id: valoper, startBlock: start.height }, { revalidate: 300 });
+    w = (await getRewardsWindows(network, [valoper], days)).get(valoper);
   } catch {
     return null;
   }
-
-  const settlements = d.window?.totalCount ?? 0;
-  const agg = d.window?.aggregates;
-  const avgStake = Number(agg?.average?.totalDelegatedStakeAmount ?? 0);
-  const rate = annualise({
-    settlements,
-    firstAt: toDate(d.first?.nodes?.[0]?.block?.timestamp)?.getTime() ?? null,
-    lastAt: toDate(d.last?.nodes?.[0]?.block?.timestamp)?.getTime() ?? null,
-    delegatorUpokt: toBigInt(agg?.sum?.delegatorsRewardAmount),
-    avgStakeUpokt: avgStake,
-    days,
-  });
+  if (!w) return null;
+  const rate = annualise(w, days);
   if (!rate) return null;
 
   return {
     aprPct: rate.aprPct,
-    delegatorUpokt: toBigInt(agg?.sum?.delegatorsRewardAmount).toString(),
-    commissionUpokt: toBigInt(agg?.sum?.commissionAmount).toString(),
-    avgStakeUpokt: Math.round(avgStake).toString(),
-    settlements,
+    delegatorUpokt: w.delegatorUpokt.toString(),
+    commissionUpokt: w.commissionUpokt.toString(),
+    avgStakeUpokt: Math.round(w.avgStakeUpokt).toString(),
+    settlements: w.settlements,
     activeDays: rate.spanDays,
     partialWindow: rate.partialWindow,
-    stakeDrifted: (agg?.min?.totalDelegatedStakeAmount ?? null) !== (agg?.max?.totalDelegatedStakeAmount ?? null),
+    stakeDrifted: w.stakeDrifted,
   };
 }
 
@@ -444,25 +478,17 @@ export async function getValidatorDelegatorApr(
  * Null means "no rate to report", never "zero": under two settlements, no delegated stake, or an
  * unresolvable span all leave nothing to annualise.
  */
-function annualise(input: {
-  settlements: number;
-  /** Epoch ms of the first and last settlement inside the window. */
-  firstAt: number | null;
-  lastAt: number | null;
-  delegatorUpokt: bigint;
-  avgStakeUpokt: number;
-  days: number;
-}): { aprPct: number; spanDays: number; partialWindow: boolean } | null {
-  const { settlements, firstAt, lastAt, delegatorUpokt, avgStakeUpokt, days } = input;
-  // Two settlements is the minimum that defines a span; below that there is no rate to report.
-  if (settlements < 2 || !(avgStakeUpokt > 0)) return null;
-  if (firstAt == null || lastAt == null || lastAt <= firstAt) return null;
+function annualise(w: RewardsWindow, days: number): { aprPct: number; spanDays: number; partialWindow: boolean } | null {
+  // Two settlements is the minimum that defines a rate; below that there is no rate to report.
+  if (w.settlements < 2 || !(w.avgStakeUpokt > 0)) return null;
+  if (!(w.lastAt > w.firstAt)) return null;
 
-  // The span between first and last settlement covers n-1 intervals but the sum covers n
-  // settlements; scale up so a validator with few settlements is not under-rated.
-  const spanDays = ((lastAt - firstAt) / 86_400_000) * (settlements / (settlements - 1));
+  // The span runs from the start of the first day with settlements to the end of the last one,
+  // clipped to the window: day granularity, so a validator that joined mid-day is credited the
+  // whole day.
+  const spanDays = (w.lastAt - w.firstAt) / 86_400_000;
   return {
-    aprPct: ((Number(delegatorUpokt) / spanDays) * 365 * 100) / avgStakeUpokt,
+    aprPct: ((Number(w.delegatorUpokt) / spanDays) * 365 * 100) / w.avgStakeUpokt,
     spanDays,
     // Allow a session's slack: a full window still starts a few minutes after the boundary block.
     partialWindow: spanDays < days - 0.5,
@@ -482,70 +508,25 @@ export interface DelegatorAprSummary {
 /**
  * Net delegator APR for EVERY validator that settled inside the window, keyed by valoper.
  *
- * Same events and the same arithmetic as `getValidatorDelegatorApr`, but rolled up in one grouped
- * aggregate plus one timestamp lookup — rendering this as a list column would otherwise fan out a
- * query per validator. Validators absent from the map have no rate: render a dash, never a zero,
- * which would read as "earns nothing" rather than "not enough data".
+ * Same catalog call and the same arithmetic as `getValidatorDelegatorApr`, for every validator at
+ * once (`validators: null`). Validators absent from the map have no rate: render a dash, never a
+ * zero, which would read as "earns nothing" rather than "not enough data".
  */
 export const getValidatorDelegatorAprMap = cache(async function getValidatorDelegatorAprMap(
   network: NetworkId,
   days = APR_WINDOW_DAYS,
 ): Promise<Map<string, DelegatorAprSummary>> {
   const out = new Map<string, DelegatorAprSummary>();
-
-  const start = await resolveWindowStart(network, days);
-  if (!start) return out;
-
-  interface Group {
-    keys: string[] | null;
-    distinctCount: { id: string | null } | null;
-    sum: { delegatorsRewardAmount: string | null } | null;
-    average: { totalDelegatedStakeAmount: string | null } | null;
-    min: { blockId: string | null; totalDelegatedStakeAmount: string | null } | null;
-    max: { blockId: string | null; totalDelegatedStakeAmount: string | null } | null;
-  }
-
-  let groups: Group[];
+  let windows: Map<string, RewardsWindow>;
   try {
-    const d = await gqlFetch<{ window: { groupedAggregates: Group[] | null } | null }>(
-      network,
-      VALIDATORS_DELEGATOR_APR,
-      { startBlock: start.height },
-      { revalidate: 300 },
-    );
-    groups = d.window?.groupedAggregates ?? [];
+    windows = await getRewardsWindows(network, null, days);
   } catch {
     return out;
   }
-  if (groups.length === 0) return out;
-
-  // Grouped aggregates can only report the min/max blockId bracketing each validator's activity,
-  // so resolve those heights to real timestamps rather than assuming a block time.
-  const at = await resolveBlockTimestamps(
-    network,
-    groups.flatMap((g) => [g.min?.blockId, g.max?.blockId]),
-  );
-
-  for (const g of groups) {
-    const valoper = g.keys?.[0];
-    if (!valoper) continue;
-    const rate = annualise({
-      // `distinctCount` on the row id is the group's settlement count — grouped aggregates carry
-      // no per-group totalCount.
-      settlements: Number(g.distinctCount?.id ?? 0),
-      firstAt: at.get(String(g.min?.blockId)) ?? null,
-      lastAt: at.get(String(g.max?.blockId)) ?? null,
-      delegatorUpokt: toBigInt(g.sum?.delegatorsRewardAmount),
-      avgStakeUpokt: Number(g.average?.totalDelegatedStakeAmount ?? 0),
-      days,
-    });
+  for (const [valoper, w] of windows) {
+    const rate = annualise(w, days);
     if (!rate) continue;
-    out.set(valoper, {
-      aprPct: rate.aprPct,
-      partialWindow: rate.partialWindow,
-      stakeDrifted: (g.min?.totalDelegatedStakeAmount ?? null) !== (g.max?.totalDelegatedStakeAmount ?? null),
-    });
+    out.set(valoper, { aprPct: rate.aprPct, partialWindow: rate.partialWindow, stakeDrifted: w.stakeDrifted });
   }
-
   return out;
 });
