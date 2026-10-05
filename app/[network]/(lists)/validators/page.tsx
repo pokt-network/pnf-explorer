@@ -11,7 +11,7 @@ import {
   getValidatorDelegatorAprMap,
   APR_WINDOW_DAYS,
 } from '@/lib/data/validators';
-import { STILL_PROCESSING, STILL_PROCESSING_HINT } from '@/lib/data/window';
+import { INACTIVE, INACTIVE_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT, STOPPED_HINT } from '@/lib/data/window';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, truncate } from '@/lib/format';
 import { formatCommission, validatorMoniker, deriveValidatorState } from '@/lib/validator';
@@ -147,13 +147,17 @@ export default async function ValidatorsPage({
                         validator's commission. Matches the figure on its detail page. */}
                     <td className="num mono">
                       {apr && apr.aprPct == null ? (
-                        <span className="dim" title={STILL_PROCESSING_HINT}>
-                          {STILL_PROCESSING}
+                        <span className="dim" title={apr.inactive ? INACTIVE_HINT : STILL_PROCESSING_HINT}>
+                          {apr.inactive ? INACTIVE : STILL_PROCESSING}
                         </span>
                       ) : apr && apr.aprPct != null ? (
                         <span
                           title={
-                            apr.partialWindow ? `Settled for only part of the ${APR_WINDOW_DAYS}-day window.` : undefined
+                            apr.inactive
+                              ? STOPPED_HINT
+                              : apr.partialWindow
+                                ? `Settled for only part of the ${APR_WINDOW_DAYS}-day window.`
+                                : undefined
                           }
                         >
                           {apr.aprPct.toFixed(2)}%{apr.partialWindow ? <span className="dim">†</span> : null}

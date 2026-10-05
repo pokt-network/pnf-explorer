@@ -370,6 +370,8 @@ export interface DelegatorApr {
   partialWindow: boolean;
   /** True when the bonded stake moved during the window, making the mean an approximation. */
   stakeDrifted: boolean;
+  /** True when its last settlement is over a day old: it is not settling now (jailed, out of the set, …). */
+  inactive: boolean;
 }
 
 /** One validator and UTC day of getValidatorRewardsJson (numbers serialize as strings). */
@@ -393,6 +395,8 @@ interface RewardsWindow {
   /** Mean stake over every settlement of the window (the day means weighted by their settlements). */
   avgStakeUpokt: number;
   stakeDrifted: boolean;
+  /** True when its last settlement is over a day old: it is not settling now (jailed, out of the set, …). */
+  inactive: boolean;
   /** Epoch ms bracketing the hours it settled, clipped to the window. */
   firstAt: number;
   lastAt: number;
@@ -418,7 +422,7 @@ async function getRewardsWindows(network: NetworkId, validators: string[] | null
     if (!(n > 0)) continue;
     let w = out.get(r.validator_operator);
     if (!w) {
-      w = { settlements: 0, delegatorUpokt: BigInt(0), commissionUpokt: BigInt(0), avgStakeUpokt: 0, stakeDrifted: false, firstAt: Infinity, lastAt: -Infinity, stakeSum: 0, min: null, max: null };
+      w = { settlements: 0, delegatorUpokt: BigInt(0), commissionUpokt: BigInt(0), avgStakeUpokt: 0, stakeDrifted: false, inactive: false, firstAt: Infinity, lastAt: -Infinity, stakeSum: 0, min: null, max: null };
       out.set(r.validator_operator, w);
     }
     w.settlements += n;
@@ -478,6 +482,7 @@ async function getRewardsWindows(network: NetworkId, validators: string[] | null
     if (Number.isFinite(e.first)) w.firstAt = e.first;
     if (Number.isFinite(e.last)) w.lastAt = e.last;
   }
+  for (const w of out.values()) w.inactive = w.lastAt < to - DAY_MS;
   return out;
 }
 
@@ -514,6 +519,7 @@ export async function getValidatorDelegatorApr(
     activeDays: rate.spanDays,
     partialWindow: rate.partialWindow,
     stakeDrifted: w.stakeDrifted,
+    inactive: w.inactive,
   };
 }
 
@@ -552,6 +558,8 @@ export interface DelegatorAprSummary {
   partialWindow: boolean;
   /** True when the bonded stake moved during the window, making the mean an approximation. */
   stakeDrifted: boolean;
+  /** True when its last settlement is over a day old: it is not settling now (jailed, out of the set, …). */
+  inactive: boolean;
 }
 
 /**
@@ -575,7 +583,13 @@ export const getValidatorDelegatorAprMap = cache(async function getValidatorDele
   for (const [valoper, w] of windows) {
     const rate = annualise(w, days);
     if (!rate) continue;
-    out.set(valoper, { aprPct: rate.aprPct, activeDays: rate.spanDays, partialWindow: rate.partialWindow, stakeDrifted: w.stakeDrifted });
+    out.set(valoper, {
+      aprPct: rate.aprPct,
+      activeDays: rate.spanDays,
+      partialWindow: rate.partialWindow,
+      stakeDrifted: w.stakeDrifted,
+      inactive: w.inactive,
+    });
   }
   return out;
 });

@@ -3,7 +3,7 @@ import { Skeleton } from '@/components/ui/states';
 import type { NetworkId } from '@/lib/networks';
 import { formatPokt, formatNumber } from '@/lib/format';
 import { formatCommission } from '@/lib/validator';
-import { STILL_PROCESSING, STILL_PROCESSING_HINT } from '@/lib/data/window';
+import { INACTIVE, INACTIVE_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT } from '@/lib/data/window';
 
 /**
  * Net delegator return for a validator, over a trailing window.
@@ -42,8 +42,8 @@ export async function DelegatorAprCard({
   return (
     <AprShell>
       {apr.aprPct == null ? (
-        <div className="big" title={STILL_PROCESSING_HINT}>
-          {STILL_PROCESSING}
+        <div className="big" title={apr.inactive ? INACTIVE_HINT : STILL_PROCESSING_HINT}>
+          {apr.inactive ? INACTIVE : STILL_PROCESSING}
         </div>
       ) : (
         <div className="big">
@@ -51,7 +51,9 @@ export async function DelegatorAprCard({
           <span className="u"> %</span>
         </div>
       )}
-      <div className="upokt">{apr.aprPct == null ? STILL_PROCESSING_HINT : <>net of {formatCommission(commission)} commission</>}</div>
+      <div className="upokt">
+        {apr.aprPct == null ? (apr.inactive ? INACTIVE_HINT : STILL_PROCESSING_HINT) : <>net of {formatCommission(commission)} commission</>}
+      </div>
       <div className="upd">
         {formatPokt(apr.delegatorUpokt)} POKT to delegators
         <span className="dim"> · {formatNumber(apr.settlements)} settlements</span>

@@ -18,6 +18,11 @@ export const MIN_SPAN_DAYS = 7;
 /** What a rate shows below MIN_SPAN_DAYS, and why. */
 export const STILL_PROCESSING = 'Still processing';
 export const STILL_PROCESSING_HINT = 'Less than a week of settlements in the last 30 days — too little data for an annual rate.';
+/** What a validator's rate shows below MIN_SPAN_DAYS when it has stopped settling (last settlement over a day old). */
+export const INACTIVE = 'Inactive';
+export const INACTIVE_HINT = 'No settlement for over a day, and less than a week of settlements in the last 30 days.';
+/** Tooltip on a rate quoted for a validator that has stopped settling. */
+export const STOPPED_HINT = 'Stopped settling inside the 30-day window; the rate covers its active days only.';
 
 export function trailingRange(days: number, stepSeconds: number): { rangeStart: string; rangeEnd: string } {
   const step = stepSeconds * 1000;
