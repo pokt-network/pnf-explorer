@@ -351,6 +351,11 @@ export async function getDelegationEarnings(
       if (firstAt > from + 3_600_000) startUnknown = true;
       else firstAt = from;
     }
+  } else if (bondedAt !== true) {
+    // Not paid yet inside the window and not delegating at its start: a new delegation with no data
+    // (no span → "Still processing"), or an unknown start. Never a 0% rate.
+    if (bondedAt === null) startUnknown = true;
+    else firstAt = to;
   }
   const activeDays = (to - firstAt) / 86_400_000;
   // Settlements of every validator the window covers: the current ones and those that paid.
