@@ -515,12 +515,8 @@ export async function getValidatorDelegatorApr(
   valoper: string,
   days = APR_WINDOW_DAYS,
 ): Promise<DelegatorApr | null> {
-  let w: RewardsWindow | undefined;
-  try {
-    w = (await getRewardsWindows(network, days)).get(valoper);
-  } catch {
-    return null;
-  }
+  // A failed or timed-out read throws, so the caller can tell "unavailable" from null = "no settlements".
+  const w = (await getRewardsWindows(network, days)).get(valoper);
   if (!w) return null;
   const rate = annualise(w, days);
   if (!rate) return null;

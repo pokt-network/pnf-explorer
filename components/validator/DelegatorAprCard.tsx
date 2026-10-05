@@ -26,7 +26,20 @@ export async function DelegatorAprCard({
   valoper: string;
   commission: unknown;
 }) {
-  const apr = await getValidatorDelegatorApr(network, valoper).catch(() => null);
+  let apr: Awaited<ReturnType<typeof getValidatorDelegatorApr>>;
+  try {
+    apr = await getValidatorDelegatorApr(network, valoper);
+  } catch {
+    // The catalog read failed or timed out: that says nothing about the validator's settlements.
+    return (
+      <AprShell>
+        <div className="big">
+          —<span className="u"> %</span>
+        </div>
+        <div className="upokt">APR unavailable right now</div>
+      </AprShell>
+    );
+  }
 
   if (!apr) {
     return (
