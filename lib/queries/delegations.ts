@@ -63,14 +63,15 @@ export const DELEGATION_SETTLEMENTS = /* GraphQL */ `
  *     settlement, from the delegations it held at that height. No current-stake approximation.
  *     `validator_operator` '' is income the catalog could not attribute to one validator (replayed
  *     heights 288,180–788,944 only); it counts in the total.
- *   - `pools` (get_validator_rewards): each validator's delegator pool and settlement count over the
- *     same window, for the per-validator detail.
+ *   - `pools` (get_validator_rewards, every validator — tens of rows): each validator's delegator
+ *     pool and settlement count over the same window, for the per-validator detail. Every validator,
+ *     not just the current delegations, because the income can come from validators since left.
  *
  * Both raise for a range the catalog does not cover; see trailingRange in lib/data/window.ts.
  */
 export const DELEGATION_WINDOW = /* GraphQL */ `
-  query delegationWindow($delegators: [String], $validators: [String], $rangeStart: Datetime!, $rangeEnd: Datetime!) {
+  query delegationWindow($delegators: [String], $rangeStart: Datetime!, $rangeEnd: Datetime!) {
     income: getDelegatorIncomeJson(delegators: $delegators, rangeStart: $rangeStart, rangeEnd: $rangeEnd, byValidator: true)
-    pools: getValidatorRewardsJson(validators: $validators, rangeStart: $rangeStart, rangeEnd: $rangeEnd)
+    pools: getValidatorRewardsJson(validators: null, rangeStart: $rangeStart, rangeEnd: $rangeEnd)
   }
 `;

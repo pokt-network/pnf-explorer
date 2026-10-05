@@ -211,6 +211,8 @@ export interface ValidatorEarning {
   poolUpokt: number;
   /** What this address received from it, upokt. */
   myShareUpokt: number;
+  /** True when the address no longer delegates to this validator (it paid inside the window). */
+  former: boolean;
 }
 
 export interface DelegationEarnings {
@@ -239,13 +241,13 @@ export async function getDelegationEarnings(
   set: DelegationSet,
   days = EARNINGS_WINDOW_DAYS,
 ): Promise<DelegationEarnings | null> {
-  const validators = set.rows.map((r) => r.validatorAddress);
+  const current = new Set(set.rows.map((r) => r.validatorAddress));
   let d: {
     income: { validator_operator: string; amount_upokt: string | null }[] | null;
     pools: { validator_operator: string; delegators_upokt: string | null; distributions: string | null }[] | null;
   };
   try {
-    d = await gqlFetch(network, DELEGATION_WINDOW, { delegators: [address], validators, ...trailingRange(days, 60) }, { revalidate: 60 });
+    d = await gqlFetch(network, DELEGATION_WINDOW, { delegators: [address], ...trailingRange(days, 60) }, { revalidate: 60 });
   } catch {
     return null;
   }
@@ -263,9 +265,12 @@ export async function getDelegationEarnings(
       settlements: Number(pool?.distributions ?? 0),
       poolUpokt: Number(pool?.delegators_upokt ?? 0),
       myShareUpokt,
+      former: !current.has(r.validator_operator),
     });
   }
-  const settlements = validators.reduce((n, v) => n + Number(poolBy.get(v)?.distributions ?? 0), 0);
+  // Settlements of every validator the window covers: the current ones and those that paid.
+  const counted = new Set([...current, ...byValidator.map((v) => v.validatorAddress)]);
+  const settlements = [...counted].reduce((n, v) => n + Number(poolBy.get(v)?.distributions ?? 0), 0);
 
   const windowDays = days;
   const dailyAvgUpokt = windowUpokt / windowDays;

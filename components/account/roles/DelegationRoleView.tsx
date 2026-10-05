@@ -68,6 +68,9 @@ async function ValidatorsPanel({
   const [meta, chain] = await Promise.all([validatorMeta(network), getValidatorChainStates(network)]);
   const earnBy = new Map((earnings?.byValidator ?? []).map((v) => [v.validatorAddress, v]));
   const win = earnings ? windowLabel(earnings.windowDays) : `${EARNINGS_WINDOW_DAYS}d`;
+  // Validators that paid this address inside the window but no longer hold its stake: listed so the
+  // rows add up to the Earned total.
+  const former = (earnings?.byValidator ?? []).filter((v) => v.former);
 
   return (
     <div className="card flush-top">
@@ -120,6 +123,40 @@ async function ValidatorsPanel({
                     ) : null}
                   </td>
                   <td className="num mono">{formatPokt(r.claimableUpokt)}</td>
+                </tr>
+              );
+            })}
+            {former.map((e) => {
+              const m = meta.get(e.validatorAddress);
+              return (
+                <tr key={e.validatorAddress}>
+                  <td>
+                    <Link href={`/validator/${e.validatorAddress}`}>{m?.moniker ?? truncate(e.validatorAddress, 12, 6)}</Link>
+                    <div className="dim" style={{ fontSize: 12 }}>
+                      former delegation
+                    </div>
+                  </td>
+                  <td>
+                    <ValidatorStatePill
+                      state={deriveValidatorState(chain.byValoper.get(e.validatorAddress), chain.ok)}
+                      fallbackStatus={m?.stakeStatus}
+                      maxValidators={chain.maxValidators}
+                      sm
+                    />
+                  </td>
+                  <td className="num mono">{m?.commission ? formatCommission(m.commission) : '—'}</td>
+                  <td className="num mono">
+                    <span className="dim">—</span>
+                  </td>
+                  <td className="num mono">
+                    {formatPokt(Math.round(e.myShareUpokt))}
+                    <div className="dim" style={{ fontSize: 12 }}>
+                      {formatNumber(e.settlements)} settlements
+                    </div>
+                  </td>
+                  <td className="num mono">
+                    <span className="dim">—</span>
+                  </td>
                 </tr>
               );
             })}
