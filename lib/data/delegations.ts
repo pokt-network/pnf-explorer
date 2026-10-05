@@ -126,24 +126,32 @@ export const getDelegations = cache(async (network: NetworkId, address: string):
 
 // ---- derived income ----
 
+/** Budget for the start-of-window delegation check: the page awaits it, so a hung LCD must not stall it. */
+const DELEGATED_AT_TIMEOUT_MS = 3000;
+
 /**
- * Whether the address held any delegation at the block the window starts at: the chain's own record
- * (historical LCD read), since the indexer exposes no delegations. Null when either read fails.
+ * Whether the address held any delegation at `atMs`: the chain's own record (historical LCD read at
+ * the block of that time), since the indexer exposes no delegations. `atMs` should sit on a stable
+ * boundary (the caller passes the hour), so the block and the LCD read are cached for an hour rather
+ * than once per minute. Null — unknown — when either read fails or times out (LCD down, or the
+ * height pruned: HTTP 500 "version does not exist").
  */
-async function delegatedAt(network: NetworkId, address: string, at: string): Promise<boolean | null> {
+async function delegatedAt(network: NetworkId, address: string, atMs: number): Promise<boolean | null> {
+  const signal = AbortSignal.timeout(DELEGATED_AT_TIMEOUT_MS);
   try {
     const b = await gqlFetch<{ blocks: { nodes: { id: string }[] } }>(
       network,
       WINDOW_START_BLOCK,
       // Indexer timestamps are UTC-naive, so the cutoff goes without the trailing Z.
-      { cutoff: at.replace('Z', '') },
-      { revalidate: 300 },
+      { cutoff: new Date(atMs).toISOString().replace('Z', '') },
+      { revalidate: 3600, signal },
     );
     const height = b.blocks.nodes[0]?.id;
     if (!height) return null;
     const res = await lcdFetch<LcdDelegationResponse>(network, `/cosmos/staking/v1beta1/delegations/${address}?pagination.limit=1`, {
-      revalidate: false,
+      revalidate: 3600,
       height,
+      signal,
     });
     return (res.delegation_responses ?? []).length > 0;
   } catch {
@@ -250,11 +258,14 @@ export interface DelegationEarnings {
   /** Days the address has been delegating inside the window: the whole window when it already held a
    *  delegation at its start, otherwise from its first payment. */
   activeDays: number;
-  /** Income per active day. */
-  dailyAvgUpokt: number;
-  /** Annualised income over the current bonded stake, percent. Null when nothing is bonded or when
-   *  `stillProcessing`. */
+  /** Income per active day. Null when `startUnknown`. */
+  dailyAvgUpokt: number | null;
+  /** Annualised income over the current bonded stake, percent. Null when nothing is bonded, when
+   *  `stillProcessing` or when `startUnknown`. */
   aprPct: number | null;
+  /** True when the address was first paid after the window started and the chain could not say whether
+   *  it was already delegating then: the span, and with it any rate, is unknown. */
+  startUnknown: boolean;
   /** True when the address has been paid for under MIN_SPAN_DAYS: too little data for an APR. */
   stillProcessing: boolean;
   byValidator: ValidatorEarning[];
@@ -275,7 +286,8 @@ export async function getDelegationEarnings(
 ): Promise<DelegationEarnings | null> {
   const current = new Set(set.rows.map((r) => r.validatorAddress));
   const range = trailingRange(days, 60);
-  const bondedAtStart = delegatedAt(network, address, range.rangeStart);
+  // In parallel with the catalog read below; checked at the hour the window starts in.
+  const bondedAtStart = delegatedAt(network, address, Math.floor(Date.parse(range.rangeStart) / 3_600_000) * 3_600_000);
   let d: {
     income: { bucket_start: string; validator_operator: string; amount_upokt: string | null }[] | null;
     pools: { validator_operator: string; delegators_upokt: string | null; distributions: string | null }[] | null;
@@ -313,12 +325,15 @@ export async function getDelegationEarnings(
   // The active span is the whole window when the address already held a delegation at its start
   // (whether or not its validators paid early on). Otherwise it began delegating inside the window,
   // and the span starts at the hour of its first payment (re-read by hour over that day) — later
-  // than the delegation itself only if its validator paid nothing at first. A failed check keeps the
-  // whole window, which can only understate the rate.
+  // than the delegation itself only if its validator paid nothing at first. When the check failed,
+  // a first payment in the window's first hour still means it was delegating from the start; a later
+  // one leaves the span unknown, and no rate is shown rather than a wrong one.
   const from = Date.parse(range.rangeStart);
   const to = Date.parse(range.rangeEnd);
+  const bondedAt = await bondedAtStart;
   let firstAt = from;
-  if ((await bondedAtStart) === false && Number.isFinite(firstDay)) {
+  let startUnknown = false;
+  if (bondedAt !== true && Number.isFinite(firstDay)) {
     firstAt = Math.max(firstDay, from);
     try {
       const h = await gqlFetch<{ getDelegatorIncomeJson: { bucket_start: string; amount_upokt: string | null }[] | null }>(
@@ -332,6 +347,10 @@ export async function getDelegationEarnings(
     } catch {
       /* keep the day's start */
     }
+    if (bondedAt === null) {
+      if (firstAt > from + 3_600_000) startUnknown = true;
+      else firstAt = from;
+    }
   }
   const activeDays = (to - firstAt) / 86_400_000;
   // Settlements of every validator the window covers: the current ones and those that paid.
@@ -339,10 +358,10 @@ export async function getDelegationEarnings(
   const settlements = [...counted].reduce((n, v) => n + Number(poolBy.get(v)?.distributions ?? 0), 0);
 
   const windowDays = days;
-  const dailyAvgUpokt = activeDays > 0 ? windowUpokt / activeDays : 0;
+  const dailyAvgUpokt = startUnknown ? null : activeDays > 0 ? windowUpokt / activeDays : 0;
   const bonded = Number(toBigInt(set.totalUpokt));
-  const stillProcessing = activeDays < MIN_SPAN_DAYS;
-  const aprPct = bonded > 0 && !stillProcessing ? ((dailyAvgUpokt * 365) / bonded) * 100 : null;
+  const stillProcessing = !startUnknown && activeDays < MIN_SPAN_DAYS;
+  const aprPct = bonded > 0 && dailyAvgUpokt != null && !stillProcessing ? ((dailyAvgUpokt * 365) / bonded) * 100 : null;
 
   byValidator.sort((a, b) => b.myShareUpokt - a.myShareUpokt);
   return {
@@ -353,6 +372,7 @@ export async function getDelegationEarnings(
     dailyAvgUpokt,
     aprPct,
     stillProcessing,
+    startUnknown,
     byValidator,
   };
 }

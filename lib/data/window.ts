@@ -18,6 +18,8 @@ export const MIN_SPAN_DAYS = 7;
 /** What a rate shows below MIN_SPAN_DAYS, and why. */
 export const STILL_PROCESSING = 'Still processing';
 export const STILL_PROCESSING_HINT = 'Less than a week of settlements in the last 30 days — too little data for an annual rate.';
+/** Tooltip on the "—" a delegator's rate shows when the start of its delegation could not be read. */
+export const START_UNKNOWN_HINT = 'Couldn’t determine when this delegation started.';
 /** What a validator's rate shows below MIN_SPAN_DAYS when it has stopped settling (last settlement over a day old). */
 export const INACTIVE = 'Inactive';
 export const INACTIVE_HINT = 'No settlement for over a day, and less than a week of settlements in the last 30 days.';

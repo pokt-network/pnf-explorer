@@ -16,7 +16,7 @@ import { formatNumber, formatPokt, formatPoktCompact, formatCompact, truncate } 
 import { relativeTime, absoluteUtc } from '@/lib/time';
 import { validatorMoniker, formatCommission, deriveValidatorState } from '@/lib/validator';
 import { parsePage } from '@/lib/paging';
-import { STILL_PROCESSING, STILL_PROCESSING_HINT } from '@/lib/data/window';
+import { START_UNKNOWN_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT } from '@/lib/data/window';
 
 const LIMIT = 25;
 
@@ -311,17 +311,31 @@ function RatePanel({ set, earnings }: { set: DelegationSet; earnings: Delegation
         <div className="line">
           <div className="k">Daily average</div>
           <div className="v">
-            <b>{formatPokt(Math.round(earnings.dailyAvgUpokt))} POKT</b>{' '}
-            <span className="dim">
-              per day
-              {earnings.activeDays < earnings.windowDays - 0.5 ? ` · over the ${earnings.activeDays.toFixed(1)} days it has been delegating` : ''}
-            </span>
+            {earnings.dailyAvgUpokt == null ? (
+              <span className="dim" title={START_UNKNOWN_HINT}>
+                —
+              </span>
+            ) : (
+              <>
+                <b>{formatPokt(Math.round(earnings.dailyAvgUpokt))} POKT</b>{' '}
+                <span className="dim">
+                  per day
+                  {earnings.activeDays < earnings.windowDays - 0.5
+                    ? ` · over the ${earnings.activeDays.toFixed(1)} days it has been delegating`
+                    : ''}
+                </span>
+              </>
+            )}
           </div>
         </div>
         <div className="line">
           <div className="k">APR</div>
           <div className="v">
-            {earnings.stillProcessing ? (
+            {earnings.startUnknown ? (
+              <span className="dim" title={START_UNKNOWN_HINT}>
+                —
+              </span>
+            ) : earnings.stillProcessing ? (
               <span className="dim" title={STILL_PROCESSING_HINT}>
                 {STILL_PROCESSING}
               </span>
@@ -421,14 +435,24 @@ export function DelegationRoleView({
         <SummaryCard
           label={`Daily Avg ${win}`}
           dot={DOT.blue}
-          value={earnings ? statPokt(toPokt(earnings.dailyAvgUpokt)) : '—'}
+          value={
+            earnings?.dailyAvgUpokt != null ? (
+              statPokt(toPokt(earnings.dailyAvgUpokt))
+            ) : earnings?.startUnknown ? (
+              <span title={START_UNKNOWN_HINT}>—</span>
+            ) : (
+              '—'
+            )
+          }
           unit="POKT"
         />
         <SummaryCard
           label={`APR ${win}`}
           dot={DOT.gold}
           value={
-            earnings?.stillProcessing ? (
+            earnings?.startUnknown ? (
+              <span title={START_UNKNOWN_HINT}>—</span>
+            ) : earnings?.stillProcessing ? (
               <span title={STILL_PROCESSING_HINT}>{STILL_PROCESSING}</span>
             ) : earnings?.aprPct != null ? (
               `${earnings.aprPct.toFixed(2)}%`
