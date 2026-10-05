@@ -4,8 +4,8 @@ import { lcdFetch } from '@/lib/lcd';
 import type { NetworkId } from '@/lib/networks';
 import { UPOKT_PER_POKT } from '@/lib/config';
 import { toBigInt } from '@/lib/format';
-import { DELEGATION_SETTLEMENTS, DELEGATION_WINDOW } from '@/lib/queries/delegations';
-import { trailingRange } from '@/lib/data/window';
+import { DELEGATION_FIRST_HOUR, DELEGATION_SETTLEMENTS, DELEGATION_WINDOW } from '@/lib/queries/delegations';
+import { MIN_SPAN_DAYS, trailingRange } from '@/lib/data/window';
 
 // Staking-delegation data layer. See lib/queries/delegations.ts for the verified model; the short
 // version is that Shannon pays the validator pool's settlement share DIRECTLY to delegator wallets
@@ -222,9 +222,15 @@ export interface DelegationEarnings {
   settlements: number;
   /** Days the window actually covers. */
   windowDays: number;
+  /** Days from the address's first payment inside the window to now (the window, when it was paid from the start). */
+  activeDays: number;
+  /** Income per active day. */
   dailyAvgUpokt: number;
-  /** Annualised window income over the current bonded stake, percent. Null when nothing is bonded. */
+  /** Annualised income over the current bonded stake, percent. Null when nothing is bonded or when
+   *  `stillProcessing`. */
   aprPct: number | null;
+  /** True when the address has been paid for under MIN_SPAN_DAYS: too little data for an APR. */
+  stillProcessing: boolean;
   byValidator: ValidatorEarning[];
 }
 
@@ -242,48 +248,81 @@ export async function getDelegationEarnings(
   days = EARNINGS_WINDOW_DAYS,
 ): Promise<DelegationEarnings | null> {
   const current = new Set(set.rows.map((r) => r.validatorAddress));
+  const range = trailingRange(days, 60);
   let d: {
-    income: { validator_operator: string; amount_upokt: string | null }[] | null;
+    income: { bucket_start: string; validator_operator: string; amount_upokt: string | null }[] | null;
     pools: { validator_operator: string; delegators_upokt: string | null; distributions: string | null }[] | null;
   };
   try {
-    d = await gqlFetch(network, DELEGATION_WINDOW, { delegators: [address], ...trailingRange(days, 60) }, { revalidate: 60 });
+    d = await gqlFetch(network, DELEGATION_WINDOW, { delegators: [address], ...range }, { revalidate: 60 });
   } catch {
     return null;
   }
 
+  // Day rows per validator: sum them, and note the first day the address was paid.
+  const mineBy = new Map<string, number>();
+  let windowUpokt = 0;
+  let firstDay = Infinity;
+  for (const r of d.income ?? []) {
+    const amount = Number(r.amount_upokt ?? 0);
+    windowUpokt += amount;
+    if (amount > 0) firstDay = Math.min(firstDay, Date.parse(r.bucket_start));
+    if (r.validator_operator) mineBy.set(r.validator_operator, (mineBy.get(r.validator_operator) ?? 0) + amount);
+  }
+
   const poolBy = new Map((d.pools ?? []).map((p) => [p.validator_operator, p]));
   const byValidator: ValidatorEarning[] = [];
-  let windowUpokt = 0;
-  for (const r of d.income ?? []) {
-    const myShareUpokt = Number(r.amount_upokt ?? 0);
-    windowUpokt += myShareUpokt;
-    if (!r.validator_operator) continue;
-    const pool = poolBy.get(r.validator_operator);
+  for (const [validatorAddress, myShareUpokt] of mineBy) {
+    const pool = poolBy.get(validatorAddress);
     byValidator.push({
-      validatorAddress: r.validator_operator,
+      validatorAddress,
       settlements: Number(pool?.distributions ?? 0),
       poolUpokt: Number(pool?.delegators_upokt ?? 0),
       myShareUpokt,
-      former: !current.has(r.validator_operator),
+      former: !current.has(validatorAddress),
     });
   }
+
+  // The active span starts at the hour of the first payment inside the window (re-read by hour over
+  // that day); with no payment at all it is the whole window.
+  const from = Date.parse(range.rangeStart);
+  const to = Date.parse(range.rangeEnd);
+  let firstAt = from;
+  if (Number.isFinite(firstDay)) {
+    firstAt = Math.max(firstDay, from);
+    try {
+      const h = await gqlFetch<{ getDelegatorIncomeJson: { bucket_start: string; amount_upokt: string | null }[] | null }>(
+        network,
+        DELEGATION_FIRST_HOUR,
+        { delegators: [address], rangeStart: new Date(firstAt).toISOString(), rangeEnd: new Date(Math.min(firstDay + 86_400_000, to)).toISOString() },
+        { revalidate: 60 },
+      );
+      const hours = (h.getDelegatorIncomeJson ?? []).filter((r) => Number(r.amount_upokt ?? 0) > 0).map((r) => Date.parse(r.bucket_start));
+      if (hours.length > 0) firstAt = Math.max(Math.min(...hours), from);
+    } catch {
+      /* keep the day's start */
+    }
+  }
+  const activeDays = (to - firstAt) / 86_400_000;
   // Settlements of every validator the window covers: the current ones and those that paid.
   const counted = new Set([...current, ...byValidator.map((v) => v.validatorAddress)]);
   const settlements = [...counted].reduce((n, v) => n + Number(poolBy.get(v)?.distributions ?? 0), 0);
 
   const windowDays = days;
-  const dailyAvgUpokt = windowUpokt / windowDays;
+  const dailyAvgUpokt = activeDays > 0 ? windowUpokt / activeDays : 0;
   const bonded = Number(toBigInt(set.totalUpokt));
-  const aprPct = bonded > 0 ? ((dailyAvgUpokt * 365) / bonded) * 100 : null;
+  const stillProcessing = activeDays < MIN_SPAN_DAYS;
+  const aprPct = bonded > 0 && !stillProcessing ? ((dailyAvgUpokt * 365) / bonded) * 100 : null;
 
   byValidator.sort((a, b) => b.myShareUpokt - a.myShareUpokt);
   return {
     windowUpokt,
     settlements,
     windowDays,
+    activeDays,
     dailyAvgUpokt,
     aprPct,
+    stillProcessing,
     byValidator,
   };
 }

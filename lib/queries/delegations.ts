@@ -71,7 +71,18 @@ export const DELEGATION_SETTLEMENTS = /* GraphQL */ `
  */
 export const DELEGATION_WINDOW = /* GraphQL */ `
   query delegationWindow($delegators: [String], $rangeStart: Datetime!, $rangeEnd: Datetime!) {
-    income: getDelegatorIncomeJson(delegators: $delegators, rangeStart: $rangeStart, rangeEnd: $rangeEnd, byValidator: true)
+    income: getDelegatorIncomeJson(delegators: $delegators, rangeStart: $rangeStart, rangeEnd: $rangeEnd, bucket: "day", byValidator: true)
     pools: getValidatorRewardsJson(validators: null, rangeStart: $rangeStart, rangeEnd: $rangeEnd)
+  }
+`;
+
+/**
+ * The address's income by hour over one day: the day its income starts inside the window, so the
+ * active span (and with it the daily average and APR) starts at the hour of its first payment, not
+ * at the window start — an address that began delegating 3 days ago has earned over 3 days, not 30.
+ */
+export const DELEGATION_FIRST_HOUR = /* GraphQL */ `
+  query delegationFirstHour($delegators: [String], $rangeStart: Datetime!, $rangeEnd: Datetime!) {
+    getDelegatorIncomeJson(delegators: $delegators, rangeStart: $rangeStart, rangeEnd: $rangeEnd, bucket: "hour")
   }
 `;

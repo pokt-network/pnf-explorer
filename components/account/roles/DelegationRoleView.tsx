@@ -16,6 +16,7 @@ import { formatNumber, formatPokt, formatPoktCompact, formatCompact, truncate } 
 import { relativeTime, absoluteUtc } from '@/lib/time';
 import { validatorMoniker, formatCommission, deriveValidatorState } from '@/lib/validator';
 import { parsePage } from '@/lib/paging';
+import { STILL_PROCESSING, STILL_PROCESSING_HINT } from '@/lib/data/window';
 
 const LIMIT = 25;
 
@@ -310,13 +311,25 @@ function RatePanel({ set, earnings }: { set: DelegationSet; earnings: Delegation
         <div className="line">
           <div className="k">Daily average</div>
           <div className="v">
-            <b>{formatPokt(Math.round(earnings.dailyAvgUpokt))} POKT</b> <span className="dim">per day</span>
+            <b>{formatPokt(Math.round(earnings.dailyAvgUpokt))} POKT</b>{' '}
+            <span className="dim">
+              per day
+              {earnings.activeDays < earnings.windowDays - 0.5 ? ` · over the ${earnings.activeDays.toFixed(1)} days since its first payment` : ''}
+            </span>
           </div>
         </div>
         <div className="line">
           <div className="k">APR</div>
           <div className="v">
-            {earnings.aprPct != null ? <b>{earnings.aprPct.toFixed(2)}%</b> : <span className="dim">—</span>}
+            {earnings.stillProcessing ? (
+              <span className="dim" title={STILL_PROCESSING_HINT}>
+                {STILL_PROCESSING}
+              </span>
+            ) : earnings.aprPct != null ? (
+              <b>{earnings.aprPct.toFixed(2)}%</b>
+            ) : (
+              <span className="dim">—</span>
+            )}
             <div className="muted" style={{ marginTop: 4 }}>
               Daily average annualised over the {formatPokt(set.totalUpokt)} POKT bonded. Backward-looking: it reflects the
               settlement volume these validators actually earned in the window, not a promised or forward rate.
@@ -414,7 +427,15 @@ export function DelegationRoleView({
         <SummaryCard
           label={`APR ${win}`}
           dot={DOT.gold}
-          value={earnings?.aprPct != null ? `${earnings.aprPct.toFixed(2)}%` : '—'}
+          value={
+            earnings?.stillProcessing ? (
+              <span title={STILL_PROCESSING_HINT}>{STILL_PROCESSING}</span>
+            ) : earnings?.aprPct != null ? (
+              `${earnings.aprPct.toFixed(2)}%`
+            ) : (
+              '—'
+            )
+          }
         />
       </RoleStats>
 
