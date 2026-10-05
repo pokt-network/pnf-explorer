@@ -4,8 +4,7 @@
 //   by-address → { signerAddress: { equalTo: <addr> } }  (and/or relation filters)
 //   by-type    → { <msg>Exist: true } e.g. msgCreateClaimsExist  (DATA-CONTRACT §4)
 
-const TX_FIELDS = /* GraphQL */ `
-  totalCount
+const TX_NODES = /* GraphQL */ `
   nodes {
     id
     code
@@ -20,6 +19,11 @@ const TX_FIELDS = /* GraphQL */ `
     amountOfMessages
     amountSentByDenom
   }
+`;
+
+const TX_FIELDS = /* GraphQL */ `
+  totalCount
+  ${TX_NODES}
 `;
 
 export const TRANSACTIONS_BY_HEIGHT = /* GraphQL */ `
@@ -39,9 +43,11 @@ export const TRANSACTIONS_BY_ADDRESS = /* GraphQL */ `
 `;
 
 export const TRANSACTIONS_LIST = /* GraphQL */ `
-  query transactionsList($limit: Int!, $offset: Int!, $filter: TransactionFilter) {
+  query transactionsList($limit: Int!, $offset: Int!, $filter: TransactionFilter, $withCount: Boolean = true) {
     transactions(first: $limit, offset: $offset, orderBy: BLOCK_ID_DESC, filter: $filter) {
-      ${TX_FIELDS}
+      # A count over every transaction: skipped where the total is not shown.
+      totalCount @include(if: $withCount)
+      ${TX_NODES}
     }
   }
 `;

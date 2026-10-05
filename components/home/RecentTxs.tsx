@@ -17,7 +17,7 @@ function amountLabel(tx: BlockTx): { value: string; unit: string } {
 
 // Latest 10 transactions panel (home). Reuses the verified transactionsList fetch.
 export async function RecentTxs({ network }: { network: NetworkId }) {
-  const { nodes } = await getTransactionsList(network, 10, 0, 'all');
+  const { nodes } = await getTransactionsList(network, 10, 0, 'all', false);
   return (
     <div className="card panel">
       <div className="head">

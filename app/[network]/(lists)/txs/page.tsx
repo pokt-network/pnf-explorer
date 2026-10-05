@@ -30,7 +30,7 @@ export default async function TxsPage({
   const filter = txFilterKey(typeParam);
 
   const [list, summary] = await Promise.all([getTransactionsList(network, PAGE_SIZE, offset, filter), getTransactionsSummary(network)]);
-  const { nodes, totalCount } = list;
+  const { nodes, totalCount = 0 } = list;
   const from = totalCount === 0 ? 0 : offset + 1;
   const to = Math.min(offset + PAGE_SIZE, totalCount);
 

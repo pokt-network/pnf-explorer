@@ -46,11 +46,12 @@ export interface TxDetail {
 }
 
 // ---- list ----
-export async function getTransactionsList(network: NetworkId, limit: number, offset: number, filter: TxFilterKey) {
-  const data = await gqlFetch<{ transactions: { nodes: BlockTx[]; totalCount: number } }>(
+/** `withCount: false` skips the total (a count over every matching transaction) for callers that don't show it. */
+export async function getTransactionsList(network: NetworkId, limit: number, offset: number, filter: TxFilterKey, withCount = true) {
+  const data = await gqlFetch<{ transactions: { nodes: BlockTx[]; totalCount?: number } }>(
     network,
     TRANSACTIONS_LIST,
-    { limit, offset, filter: FILTERS[filter] },
+    { limit, offset, filter: FILTERS[filter], withCount },
     { revalidate: 15 },
   );
   return data.transactions;

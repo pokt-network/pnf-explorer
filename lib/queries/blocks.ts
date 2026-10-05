@@ -1,7 +1,7 @@
 // Block queries — verbatim from assets/api-index/{list-blocks,detail-block}.md.
 
 export const BLOCK_LIST = /* GraphQL */ `
-  query blockList($limit: Int!, $offset: Int!) {
+  query blockList($limit: Int!, $offset: Int!, $withCount: Boolean = true) {
     blocks(first: $limit, offset: $offset, orderBy: ID_DESC) {
       nodes {
         height: id
@@ -28,7 +28,8 @@ export const BLOCK_LIST = /* GraphQL */ `
           }
         }
       }
-      totalCount
+      # A count over every block: skipped where the total is not shown.
+      totalCount @include(if: $withCount)
     }
   }
 `;
