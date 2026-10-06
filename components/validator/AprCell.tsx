@@ -18,9 +18,9 @@ export async function AprCell({ network, valoper }: { network: NetworkId; valope
       </span>
     );
   }
-  // The catalog covered only part of the window: say on how many days of data the cell rests.
+  // The catalog covered only part of the window: say how much of it the cell was read over.
   const covered = map.coverageNote ? (
-    <span className="dim" title={`Based on ${map.coveredDays.toFixed(1)} days of data. ${map.coverageNote}`}>
+    <span className="dim" title={`Read over the window's ${map.coveredDays.toFixed(1)} days of indexed data. ${map.coverageNote}`}>
       ‡
     </span>
   ) : null;
@@ -66,7 +66,7 @@ export async function AprCoverageFootnote({ network }: { network: NetworkId }) {
   return (
     <>
       {' '}
-      <span className="dim">‡</span> marks a rate based on {windowLabel(map.coveredDays)} of indexed data ({map.coverageNote}).
+      <span className="dim">‡</span> marks a cell read over only {windowLabel(map.coveredDays)} of indexed data ({map.coverageNote}).
     </>
   );
 }
