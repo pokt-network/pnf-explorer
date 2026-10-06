@@ -9,9 +9,10 @@
  * which take the window as timestamps and resolve the blocks themselves. `now` is rounded down to
  * `stepSeconds` so the request — and with it the fetch-cache key — stays the same for that long.
  *
- * The catalog raises for a range that starts before its first written settlement (mainnet: April
- * 2026 as of 2026-10-05, moving toward genesis; beta: genesis); a trailing 30-day window starts
- * well inside it.
+ * The catalog raises for a range that starts before its first written settlement (mainnet: March
+ * 2026 as of 2026-10-06, moving toward genesis; beta: genesis). Once pocketdex's range contract is
+ * deployed it answers from there instead, and says where it starts (lib/data/range.ts). A trailing
+ * 30-day window starts well inside it either way.
  */
 /** Shortest active span (days of settlements inside the window) an APR is quoted for. */
 export const MIN_SPAN_DAYS = 7;

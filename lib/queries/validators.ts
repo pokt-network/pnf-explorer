@@ -64,8 +64,8 @@ export const VALIDATOR_UPTIME = /* GraphQL */ `
 // catalog's get_validator_rewards sums it per validator and UTC day over a time window: one row per
 // validator and day with `delegators_upokt`, `commission_upokt`, `distributions` (settlements) and
 // the delegated stake each settlement saw (`delegated_stake_{avg,min,max}_upokt`). `validators: null`
-// returns every validator, so the list does not fan out one query per validator. It raises for a
-// range the catalog does not cover; see trailingRange in lib/data/window.ts.
+// returns every validator, so the list does not fan out one query per validator. For a range the
+// catalog does not cover it raises, or answers what it covers; see trailingRange in lib/data/window.ts.
 //
 // `delegators_upokt` is ALREADY NET of commission — verified against a 9%-commission validator,
 // where it is exactly 91.00% of the pool on every sampled row, and the identity

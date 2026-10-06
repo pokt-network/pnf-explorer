@@ -6,6 +6,7 @@ import { UPOKT_PER_POKT } from '@/lib/config';
 import { toBigInt } from '@/lib/format';
 import { DELEGATION_FIRST_HOUR, DELEGATION_SETTLEMENTS, DELEGATION_WINDOW, WINDOW_START_BLOCK } from '@/lib/queries/delegations';
 import { MIN_SPAN_DAYS, trailingRange } from '@/lib/data/window';
+import { coveredSince, unwrapRange, type CoveredRange } from '@/lib/data/range';
 
 // Staking-delegation data layer. See lib/queries/delegations.ts for the verified model; the short
 // version is that Shannon pays the validator pool's settlement share DIRECTLY to delegator wallets
@@ -274,6 +275,8 @@ export interface DelegationEarnings {
   startUnknown: boolean;
   /** True when the address has been paid for under MIN_SPAN_DAYS: too little data for an APR. */
   stillProcessing: boolean;
+  /** The span the catalog covered; null from a catalog that predates the range contract. */
+  coverage: CoveredRange | null;
   byValidator: ValidatorEarning[];
 }
 
@@ -294,22 +297,23 @@ export async function getDelegationEarnings(
   const range = trailingRange(days, 60);
   // In parallel with the catalog read below; checked at the hour the window starts in.
   const bondedAtStart = delegatedAt(network, address, Math.floor(Date.parse(range.rangeStart) / 3_600_000) * 3_600_000);
-  let d: {
-    income: { bucket_start: string; validator_operator: string; amount_upokt: string | null }[] | null;
-    pools: { validator_operator: string; delegators_upokt: string | null; distributions: string | null }[] | null;
-  };
+  let d: { income: unknown; pools: unknown };
   try {
     d = await gqlFetch(network, DELEGATION_WINDOW, { delegators: [address], ...range }, { revalidate: 60 });
   } catch {
     return null;
   }
+  const { data: income, range: coverage } = unwrapRange<{ bucket_start: string; validator_operator: string; amount_upokt: string | null }[]>(d.income);
+  const pools = unwrapRange<{ validator_operator: string; delegators_upokt: string | null; distributions: string | null }[]>(d.pools).data;
+  // Nothing in the window is covered: no figure, rather than 0 earned.
+  if (income == null && coverage != null) return null;
 
   // Day rows per validator: sum them, and note the first day the address was paid.
   const mineBy = new Map<string, number>();
   const lastPaidBy = new Map<string, string>();
   let windowUpokt = 0;
   let firstDay = Infinity;
-  for (const r of d.income ?? []) {
+  for (const r of income ?? []) {
     const amount = Number(r.amount_upokt ?? 0);
     windowUpokt += amount;
     if (amount > 0) firstDay = Math.min(firstDay, Date.parse(r.bucket_start));
@@ -319,7 +323,7 @@ export async function getDelegationEarnings(
     if (amount > 0 && (last == null || r.bucket_start > last)) lastPaidBy.set(r.validator_operator, r.bucket_start);
   }
 
-  const poolBy = new Map((d.pools ?? []).map((p) => [p.validator_operator, p]));
+  const poolBy = new Map((pools ?? []).map((p) => [p.validator_operator, p]));
   const byValidator: ValidatorEarning[] = [];
   for (const [validatorAddress, myShareUpokt] of mineBy) {
     const pool = poolBy.get(validatorAddress);
@@ -339,7 +343,8 @@ export async function getDelegationEarnings(
   // than the delegation itself only if its validator paid nothing at first. When the check failed,
   // a first payment in the window's first hour still means it was delegating from the start; a later
   // one leaves the span unknown, and no rate is shown rather than a wrong one.
-  const from = Date.parse(range.rangeStart);
+  // A window the catalog covers only from a later time starts there: nothing before it was read.
+  const from = Math.max(Date.parse(range.rangeStart), coveredSince(coverage) ?? -Infinity);
   const to = Date.parse(range.rangeEnd);
   const atStart = await bondedAtStart;
   const bondedAt = atStart == null ? null : atStart.size > 0;
@@ -348,13 +353,14 @@ export async function getDelegationEarnings(
   if (bondedAt !== true && Number.isFinite(firstDay)) {
     firstAt = Math.max(firstDay, from);
     try {
-      const h = await gqlFetch<{ getDelegatorIncomeJson: { bucket_start: string; amount_upokt: string | null }[] | null }>(
+      const h = await gqlFetch<{ getDelegatorIncomeJson: unknown }>(
         network,
         DELEGATION_FIRST_HOUR,
         { delegators: [address], rangeStart: new Date(firstAt).toISOString(), rangeEnd: new Date(Math.min(firstDay + 86_400_000, to)).toISOString() },
         { revalidate: 60 },
       );
-      const hours = (h.getDelegatorIncomeJson ?? []).filter((r) => Number(r.amount_upokt ?? 0) > 0).map((r) => Date.parse(r.bucket_start));
+      const hourRows = unwrapRange<{ bucket_start: string; amount_upokt: string | null }[]>(h.getDelegatorIncomeJson).data;
+      const hours = (hourRows ?? []).filter((r) => Number(r.amount_upokt ?? 0) > 0).map((r) => Date.parse(r.bucket_start));
       if (hours.length > 0) firstAt = Math.max(Math.min(...hours), from);
     } catch {
       /* keep the day's start */
@@ -381,7 +387,7 @@ export async function getDelegationEarnings(
     ? byValidator.reduce((n, v) => n + (v.settlements ?? 0), 0)
     : null;
 
-  const windowDays = days;
+  const windowDays = (to - from) / 86_400_000;
   const dailyAvgUpokt = startUnknown ? null : activeDays > 0 ? windowUpokt / activeDays : 0;
   const bonded = Number(toBigInt(set.totalUpokt));
   const stillProcessing = !startUnknown && activeDays < MIN_SPAN_DAYS;
@@ -397,6 +403,7 @@ export async function getDelegationEarnings(
     aprPct,
     stillProcessing,
     startUnknown,
+    coverage,
     byValidator,
   };
 }

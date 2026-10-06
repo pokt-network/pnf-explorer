@@ -17,6 +17,7 @@ import { relativeTime, absoluteUtc } from '@/lib/time';
 import { validatorMoniker, formatCommission, deriveValidatorState } from '@/lib/validator';
 import { parsePage } from '@/lib/paging';
 import { START_UNKNOWN_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT } from '@/lib/data/window';
+import { coverageNote } from '@/lib/data/range';
 
 const LIMIT = 25;
 
@@ -220,6 +221,7 @@ async function SettlementsPanel({
 
   const meta = await validatorMeta(network);
   const win = earnings ? windowLabel(earnings.windowDays) : `${EARNINGS_WINDOW_DAYS}d`;
+  const note = earnings ? coverageNote(earnings.coverage) : null;
 
   return (
     <div className="card flush-top">
@@ -236,6 +238,7 @@ async function SettlementsPanel({
                     across {formatNumber(earnings.settlements)} settlement{earnings.settlements === 1 ? '' : 's'}
                   </span>
                 ) : null}
+                {note ? <div className="dim">{note}</div> : null}
               </>
             ) : (
               <span className="dim">—</span>
@@ -300,6 +303,7 @@ function RatePanel({ set, earnings }: { set: DelegationSet; earnings: Delegation
     );
   }
   const win = windowLabel(earnings.windowDays);
+  const note = coverageNote(earnings.coverage);
   return (
     <div className="card flush-top">
       <div className="kv" style={{ paddingTop: 0 }}>
@@ -313,6 +317,7 @@ function RatePanel({ set, earnings }: { set: DelegationSet; earnings: Delegation
                 : ''}
               · {formatPokt(Math.round(earnings.windowUpokt))} POKT
             </span>
+            {note ? <div className="dim">{note}</div> : null}
           </div>
         </div>
         <div className="line">

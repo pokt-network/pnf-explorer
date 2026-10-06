@@ -67,7 +67,8 @@ export const DELEGATION_SETTLEMENTS = /* GraphQL */ `
  *     pool and settlement count over the same window, for the per-validator detail. Every validator,
  *     not just the current delegations, because the income can come from validators since left.
  *
- * Both raise for a range the catalog does not cover; see trailingRange in lib/data/window.ts.
+ * For a range the catalog does not cover both raise, or answer what they cover; see trailingRange in
+ * lib/data/window.ts.
  */
 export const DELEGATION_WINDOW = /* GraphQL */ `
   query delegationWindow($delegators: [String], $rangeStart: Datetime!, $rangeEnd: Datetime!) {

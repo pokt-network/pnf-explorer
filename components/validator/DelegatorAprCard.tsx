@@ -4,6 +4,7 @@ import type { NetworkId } from '@/lib/networks';
 import { formatPokt, formatNumber } from '@/lib/format';
 import { formatCommission } from '@/lib/validator';
 import { INACTIVE, INACTIVE_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT } from '@/lib/data/window';
+import { coverageNote } from '@/lib/data/range';
 
 /**
  * Net delegator return for a validator, over a trailing window.
@@ -52,6 +53,7 @@ export async function DelegatorAprCard({
     );
   }
 
+  const note = coverageNote(apr.coverage);
   return (
     <AprShell>
       {apr.aprPct == null ? (
@@ -74,6 +76,7 @@ export async function DelegatorAprCard({
           <div className="dim">Covers {apr.activeDays.toFixed(1)}d — this validator did not settle for the whole window.</div>
         ) : null}
         {apr.stakeDrifted ? <div className="dim">Bonded stake moved during the window, so this is an average.</div> : null}
+        {note ? <div className="dim">{note}</div> : null}
       </div>
     </AprShell>
   );

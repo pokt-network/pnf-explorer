@@ -12,6 +12,7 @@ import {
 } from '@/lib/queries/validators';
 import { trailingRange, MIN_SPAN_DAYS } from '@/lib/data/window';
 import { toBigInt } from '@/lib/format';
+import { coveredSince, unwrapRange, type CoveredRange } from '@/lib/data/range';
 
 // Validator data layer. commission + description are JSON OBJECTS (parse via lib/validator).
 // stakeStatus is the StakeStatus enum (Staked/Unstaking/Unstaked) — NOT Bonded/Unbonding.
@@ -364,6 +365,8 @@ export interface DelegatorApr {
   /** Mean stake the rewards were divided over, upokt. */
   avgStakeUpokt: string;
   settlements: number;
+  /** The span the catalog covered; null from a catalog that predates the range contract. */
+  coverage: CoveredRange | null;
   /** Days the validator was actually settling inside the window. */
   activeDays: number;
   /** True when the validator was not settling for the whole window (joined or paused inside it). */
@@ -412,24 +415,30 @@ const dayOf = (ms: number) => Math.floor(ms / DAY_MS) * DAY_MS;
 /**
  * Per-validator windows from the trailing-window catalog call, for every validator: the detail card
  * needs the network's latest settlement for `inactive`, and it shares the list's fetch-cache entries.
+ * Also the span the catalog covered, and its length in days: the window a rate is measured against.
  */
-async function getRewardsWindows(network: NetworkId, days: number): Promise<Map<string, RewardsWindow>> {
+async function getRewardsWindows(
+  network: NetworkId,
+  days: number,
+): Promise<{ windows: Map<string, RewardsWindow>; coverage: CoveredRange | null; coveredDays: number }> {
   // The window ends on the hour: the requests — and their fetch-cache keys — then change once an
   // hour, so only the first visitor after the hour pays for the cold reads (revalidate still
   // refreshes them every 5 minutes). Both reads give up after REWARDS_TIMEOUT_MS: the callers render
   // no rate rather than wait.
   const range = trailingRange(days, 3600);
   const signal = AbortSignal.timeout(REWARDS_TIMEOUT_MS);
-  const d = await gqlFetch<{ getValidatorRewardsJson: RewardsDay[] | null }>(
+  const d = await gqlFetch<{ getValidatorRewardsJson: unknown }>(
     network,
     VALIDATOR_REWARDS,
     { validators: null, ...range, bucket: 'day' },
     { revalidate: 300, signal },
   );
-  const from = Date.parse(range.rangeStart);
+  const { data: dayRows, range: coverage } = unwrapRange<RewardsDay[]>(d.getValidatorRewardsJson);
+  // A window the catalog covers only from a later time is measured from there: its rows start there.
+  const from = Math.max(Date.parse(range.rangeStart), coveredSince(coverage) ?? -Infinity);
   const to = Date.parse(range.rangeEnd);
   const out = new Map<string, RewardsWindow & { stakeSum: number; min: bigint | null; max: bigint | null }>();
-  for (const r of d.getValidatorRewardsJson ?? []) {
+  for (const r of dayRows ?? []) {
     const n = Number(r.distributions);
     if (!(n > 0)) continue;
     let w = out.get(r.validator_operator);
@@ -464,7 +473,7 @@ async function getRewardsWindows(network: NetworkId, days: number): Promise<Map<
   }
   const byHour = await Promise.allSettled(
     [...edgeDays].map(async (day) => {
-      const h = await gqlFetch<{ getValidatorRewardsJson: RewardsDay[] | null }>(
+      const h = await gqlFetch<{ getValidatorRewardsJson: unknown }>(
         network,
         VALIDATOR_REWARDS,
         {
@@ -475,7 +484,7 @@ async function getRewardsWindows(network: NetworkId, days: number): Promise<Map<
         },
         { revalidate: 300, signal },
       );
-      return { day, rows: h.getValidatorRewardsJson ?? [] };
+      return { day, rows: unwrapRange<RewardsDay[]>(h.getValidatorRewardsJson).data ?? [] };
     }),
   );
   const edges = new Map<string, { first: number; last: number }>();
@@ -498,7 +507,7 @@ async function getRewardsWindows(network: NetworkId, days: number): Promise<Map<
   }
   const latest = Math.max(...[...out.values()].map((w) => w.lastAt));
   for (const w of out.values()) w.inactive = w.lastAt < latest - DAY_MS;
-  return out;
+  return { windows: out, coverage, coveredDays: Math.max(0, (to - from) / DAY_MS) };
 }
 
 /**
@@ -516,9 +525,10 @@ export async function getValidatorDelegatorApr(
   days = APR_WINDOW_DAYS,
 ): Promise<DelegatorApr | null> {
   // A failed or timed-out read throws, so the caller can tell "unavailable" from null = "no settlements".
-  const w = (await getRewardsWindows(network, days)).get(valoper);
+  const { windows, coverage, coveredDays } = await getRewardsWindows(network, days);
+  const w = windows.get(valoper);
   if (!w) return null;
-  const rate = annualise(w, days);
+  const rate = annualise(w, coveredDays);
   if (!rate) return null;
 
   return {
@@ -531,6 +541,7 @@ export async function getValidatorDelegatorApr(
     partialWindow: rate.partialWindow,
     stakeDrifted: w.stakeDrifted,
     inactive: w.inactive,
+    coverage,
   };
 }
 
@@ -586,14 +597,14 @@ export const getValidatorDelegatorAprMap = cache(async function getValidatorDele
   days = APR_WINDOW_DAYS,
 ): Promise<Map<string, DelegatorAprSummary>> {
   const out = new Map<string, DelegatorAprSummary>();
-  let windows: Map<string, RewardsWindow>;
+  let read: Awaited<ReturnType<typeof getRewardsWindows>>;
   try {
-    windows = await getRewardsWindows(network, days);
+    read = await getRewardsWindows(network, days);
   } catch {
     return out;
   }
-  for (const [valoper, w] of windows) {
-    const rate = annualise(w, days);
+  for (const [valoper, w] of read.windows) {
+    const rate = annualise(w, read.coveredDays);
     if (!rate) continue;
     out.set(valoper, {
       aprPct: rate.aprPct,
