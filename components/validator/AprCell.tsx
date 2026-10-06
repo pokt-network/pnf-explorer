@@ -1,4 +1,4 @@
-import { getValidatorDelegatorAprMap } from '@/lib/data/validators';
+import { getValidatorDelegatorAprMap, APR_WINDOW_DAYS } from '@/lib/data/validators';
 import { NOT_COVERED } from '@/lib/data/range';
 import { INACTIVE, inactiveHint, NOT_COVERED_HINT, STILL_PROCESSING, stillProcessingHint, STOPPED_HINT, windowLabel } from '@/lib/data/window';
 import type { NetworkId } from '@/lib/networks';
@@ -18,18 +18,28 @@ export async function AprCell({ network, valoper }: { network: NetworkId; valope
       </span>
     );
   }
-  const apr = map.get(valoper);
-  if (!apr) return <span className="dim">—</span>;
   // The catalog covered only part of the window: say on how many days of data the cell rests.
-  const covered = apr.coverageNote ? (
-    <span className="dim" title={`Based on ${apr.coveredDays.toFixed(1)} days of data. ${apr.coverageNote}`}>
+  const covered = map.coverageNote ? (
+    <span className="dim" title={`Based on ${map.coveredDays.toFixed(1)} days of data. ${map.coverageNote}`}>
       *
     </span>
   ) : null;
+  const apr = map.byValoper.get(valoper);
+  if (!apr) {
+    return (
+      <>
+        <span className="dim">—</span>
+        {covered}
+      </>
+    );
+  }
   if (apr.aprPct == null) {
     return (
       <>
-        <span className="dim" title={apr.inactive ? inactiveHint(apr.coveredDays) : stillProcessingHint(apr.coveredDays)}>
+        <span
+          className="dim"
+          title={apr.inactive ? inactiveHint(APR_WINDOW_DAYS, map.coveredDays) : stillProcessingHint(APR_WINDOW_DAYS, map.coveredDays)}
+        >
           {apr.inactive ? INACTIVE : STILL_PROCESSING}
         </span>
         {covered}
@@ -37,7 +47,7 @@ export async function AprCell({ network, valoper }: { network: NetworkId; valope
     );
   }
   return (
-    <span title={apr.inactive ? STOPPED_HINT : apr.partialWindow ? `Settled for only part of the ${apr.coveredDays >= 1.5 ? `${Math.round(apr.coveredDays)}-day` : windowLabel(apr.coveredDays)} window.` : undefined}>
+    <span title={apr.inactive ? STOPPED_HINT : apr.partialWindow ? `Settled for only part of the ${windowLabel(map.coveredDays)} window.` : undefined}>
       {apr.aprPct.toFixed(2)}%{apr.partialWindow ? <span className="dim">†</span> : null}
       {covered}
     </span>

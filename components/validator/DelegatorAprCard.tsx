@@ -53,22 +53,23 @@ export async function DelegatorAprCard({
     );
   }
 
-  if (!apr) {
+  const note = coverageNote(apr.coverage);
+  if ('noRate' in apr) {
     return (
-      <AprShell>
+      <AprShell days={apr.coveredDays}>
         <div className="big">
           —<span className="u"> %</span>
         </div>
         <div className="upokt">no settlements in the window</div>
+        {note ? <div className="upd dim">{note}</div> : null}
       </AprShell>
     );
   }
 
-  const note = coverageNote(apr.coverage);
   return (
     <AprShell days={apr.coveredDays}>
       {apr.aprPct == null ? (
-        <div className="big" title={apr.inactive ? inactiveHint(apr.coveredDays) : stillProcessingHint(apr.coveredDays)}>
+        <div className="big" title={apr.inactive ? inactiveHint(APR_WINDOW_DAYS, apr.coveredDays) : stillProcessingHint(APR_WINDOW_DAYS, apr.coveredDays)}>
           {apr.inactive ? INACTIVE : STILL_PROCESSING}
         </div>
       ) : (
@@ -78,7 +79,7 @@ export async function DelegatorAprCard({
         </div>
       )}
       <div className="upokt">
-        {apr.aprPct == null ? (apr.inactive ? inactiveHint(apr.coveredDays) : stillProcessingHint(apr.coveredDays)) : <>net of {formatCommission(commission)} commission</>}
+        {apr.aprPct == null ? (apr.inactive ? inactiveHint(APR_WINDOW_DAYS, apr.coveredDays) : stillProcessingHint(APR_WINDOW_DAYS, apr.coveredDays)) : <>net of {formatCommission(commission)} commission</>}
       </div>
       <div className="upd">
         {formatPokt(apr.delegatorUpokt)} POKT to delegators

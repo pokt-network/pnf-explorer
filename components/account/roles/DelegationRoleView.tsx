@@ -354,7 +354,7 @@ function RatePanel({ set, earnings, notCovered }: { set: DelegationSet; earnings
                 —
               </span>
             ) : earnings.stillProcessing ? (
-              <span className="dim" title={stillProcessingHint(earnings.windowDays)}>
+              <span className="dim" title={stillProcessingHint(EARNINGS_WINDOW_DAYS, earnings.windowDays)}>
                 {STILL_PROCESSING}
               </span>
             ) : earnings.aprPct != null ? (
@@ -475,7 +475,7 @@ export function DelegationRoleView({
             earnings?.startUnknown ? (
               <span title={START_UNKNOWN_HINT}>—</span>
             ) : earnings?.stillProcessing ? (
-              <span title={stillProcessingHint(earnings.windowDays)}>{STILL_PROCESSING}</span>
+              <span title={stillProcessingHint(EARNINGS_WINDOW_DAYS, earnings.windowDays)}>{STILL_PROCESSING}</span>
             ) : earnings?.aprPct != null ? (
               `${earnings.aprPct.toFixed(2)}%`
             ) : (

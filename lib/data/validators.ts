@@ -354,6 +354,13 @@ export async function getDelegators(network: NetworkId, valoper: string): Promis
 /** Trailing window for the validator's advertised delegator return. */
 export const APR_WINDOW_DAYS = 30;
 
+/** A validator with no rate over the window (no settlements, or too few to define one), and what the window covered. */
+export interface NoDelegatorApr {
+  noRate: true;
+  coverage: CoveredRange | null;
+  coveredDays: number;
+}
+
 export interface DelegatorApr {
   /** Net annualised return to a delegator, percent. Already after commission — see the query.
    *  Null when the validator has settled for under MIN_SPAN_DAYS: too little data to annualise. */
@@ -531,15 +538,14 @@ export async function getValidatorDelegatorApr(
   network: NetworkId,
   valoper: string,
   days = APR_WINDOW_DAYS,
-): Promise<DelegatorApr | typeof NOT_COVERED | null> {
-  // A failed or timed-out read throws, so the caller can tell "unavailable" from null = "no settlements"
-  // and NOT_COVERED = "the catalog has no data for this window".
+): Promise<DelegatorApr | NoDelegatorApr | typeof NOT_COVERED> {
+  // A failed or timed-out read throws, so the caller can tell "unavailable" from NoDelegatorApr = "no
+  // settlements" and NOT_COVERED = "the catalog has no data for this window".
   const { windows, coverage, window, coveredDays } = await getRewardsWindows(network, days);
   if (!window) return NOT_COVERED;
   const w = windows.get(valoper);
-  if (!w) return null;
-  const rate = annualise(w, window, coveredDays);
-  if (!rate) return null;
+  const rate = w ? annualise(w, window, coveredDays) : null;
+  if (!w || !rate) return { noRate: true, coverage, coveredDays };
 
   return {
     aprPct: rate.aprPct,
@@ -599,7 +605,12 @@ export interface DelegatorAprSummary {
   /** True when its last settlement is over a day older than the network's latest validator settlement: it is not
    *  settling now (jailed, out of the set, …). Relative to the network, not to now, because beta goes days without any. */
   inactive: boolean;
-  /** coverageNote of the window (the same for every validator); null when it is fully covered. */
+}
+
+/** The list-wide APR roll-up, and what its window covered. */
+export interface DelegatorAprMap {
+  byValoper: Map<string, DelegatorAprSummary>;
+  /** coverageNote of the window; null when it is fully covered. */
   coverageNote: string | null;
   /** As on DelegatorApr. */
   coveredDays: number;
@@ -616,16 +627,16 @@ export interface DelegatorAprSummary {
 export const getValidatorDelegatorAprMap = cache(async function getValidatorDelegatorAprMap(
   network: NetworkId,
   days = APR_WINDOW_DAYS,
-): Promise<Map<string, DelegatorAprSummary> | typeof NOT_COVERED> {
+): Promise<DelegatorAprMap | typeof NOT_COVERED> {
   const out = new Map<string, DelegatorAprSummary>();
   let read: Awaited<ReturnType<typeof getRewardsWindows>>;
   try {
     read = await getRewardsWindows(network, days);
   } catch {
-    return out;
+    // A failed read: no rates, and nothing known about the window.
+    return { byValoper: out, coverageNote: null, coveredDays: days };
   }
   if (!read.window) return NOT_COVERED;
-  const note = coverageNote(read.coverage);
   for (const [valoper, w] of read.windows) {
     const rate = annualise(w, read.window, read.coveredDays);
     if (!rate) continue;
@@ -635,9 +646,7 @@ export const getValidatorDelegatorAprMap = cache(async function getValidatorDele
       partialWindow: rate.partialWindow,
       stakeDrifted: w.stakeDrifted,
       inactive: w.inactive,
-      coverageNote: note,
-      coveredDays: read.coveredDays,
     });
   }
-  return out;
+  return { byValoper: out, coverageNote: coverageNote(read.coverage), coveredDays: read.coveredDays };
 });

@@ -88,6 +88,11 @@ export function coveredMs(w: CoveredWindow, a: number, b: number): number {
 /** An end short of the request by less than this is the indexer's normal lag behind the newest block, not missing data. */
 const END_SLACK_MS = 3_600_000;
 
+/** Whether `coveredDays` of data is the whole of a `windowDays` window, by the same slack coverageNote gives the end. */
+export function coversWholeWindow(windowDays: number, coveredDays: number): boolean {
+  return (windowDays - coveredDays) * 86_400_000 <= END_SLACK_MS;
+}
+
 /**
  * The quiet note under a figure read over a partly covered range: where the data starts and ends when
  * that is not where the request did, and any gaps inside. Null for the old shape, a fully covered
