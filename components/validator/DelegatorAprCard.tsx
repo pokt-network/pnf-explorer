@@ -1,10 +1,10 @@
-import { getValidatorDelegatorApr, APR_WINDOW_DAYS, NOT_COVERED } from '@/lib/data/validators';
+import { getValidatorDelegatorApr, APR_WINDOW_DAYS } from '@/lib/data/validators';
 import { Skeleton } from '@/components/ui/states';
 import type { NetworkId } from '@/lib/networks';
 import { formatPokt, formatNumber } from '@/lib/format';
 import { formatCommission } from '@/lib/validator';
 import { INACTIVE, INACTIVE_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT, windowLabel } from '@/lib/data/window';
-import { coverageNote } from '@/lib/data/range';
+import { NOT_COVERED, coverageNote } from '@/lib/data/range';
 
 /**
  * Net delegator return for a validator, over a trailing window.

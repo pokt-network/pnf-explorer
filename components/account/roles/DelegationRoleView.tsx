@@ -17,7 +17,7 @@ import { relativeTime, absoluteUtc } from '@/lib/time';
 import { validatorMoniker, formatCommission, deriveValidatorState } from '@/lib/validator';
 import { parsePage } from '@/lib/paging';
 import { START_UNKNOWN_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT, windowLabel } from '@/lib/data/window';
-import { coverageNote } from '@/lib/data/range';
+import { NOT_COVERED, coverageNote } from '@/lib/data/range';
 
 const LIMIT = 25;
 
@@ -288,11 +288,11 @@ async function SettlementsPanel({
 }
 
 /** Rate tab — how the daily average and the APR on the summary row were derived, and what limits them. */
-function RatePanel({ set, earnings }: { set: DelegationSet; earnings: DelegationEarnings | null }) {
+function RatePanel({ set, earnings, notCovered }: { set: DelegationSet; earnings: DelegationEarnings | null; notCovered: boolean }) {
   if (!earnings) {
     return (
       <div className="card flush-top">
-        <EmptyState>Couldn’t compute the earnings rate right now.</EmptyState>
+        <EmptyState>{notCovered ? 'No indexed data for the window yet.' : 'Couldn’t compute the earnings rate right now.'}</EmptyState>
       </div>
     );
   }
@@ -392,15 +392,18 @@ export function DelegationRoleView({
   network,
   address,
   set,
-  earnings,
+  earnings: read,
   settlementsPage,
 }: {
   network: NetworkId;
   address: string;
   set: DelegationSet;
-  earnings: DelegationEarnings | null;
+  earnings: DelegationEarnings | typeof NOT_COVERED | null;
   settlementsPage: string | undefined;
 }) {
+  // No figures either way; the Rate tab says which.
+  const notCovered = read === NOT_COVERED;
+  const earnings = notCovered ? null : read;
   const win = earnings ? windowLabel(earnings.windowDays) : `${EARNINGS_WINDOW_DAYS}d`;
 
   const tabs: TabDef[] = [
@@ -415,7 +418,7 @@ export function DelegationRoleView({
       label: 'Settlements',
       panel: <SettlementsPanel network={network} set={set} earnings={earnings} page={parsePage(settlementsPage)} />,
     },
-    { key: 'rate', label: 'Rate', panel: <RatePanel set={set} earnings={earnings} /> },
+    { key: 'rate', label: 'Rate', panel: <RatePanel set={set} earnings={earnings} notCovered={notCovered} /> },
     {
       key: 'raw',
       label: 'Raw',

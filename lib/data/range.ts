@@ -32,6 +32,9 @@ export function unwrapRange<T>(x: unknown): { data: T | null; range: CoveredRang
   return { data: empty ? null : ((x.data ?? null) as T | null), range };
 }
 
+/** What a reader answers, instead of a figure, when the catalog has no data for its window at all. */
+export const NOT_COVERED = 'not-covered';
+
 /** The part of a requested window the catalog covered, epoch ms: `[from, to)` minus `gaps` (merged, inside it). */
 export interface CoveredWindow {
   from: number;
@@ -50,7 +53,7 @@ export function coveredWindow(range: CoveredRange | null, from: number, to: numb
   let f = Math.max(from, Date.parse(range.covered_from));
   let t = Math.min(to, Date.parse(range.covered_to));
   const gaps: { from: number; to: number }[] = [];
-  const clipped = range.gaps
+  const clipped = (range.gaps ?? [])
     .map((g) => ({ from: Math.max(g.from == null ? f : Date.parse(g.from), f), to: Math.min(g.to == null ? t : Date.parse(g.to), t) }))
     .filter((g) => g.to > g.from)
     .sort((a, b) => a.from - b.from);
@@ -88,7 +91,8 @@ export function coverageNote(range: CoveredRange | null): string | null {
   const reqTo = range.requested_to == null ? Infinity : Date.parse(range.requested_to);
   const w = coveredWindow(range, reqFrom, reqTo);
   if (!w) return null;
-  const since = w.from > reqFrom ? absoluteUtc(w.from) : null;
+  // Likewise an open start begins with the oldest data.
+  const since = range.requested_from != null && w.from > reqFrom ? absoluteUtc(w.from) : null;
   // An open end runs to the newest data by definition: nothing to say about it.
   const until = range.requested_to != null && w.to < reqTo - END_SLACK_MS ? absoluteUtc(w.to) : null;
   const parts: string[] = [];

@@ -6,7 +6,7 @@ import { UPOKT_PER_POKT } from '@/lib/config';
 import { toBigInt } from '@/lib/format';
 import { DELEGATION_FIRST_HOUR, DELEGATION_SETTLEMENTS, DELEGATION_WINDOW, WINDOW_START_BLOCK } from '@/lib/queries/delegations';
 import { MIN_SPAN_DAYS, trailingRange } from '@/lib/data/window';
-import { coveredMs, coveredWindow, unwrapRange, type CoveredRange } from '@/lib/data/range';
+import { NOT_COVERED, coveredMs, coveredWindow, unwrapRange, type CoveredRange } from '@/lib/data/range';
 
 // Staking-delegation data layer. See lib/queries/delegations.ts for the verified model; the short
 // version is that Shannon pays the validator pool's settlement share DIRECTLY to delegator wallets
@@ -292,7 +292,7 @@ export async function getDelegationEarnings(
   address: string,
   set: DelegationSet,
   days = EARNINGS_WINDOW_DAYS,
-): Promise<DelegationEarnings | null> {
+): Promise<DelegationEarnings | typeof NOT_COVERED | null> {
   const current = new Set(set.rows.map((r) => r.validatorAddress));
   const range = trailingRange(days, 60);
   const hourOf = (ms: number) => Math.floor(ms / 3_600_000) * 3_600_000;
@@ -309,8 +309,8 @@ export async function getDelegationEarnings(
   const { data: income, range: coverage } = unwrapRange<{ bucket_start: string; validator_operator: string; amount_upokt: string | null }[]>(d.income);
   const pools = unwrapRange<{ validator_operator: string; delegators_upokt: string | null; distributions: string | null }[]>(d.pools).data;
   const win = coveredWindow(coverage, requestedStart, Date.parse(range.rangeEnd));
-  // Nothing in the window is covered: no figure, rather than 0 earned.
-  if (!win) return null;
+  // Nothing in the window is covered: say so, rather than 0 earned or "couldn't load".
+  if (!win) return NOT_COVERED;
 
   // Day rows per validator: sum them, and note the first day the address was paid.
   const mineBy = new Map<string, number>();

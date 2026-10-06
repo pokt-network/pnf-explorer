@@ -12,7 +12,7 @@ import {
 } from '@/lib/queries/validators';
 import { trailingRange, MIN_SPAN_DAYS } from '@/lib/data/window';
 import { toBigInt } from '@/lib/format';
-import { coveredMs, coveredWindow, unwrapRange, type CoveredRange, type CoveredWindow } from '@/lib/data/range';
+import { NOT_COVERED, coverageNote, coveredMs, coveredWindow, unwrapRange, type CoveredRange, type CoveredWindow } from '@/lib/data/range';
 
 // Validator data layer. commission + description are JSON OBJECTS (parse via lib/validator).
 // stakeStatus is the StakeStatus enum (Staked/Unstaking/Unstaked) — NOT Bonded/Unbonding.
@@ -353,8 +353,6 @@ export async function getDelegators(network: NetworkId, valoper: string): Promis
 
 /** Trailing window for the validator's advertised delegator return. */
 export const APR_WINDOW_DAYS = 30;
-/** What getValidatorDelegatorApr answers when the catalog has no data for the window at all. */
-export const NOT_COVERED = 'not-covered';
 
 export interface DelegatorApr {
   /** Net annualised return to a delegator, percent. Already after commission — see the query.
@@ -598,8 +596,9 @@ export interface DelegatorAprSummary {
   /** True when its last settlement is over a day older than the network's latest validator settlement: it is not
    *  settling now (jailed, out of the set, …). Relative to the network, not to now, because beta goes days without any. */
   inactive: boolean;
+  /** coverageNote of the window (the same for every validator); null when it is fully covered. */
+  coverageNote: string | null;
   /** As on DelegatorApr. */
-  coverage: CoveredRange | null;
   coveredDays: number;
 }
 
@@ -622,6 +621,7 @@ export const getValidatorDelegatorAprMap = cache(async function getValidatorDele
     return out;
   }
   if (!read.window) return out;
+  const note = coverageNote(read.coverage);
   for (const [valoper, w] of read.windows) {
     const rate = annualise(w, read.window);
     if (!rate) continue;
@@ -631,7 +631,7 @@ export const getValidatorDelegatorAprMap = cache(async function getValidatorDele
       partialWindow: rate.partialWindow,
       stakeDrifted: w.stakeDrifted,
       inactive: w.inactive,
-      coverage: read.coverage,
+      coverageNote: note,
       coveredDays: rate.coveredDays,
     });
   }
