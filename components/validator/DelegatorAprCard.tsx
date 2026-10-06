@@ -3,7 +3,7 @@ import { Skeleton } from '@/components/ui/states';
 import type { NetworkId } from '@/lib/networks';
 import { formatPokt, formatNumber } from '@/lib/format';
 import { formatCommission } from '@/lib/validator';
-import { INACTIVE, INACTIVE_HINT, NOT_COVERED_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT, windowLabel } from '@/lib/data/window';
+import { INACTIVE, inactiveHint, NOT_COVERED_HINT, STILL_PROCESSING, stillProcessingHint, windowLabel } from '@/lib/data/window';
 import { NOT_COVERED, coverageNote } from '@/lib/data/range';
 
 /**
@@ -68,7 +68,7 @@ export async function DelegatorAprCard({
   return (
     <AprShell days={apr.coveredDays}>
       {apr.aprPct == null ? (
-        <div className="big" title={apr.inactive ? INACTIVE_HINT : STILL_PROCESSING_HINT}>
+        <div className="big" title={apr.inactive ? inactiveHint(apr.coveredDays) : stillProcessingHint(apr.coveredDays)}>
           {apr.inactive ? INACTIVE : STILL_PROCESSING}
         </div>
       ) : (
@@ -78,7 +78,7 @@ export async function DelegatorAprCard({
         </div>
       )}
       <div className="upokt">
-        {apr.aprPct == null ? (apr.inactive ? INACTIVE_HINT : STILL_PROCESSING_HINT) : <>net of {formatCommission(commission)} commission</>}
+        {apr.aprPct == null ? (apr.inactive ? inactiveHint(apr.coveredDays) : stillProcessingHint(apr.coveredDays)) : <>net of {formatCommission(commission)} commission</>}
       </div>
       <div className="upd">
         {formatPokt(apr.delegatorUpokt)} POKT to delegators

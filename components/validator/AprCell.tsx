@@ -1,6 +1,6 @@
 import { getValidatorDelegatorAprMap } from '@/lib/data/validators';
 import { NOT_COVERED } from '@/lib/data/range';
-import { INACTIVE, INACTIVE_HINT, NOT_COVERED_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT, STOPPED_HINT } from '@/lib/data/window';
+import { INACTIVE, inactiveHint, NOT_COVERED_HINT, STILL_PROCESSING, stillProcessingHint, STOPPED_HINT, windowLabel } from '@/lib/data/window';
 import type { NetworkId } from '@/lib/networks';
 
 /**
@@ -29,7 +29,7 @@ export async function AprCell({ network, valoper }: { network: NetworkId; valope
   if (apr.aprPct == null) {
     return (
       <>
-        <span className="dim" title={apr.inactive ? INACTIVE_HINT : STILL_PROCESSING_HINT}>
+        <span className="dim" title={apr.inactive ? inactiveHint(apr.coveredDays) : stillProcessingHint(apr.coveredDays)}>
           {apr.inactive ? INACTIVE : STILL_PROCESSING}
         </span>
         {covered}
@@ -37,7 +37,7 @@ export async function AprCell({ network, valoper }: { network: NetworkId; valope
     );
   }
   return (
-    <span title={apr.inactive ? STOPPED_HINT : apr.partialWindow ? `Settled for only part of the ${Math.round(apr.coveredDays)}-day window.` : undefined}>
+    <span title={apr.inactive ? STOPPED_HINT : apr.partialWindow ? `Settled for only part of the ${apr.coveredDays >= 1.5 ? `${Math.round(apr.coveredDays)}-day` : windowLabel(apr.coveredDays)} window.` : undefined}>
       {apr.aprPct.toFixed(2)}%{apr.partialWindow ? <span className="dim">†</span> : null}
       {covered}
     </span>

@@ -16,7 +16,7 @@ import { formatNumber, formatPokt, formatPoktCompact, formatCompact, truncate } 
 import { relativeTime, absoluteUtc } from '@/lib/time';
 import { validatorMoniker, formatCommission, deriveValidatorState } from '@/lib/validator';
 import { parsePage } from '@/lib/paging';
-import { NOT_COVERED_HINT, START_UNKNOWN_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT, windowLabel } from '@/lib/data/window';
+import { NOT_COVERED_HINT, START_UNKNOWN_HINT, STILL_PROCESSING, stillProcessingHint, windowLabel } from '@/lib/data/window';
 import { NOT_COVERED, coverageNote } from '@/lib/data/range';
 
 const LIMIT = 25;
@@ -54,10 +54,12 @@ async function ValidatorsPanel({
   network,
   set,
   earnings,
+  notCovered,
 }: {
   network: NetworkId;
   set: DelegationSet;
   earnings: DelegationEarnings | null;
+  notCovered: boolean;
 }) {
   // Where someone decides who to delegate to next, so the active-set distinction matters most
   // here: a validator below the cutoff is a live choice, a jailed one is not.
@@ -111,7 +113,13 @@ async function ValidatorsPanel({
                   <td className="num mono">{m?.commission ? formatCommission(m.commission) : '—'}</td>
                   <td className="num mono">{formatPokt(r.amountUpokt)}</td>
                   <td className="num mono">
-                    {e ? formatPokt(Math.round(e.myShareUpokt)) : <span className="dim">—</span>}
+                    {e ? (
+                      formatPokt(Math.round(e.myShareUpokt))
+                    ) : (
+                      <span className="dim" title={notCovered ? NOT_COVERED_HINT : undefined}>
+                        —
+                      </span>
+                    )}
                     {e?.settlements != null ? (
                       <div className="dim" style={{ fontSize: 12 }}>
                         {formatNumber(e.settlements)} settlements
@@ -188,11 +196,13 @@ async function SettlementsPanel({
   network,
   set,
   earnings,
+  notCovered,
   page,
 }: {
   network: NetworkId;
   set: DelegationSet;
   earnings: DelegationEarnings | null;
+  notCovered: boolean;
   page: number;
 }) {
   let data: Awaited<ReturnType<typeof getDelegationSettlements>>;
@@ -235,7 +245,9 @@ async function SettlementsPanel({
                 {note ? <div className="dim">{note}</div> : null}
               </>
             ) : (
-              <span className="dim">—</span>
+              <span className="dim" title={notCovered ? NOT_COVERED_HINT : undefined}>
+                —
+              </span>
             )}
             <div className="muted" style={{ marginTop: 4 }}>
               Each row is one validator’s session-end settlement. Shannon pays the delegator pool’s share directly to delegator
@@ -342,7 +354,7 @@ function RatePanel({ set, earnings, notCovered }: { set: DelegationSet; earnings
                 —
               </span>
             ) : earnings.stillProcessing ? (
-              <span className="dim" title={STILL_PROCESSING_HINT}>
+              <span className="dim" title={stillProcessingHint(earnings.windowDays)}>
                 {STILL_PROCESSING}
               </span>
             ) : earnings.aprPct != null ? (
@@ -412,12 +424,12 @@ export function DelegationRoleView({
       key: 'validators',
       label: 'Validators',
       badge: set.rows.length || undefined,
-      panel: <ValidatorsPanel network={network} set={set} earnings={earnings} />,
+      panel: <ValidatorsPanel network={network} set={set} earnings={earnings} notCovered={notCovered} />,
     },
     {
       key: 'settlements',
       label: 'Settlements',
-      panel: <SettlementsPanel network={network} set={set} earnings={earnings} page={parsePage(settlementsPage)} />,
+      panel: <SettlementsPanel network={network} set={set} earnings={earnings} notCovered={notCovered} page={parsePage(settlementsPage)} />,
     },
     { key: 'rate', label: 'Rate', panel: <RatePanel set={set} earnings={earnings} notCovered={notCovered} /> },
     {
@@ -463,7 +475,7 @@ export function DelegationRoleView({
             earnings?.startUnknown ? (
               <span title={START_UNKNOWN_HINT}>—</span>
             ) : earnings?.stillProcessing ? (
-              <span title={STILL_PROCESSING_HINT}>{STILL_PROCESSING}</span>
+              <span title={stillProcessingHint(earnings.windowDays)}>{STILL_PROCESSING}</span>
             ) : earnings?.aprPct != null ? (
               `${earnings.aprPct.toFixed(2)}%`
             ) : (

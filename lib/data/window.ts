@@ -6,20 +6,26 @@
 
 /** Shortest active span (days of settlements inside the window) an APR is quoted for. */
 export const MIN_SPAN_DAYS = 7;
-/** What a rate shows below MIN_SPAN_DAYS, and why. */
+/** What a rate shows below MIN_SPAN_DAYS, and why. `coveredDays`: the days of the 30 the catalog has data for. */
 export const STILL_PROCESSING = 'Still processing';
-export const STILL_PROCESSING_HINT = 'Less than a week of settlements in the last 30 days — too little data for an annual rate.';
+export const stillProcessingHint = (coveredDays = 30) =>
+  `Less than a week of settlements ${inLast30Days(coveredDays)} — too little data for an annual rate.`;
 /** Tooltip on the "—" a delegator's rate shows when the start of its delegation could not be read. */
 export const START_UNKNOWN_HINT = 'Couldn’t determine when this delegation started.';
 /** What a validator's rate shows below MIN_SPAN_DAYS when it has stopped settling (last settlement over a day old). */
 export const INACTIVE = 'Inactive';
-export const INACTIVE_HINT =
-  'Last settlement over a day behind the network’s latest settlement, and less than a week of settlements in the last 30 days.';
+export const inactiveHint = (coveredDays = 30) =>
+  `Last settlement over a day behind the network’s latest settlement, and less than a week of settlements ${inLast30Days(coveredDays)}.`;
 /** What a figure shows (as a dash's tooltip, or in place of an empty state) when the money catalog has no data for its window. */
 export const NOT_COVERED_HINT = 'No indexed data for the window yet.';
 /** Tooltip on a rate quoted for a validator that has stopped settling. */
 export const STOPPED_HINT =
   'Last settlement over a day behind the network’s latest settlement; the rate covers its active days only.';
+
+/** "in the last 30 days", or, when the catalog covers less of them, how much it does cover. */
+function inLast30Days(coveredDays: number): string {
+  return coveredDays > 29.5 ? 'in the last 30 days' : `in the ${windowLabel(coveredDays)} of data from the last 30 days`;
+}
 
 /** Round a window in days to something a label can say without implying false precision. */
 export function windowLabel(days: number): string {
