@@ -7,7 +7,7 @@ export function slugify(s: string): string {
 }
 
 /** The tab a `?tab=` value selects (a tab's `key` or its slugified label); absent/unknown → `initial`, then the first tab. */
-export function selectTab(tabs: { key: string; label: string }[], requested: string | null | undefined, initial?: string): string | undefined {
+export function selectTab(tabs: readonly { key: string; label: string }[], requested: string | null | undefined, initial?: string): string | undefined {
   const matched = requested
     ? tabs.find((t) => t.key === requested || slugify(t.label) === slugify(requested))?.key
     : undefined;

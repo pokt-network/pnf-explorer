@@ -419,6 +419,16 @@ async function RawPanel({ network, id }: { network: NetworkId; id: string }) {
   );
 }
 
+/** The supplier view's tabs, in order. The active tab is chosen from this list before the panels exist. */
+const SUPPLIER_TABS = [
+  { key: 'svc', label: 'Services' },
+  { key: 'traffic', label: 'Traffic' },
+  { key: 'earn', label: 'Earnings' },
+  { key: 'hist', label: 'History' },
+  { key: 'raw', label: 'Raw' },
+] as const;
+type SupplierTab = (typeof SUPPLIER_TABS)[number]['key'];
+
 /**
  * The supplier actor view. Independent of the wallet that shares its address: its own stake, its own
  * services, its own earnings, its own raw record.
@@ -441,27 +451,15 @@ export function SupplierRoleView({
    *  costliest of the page and most visits never open them. */
   tab: string | undefined;
 }) {
-  const active = selectTab(
-    [
-      { key: 'svc', label: 'Services' },
-      { key: 'traffic', label: 'Traffic' },
-      { key: 'earn', label: 'Earnings' },
-      { key: 'hist', label: 'History' },
-      { key: 'raw', label: 'Raw' },
-    ],
-    tab,
-  );
-  const tabs: TabDef[] = [
-    { key: 'svc', label: 'Services', badge: view.services.length || undefined, panel: <ServicesPanel view={view} currentHeight={currentHeight} /> },
-    {
-      key: 'traffic',
-      label: 'Traffic',
-      panel: active === 'traffic' ? <SupplierTrafficPanel network={network} supplier={legacy} currentHeight={currentHeight} /> : null,
-    },
-    { key: 'earn', label: 'Earnings', panel: active === 'earn' ? <EarningsPanel network={network} view={view} page={parsePage(earnPage)} /> : null },
-    { key: 'hist', label: 'History', badge: view.slashCount || undefined, panel: <HistoryPanel network={network} id={view.id} /> },
-    { key: 'raw', label: 'Raw', panel: <RawPanel network={network} id={view.id} /> },
-  ];
+  const active = selectTab(SUPPLIER_TABS, tab);
+  const content: Record<SupplierTab, Pick<TabDef, 'badge' | 'panel'>> = {
+    svc: { badge: view.services.length || undefined, panel: <ServicesPanel view={view} currentHeight={currentHeight} /> },
+    traffic: { panel: active === 'traffic' ? <SupplierTrafficPanel network={network} supplier={legacy} currentHeight={currentHeight} /> : null },
+    earn: { panel: active === 'earn' ? <EarningsPanel network={network} view={view} page={parsePage(earnPage)} /> : null },
+    hist: { badge: view.slashCount || undefined, panel: <HistoryPanel network={network} id={view.id} /> },
+    raw: { panel: <RawPanel network={network} id={view.id} /> },
+  };
+  const tabs: TabDef[] = SUPPLIER_TABS.map((t) => ({ ...t, ...content[t.key] }));
 
   return (
     <>
