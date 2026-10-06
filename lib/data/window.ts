@@ -29,6 +29,12 @@ export const INACTIVE_HINT =
 export const STOPPED_HINT =
   'Last settlement over a day behind the network’s latest settlement; the rate covers its active days only.';
 
+/** Round a window in days to something a label can say without implying false precision. */
+export function windowLabel(days: number): string {
+  if (days >= 1.5) return `${Math.round(days)}d`;
+  return `${Math.max(1, Math.round(days * 24))}h`;
+}
+
 export function trailingRange(days: number, stepSeconds: number): { rangeStart: string; rangeEnd: string } {
   const step = stepSeconds * 1000;
   const end = Math.floor(Date.now() / step) * step;

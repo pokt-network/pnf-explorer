@@ -1,6 +1,7 @@
 import { getValidatorDelegatorAprMap, APR_WINDOW_DAYS } from '@/lib/data/validators';
 import { INACTIVE, INACTIVE_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT, STOPPED_HINT } from '@/lib/data/window';
 import type { NetworkId } from '@/lib/networks';
+import { coverageNote } from '@/lib/data/range';
 
 /**
  * One validator's cell in the list's APR column. Streamed behind its own Suspense boundary so the list
@@ -18,9 +19,15 @@ export async function AprCell({ network, valoper }: { network: NetworkId; valope
       </span>
     );
   }
+  const note = coverageNote(apr.coverage);
   return (
     <span title={apr.inactive ? STOPPED_HINT : apr.partialWindow ? `Settled for only part of the ${APR_WINDOW_DAYS}-day window.` : undefined}>
       {apr.aprPct.toFixed(2)}%{apr.partialWindow ? <span className="dim">†</span> : null}
+      {note ? (
+        <span className="dim" title={`Based on ${apr.coveredDays.toFixed(1)} days of data. ${note}`}>
+          *
+        </span>
+      ) : null}
     </span>
   );
 }

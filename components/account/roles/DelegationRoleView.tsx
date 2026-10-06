@@ -16,7 +16,7 @@ import { formatNumber, formatPokt, formatPoktCompact, formatCompact, truncate } 
 import { relativeTime, absoluteUtc } from '@/lib/time';
 import { validatorMoniker, formatCommission, deriveValidatorState } from '@/lib/validator';
 import { parsePage } from '@/lib/paging';
-import { START_UNKNOWN_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT } from '@/lib/data/window';
+import { START_UNKNOWN_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT, windowLabel } from '@/lib/data/window';
 import { coverageNote } from '@/lib/data/range';
 
 const LIMIT = 25;
@@ -27,12 +27,6 @@ const LIMIT = 25;
  */
 function statPokt(pokt: number): string {
   return pokt >= 1000 ? formatCompact(pokt) : pokt.toFixed(2);
-}
-
-/** Round a window in days to something a label can say without implying false precision. */
-function windowLabel(days: number): string {
-  if (days >= 1.5) return `${Math.round(days)}d`;
-  return `${Math.max(1, Math.round(days * 24))}h`;
 }
 
 /** Validator monikers/commission/status, keyed by valoper. Cosmetic — failure leaves bare addresses. */

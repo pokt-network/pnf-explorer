@@ -3,7 +3,7 @@ import { Skeleton } from '@/components/ui/states';
 import type { NetworkId } from '@/lib/networks';
 import { formatPokt, formatNumber } from '@/lib/format';
 import { formatCommission } from '@/lib/validator';
-import { INACTIVE, INACTIVE_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT } from '@/lib/data/window';
+import { INACTIVE, INACTIVE_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT, windowLabel } from '@/lib/data/window';
 import { coverageNote } from '@/lib/data/range';
 
 /**
@@ -66,7 +66,7 @@ export async function DelegatorAprCard({
 
   const note = coverageNote(apr.coverage);
   return (
-    <AprShell>
+    <AprShell days={apr.coveredDays}>
       {apr.aprPct == null ? (
         <div className="big" title={apr.inactive ? INACTIVE_HINT : STILL_PROCESSING_HINT}>
           {apr.inactive ? INACTIVE : STILL_PROCESSING}
@@ -93,11 +93,12 @@ export async function DelegatorAprCard({
   );
 }
 
-/** Shared frame so the skeleton and the resolved card are the same shape — no layout shift. */
-function AprShell({ children }: { children: React.ReactNode }) {
+/** Shared frame so the skeleton and the resolved card are the same shape — no layout shift. `days`: the
+ *  days the rate covers, when the catalog covers less than the window. */
+function AprShell({ children, days = APR_WINDOW_DAYS }: { children: React.ReactNode; days?: number }) {
   return (
     <div className="card balance">
-      <div className="lbl">Delegator APR ({APR_WINDOW_DAYS}d avg)</div>
+      <div className="lbl">Delegator APR ({windowLabel(days)} avg)</div>
       {children}
     </div>
   );
