@@ -12,16 +12,22 @@ export interface CoveredRange {
   requested_to: string | null;
   covered_from: string | null;
   covered_to: string | null;
-  /** Unwritten settlement stretches inside the covered span: nothing is counted there. A null edge is
-   *  read as the covered span's edge. */
+  /** Unwritten settlement stretches inside the covered span, half-open: nothing is counted there. A
+   *  null edge is read as the covered span's edge. */
   gaps: { from: string | null; to: string | null }[];
+  /** True when `requested_to`/`covered_to` are inclusive (the legacy functions), false when the range is
+   *  half-open (the catalog's). Absent from older answers: this site reads only the catalog's `…Json`
+   *  functions, so absent means half-open. */
+  end_inclusive?: boolean;
 }
 
 /**
  * Splits a catalog answer into its data and the range it covers. The old shape (anything but an
  * object with both `range` and `data`) comes back as it is, with `range: null`. `data: null` means
  * nothing in the range is covered — no data, never 0 — and so does a range that covers nothing (no
- * `covered_from`/`covered_to`, or an inverted span), whatever empty value came with it.
+ * `covered_from`/`covered_to`, or an inverted span), whatever empty value came with it. "Not covered"
+ * is decided from the bounds alone: `data: null` over a covered range is a function's normal empty
+ * answer, and callers read it as such (coveredWindow, not data, tells them the window is uncovered).
  */
 export function unwrapRange<T>(x: unknown): { data: T | null; range: CoveredRange | null } {
   if (x == null || typeof x !== 'object' || Array.isArray(x) || !('range' in x) || !('data' in x)) {
@@ -65,7 +71,8 @@ export function coveredWindow(range: CoveredRange | null, from: number, to: numb
   }
   if (gaps.length > 0 && gaps[0].from <= f) f = gaps.shift()!.to;
   if (gaps.length > 0 && gaps[gaps.length - 1].to >= t) t = gaps.pop()!.from;
-  return t > f ? { from: f, to: t, gaps } : null;
+  // An inclusive end still covers its own instant: a range from t to t is that one point, not nothing.
+  return t > f || (t === f && range.end_inclusive === true) ? { from: f, to: t, gaps } : null;
 }
 
 /** Milliseconds of `[a, b)` the window has data for: inside it, and outside its gaps. */
