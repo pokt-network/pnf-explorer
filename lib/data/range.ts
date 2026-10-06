@@ -12,8 +12,9 @@ export interface CoveredRange {
   requested_to: string | null;
   covered_from: string | null;
   covered_to: string | null;
-  /** Unwritten settlement stretches inside the covered span: nothing is counted there. */
-  gaps: { from: string; to: string }[];
+  /** Unwritten settlement stretches inside the covered span: nothing is counted there. A null edge is
+   *  read as the covered span's edge. */
+  gaps: { from: string | null; to: string | null }[];
 }
 
 /**
@@ -31,19 +32,69 @@ export function unwrapRange<T>(x: unknown): { data: T | null; range: CoveredRang
   return { data: empty ? null : ((x.data ?? null) as T | null), range };
 }
 
-/** Start of the covered span when it is later than the start asked for, else null (old shape, or fully covered). */
-export function coveredSince(range: CoveredRange | null): number | null {
-  if (!range?.covered_from) return null;
-  const from = Date.parse(range.covered_from);
-  return range.requested_from == null || from > Date.parse(range.requested_from) ? from : null;
+/** The part of a requested window the catalog covered, epoch ms: `[from, to)` minus `gaps` (merged, inside it). */
+export interface CoveredWindow {
+  from: number;
+  to: number;
+  gaps: { from: number; to: number }[];
 }
 
-/** The quiet note under a figure read over a partly covered range: "Data since …" and any gaps. Null when there is nothing to say. */
+/**
+ * The window a figure read over `[from, to)` is measured against: narrowed to the covered span, with
+ * the gaps clipped to it and merged. A gap at either edge narrows the window instead of staying a
+ * gap. The old shape (`range` null) covers the whole request; null when nothing is covered.
+ */
+export function coveredWindow(range: CoveredRange | null, from: number, to: number): CoveredWindow | null {
+  if (!range) return { from, to, gaps: [] };
+  if (range.covered_from == null || range.covered_to == null) return null;
+  let f = Math.max(from, Date.parse(range.covered_from));
+  let t = Math.min(to, Date.parse(range.covered_to));
+  const gaps: { from: number; to: number }[] = [];
+  const clipped = range.gaps
+    .map((g) => ({ from: Math.max(g.from == null ? f : Date.parse(g.from), f), to: Math.min(g.to == null ? t : Date.parse(g.to), t) }))
+    .filter((g) => g.to > g.from)
+    .sort((a, b) => a.from - b.from);
+  for (const g of clipped) {
+    const last = gaps[gaps.length - 1];
+    if (last && g.from <= last.to) last.to = Math.max(last.to, g.to);
+    else gaps.push({ ...g });
+  }
+  if (gaps.length > 0 && gaps[0].from <= f) f = gaps.shift()!.to;
+  if (gaps.length > 0 && gaps[gaps.length - 1].to >= t) t = gaps.pop()!.from;
+  return t > f ? { from: f, to: t, gaps } : null;
+}
+
+/** Milliseconds of `[a, b)` the window has data for: inside it, and outside its gaps. */
+export function coveredMs(w: CoveredWindow, a: number, b: number): number {
+  const lo = Math.max(a, w.from);
+  const hi = Math.min(b, w.to);
+  if (!(hi > lo)) return 0;
+  let gap = 0;
+  for (const g of w.gaps) gap += Math.max(0, Math.min(hi, g.to) - Math.max(lo, g.from));
+  return hi - lo - gap;
+}
+
+/** An end short of the request by less than this is the indexer's normal lag behind the newest block, not missing data. */
+const END_SLACK_MS = 3_600_000;
+
+/**
+ * The quiet note under a figure read over a partly covered range: where the data starts and ends when
+ * that is not where the request did, and any gaps inside. Null for the old shape, a fully covered
+ * range, and a range with nothing covered (callers show their no-data state for that).
+ */
 export function coverageNote(range: CoveredRange | null): string | null {
   if (!range) return null;
+  const reqFrom = range.requested_from == null ? -Infinity : Date.parse(range.requested_from);
+  const reqTo = range.requested_to == null ? Infinity : Date.parse(range.requested_to);
+  const w = coveredWindow(range, reqFrom, reqTo);
+  if (!w) return null;
+  const since = w.from > reqFrom ? absoluteUtc(w.from) : null;
+  // An open end runs to the newest data by definition: nothing to say about it.
+  const until = range.requested_to != null && w.to < reqTo - END_SLACK_MS ? absoluteUtc(w.to) : null;
   const parts: string[] = [];
-  const since = coveredSince(range);
-  if (since != null) parts.push(`Data since ${absoluteUtc(since)}`);
-  if (range.gaps.length > 0) parts.push(`gaps: ${range.gaps.map((g) => `${absoluteUtc(g.from)} – ${absoluteUtc(g.to)}`).join(', ')}`);
+  if (since && until) parts.push(`Data from ${since} to ${until}`);
+  else if (since) parts.push(`Data since ${since}`);
+  else if (until) parts.push(`Data until ${until}`);
+  if (w.gaps.length > 0) parts.push(`gaps: ${w.gaps.map((g) => `${absoluteUtc(g.from)} – ${absoluteUtc(g.to)}`).join(', ')}`);
   return parts.length > 0 ? parts.join(' · ') : null;
 }

@@ -12,7 +12,7 @@ import {
 } from '@/lib/queries/validators';
 import { trailingRange, MIN_SPAN_DAYS } from '@/lib/data/window';
 import { toBigInt } from '@/lib/format';
-import { coveredSince, unwrapRange, type CoveredRange } from '@/lib/data/range';
+import { coveredMs, coveredWindow, unwrapRange, type CoveredRange, type CoveredWindow } from '@/lib/data/range';
 
 // Validator data layer. commission + description are JSON OBJECTS (parse via lib/validator).
 // stakeStatus is the StakeStatus enum (Staked/Unstaking/Unstaked) — NOT Bonded/Unbonding.
@@ -353,6 +353,8 @@ export async function getDelegators(network: NetworkId, valoper: string): Promis
 
 /** Trailing window for the validator's advertised delegator return. */
 export const APR_WINDOW_DAYS = 30;
+/** What getValidatorDelegatorApr answers when the catalog has no data for the window at all. */
+export const NOT_COVERED = 'not-covered';
 
 export interface DelegatorApr {
   /** Net annualised return to a delegator, percent. Already after commission — see the query.
@@ -367,6 +369,8 @@ export interface DelegatorApr {
   settlements: number;
   /** The span the catalog covered; null from a catalog that predates the range contract. */
   coverage: CoveredRange | null;
+  /** Days of the window the catalog has data for, gaps excluded: APR_WINDOW_DAYS when it covers it all. */
+  coveredDays: number;
   /** Days the validator was actually settling inside the window. */
   activeDays: number;
   /** True when the validator was not settling for the whole window (joined or paused inside it). */
@@ -415,12 +419,13 @@ const dayOf = (ms: number) => Math.floor(ms / DAY_MS) * DAY_MS;
 /**
  * Per-validator windows from the trailing-window catalog call, for every validator: the detail card
  * needs the network's latest settlement for `inactive`, and it shares the list's fetch-cache entries.
- * Also the span the catalog covered, and its length in days: the window a rate is measured against.
+ * Also the span the catalog covered, and the window a rate is measured against: the covered part of
+ * the trailing window, gaps excluded (null: nothing in it is covered).
  */
 async function getRewardsWindows(
   network: NetworkId,
   days: number,
-): Promise<{ windows: Map<string, RewardsWindow>; coverage: CoveredRange | null; coveredDays: number }> {
+): Promise<{ windows: Map<string, RewardsWindow>; coverage: CoveredRange | null; window: CoveredWindow | null }> {
   // The window ends on the hour: the requests — and their fetch-cache keys — then change once an
   // hour, so only the first visitor after the hour pays for the cold reads (revalidate still
   // refreshes them every 5 minutes). Both reads give up after REWARDS_TIMEOUT_MS: the callers render
@@ -434,9 +439,10 @@ async function getRewardsWindows(
     { revalidate: 300, signal },
   );
   const { data: dayRows, range: coverage } = unwrapRange<RewardsDay[]>(d.getValidatorRewardsJson);
-  // A window the catalog covers only from a later time is measured from there: its rows start there.
-  const from = Math.max(Date.parse(range.rangeStart), coveredSince(coverage) ?? -Infinity);
-  const to = Date.parse(range.rangeEnd);
+  // The window is the part the catalog covers: its rows lie there, and gaps count as no time.
+  const window = coveredWindow(coverage, Date.parse(range.rangeStart), Date.parse(range.rangeEnd));
+  if (!window) return { windows: new Map(), coverage, window };
+  const { from, to } = window;
   const out = new Map<string, RewardsWindow & { stakeSum: number; min: bigint | null; max: bigint | null }>();
   for (const r of dayRows ?? []) {
     const n = Number(r.distributions);
@@ -507,7 +513,7 @@ async function getRewardsWindows(
   }
   const latest = Math.max(...[...out.values()].map((w) => w.lastAt));
   for (const w of out.values()) w.inactive = w.lastAt < latest - DAY_MS;
-  return { windows: out, coverage, coveredDays: Math.max(0, (to - from) / DAY_MS) };
+  return { windows: out, coverage, window };
 }
 
 /**
@@ -523,12 +529,14 @@ export async function getValidatorDelegatorApr(
   network: NetworkId,
   valoper: string,
   days = APR_WINDOW_DAYS,
-): Promise<DelegatorApr | null> {
-  // A failed or timed-out read throws, so the caller can tell "unavailable" from null = "no settlements".
-  const { windows, coverage, coveredDays } = await getRewardsWindows(network, days);
+): Promise<DelegatorApr | typeof NOT_COVERED | null> {
+  // A failed or timed-out read throws, so the caller can tell "unavailable" from null = "no settlements"
+  // and NOT_COVERED = "the catalog has no data for this window".
+  const { windows, coverage, window } = await getRewardsWindows(network, days);
+  if (!window) return NOT_COVERED;
   const w = windows.get(valoper);
   if (!w) return null;
-  const rate = annualise(w, coveredDays);
+  const rate = annualise(w, window);
   if (!rate) return null;
 
   return {
@@ -542,6 +550,7 @@ export async function getValidatorDelegatorApr(
     stakeDrifted: w.stakeDrifted,
     inactive: w.inactive,
     coverage,
+    coveredDays: rate.coveredDays,
   };
 }
 
@@ -552,20 +561,26 @@ export async function getValidatorDelegatorApr(
  * Null means "no rate to report", never "zero": under two settlements, no delegated stake, or an
  * unresolvable span all leave nothing to annualise.
  */
-function annualise(w: RewardsWindow, days: number): { aprPct: number | null; spanDays: number; partialWindow: boolean } | null {
+function annualise(
+  w: RewardsWindow,
+  window: CoveredWindow,
+): { aprPct: number | null; spanDays: number; coveredDays: number; partialWindow: boolean } | null {
   // Two settlements is the minimum that defines a rate; below that there is no rate to report.
   if (w.settlements < 2 || !(w.avgStakeUpokt > 0)) return null;
   if (!(w.lastAt > w.firstAt)) return null;
 
   // The span runs from the start of the hour of the first settlement to the end of the hour of the
-  // last one, clipped to the window. Under MIN_SPAN_DAYS of activity there is too little data for an
-  // annualised figure: report the validator without a rate.
-  const spanDays = (w.lastAt - w.firstAt) / DAY_MS;
+  // last one, clipped to the window, less the catalog's gaps (nothing was counted there). Under
+  // MIN_SPAN_DAYS of activity there is too little data for an annualised figure: report the
+  // validator without a rate.
+  const spanDays = coveredMs(window, w.firstAt, w.lastAt) / DAY_MS;
+  const coveredDays = coveredMs(window, window.from, window.to) / DAY_MS;
   return {
     aprPct: spanDays < MIN_SPAN_DAYS ? null : ((Number(w.delegatorUpokt) / spanDays) * 365 * 100) / w.avgStakeUpokt,
     spanDays,
+    coveredDays,
     // Allow a session's slack: a full window still starts a few minutes after the boundary block.
-    partialWindow: spanDays < days - 0.5,
+    partialWindow: spanDays < coveredDays - 0.5,
   };
 }
 
@@ -583,6 +598,9 @@ export interface DelegatorAprSummary {
   /** True when its last settlement is over a day older than the network's latest validator settlement: it is not
    *  settling now (jailed, out of the set, …). Relative to the network, not to now, because beta goes days without any. */
   inactive: boolean;
+  /** As on DelegatorApr. */
+  coverage: CoveredRange | null;
+  coveredDays: number;
 }
 
 /**
@@ -603,8 +621,9 @@ export const getValidatorDelegatorAprMap = cache(async function getValidatorDele
   } catch {
     return out;
   }
+  if (!read.window) return out;
   for (const [valoper, w] of read.windows) {
-    const rate = annualise(w, read.coveredDays);
+    const rate = annualise(w, read.window);
     if (!rate) continue;
     out.set(valoper, {
       aprPct: rate.aprPct,
@@ -612,6 +631,8 @@ export const getValidatorDelegatorAprMap = cache(async function getValidatorDele
       partialWindow: rate.partialWindow,
       stakeDrifted: w.stakeDrifted,
       inactive: w.inactive,
+      coverage: read.coverage,
+      coveredDays: rate.coveredDays,
     });
   }
   return out;

@@ -1,4 +1,4 @@
-import { getValidatorDelegatorApr, APR_WINDOW_DAYS } from '@/lib/data/validators';
+import { getValidatorDelegatorApr, APR_WINDOW_DAYS, NOT_COVERED } from '@/lib/data/validators';
 import { Skeleton } from '@/components/ui/states';
 import type { NetworkId } from '@/lib/networks';
 import { formatPokt, formatNumber } from '@/lib/format';
@@ -38,6 +38,17 @@ export async function DelegatorAprCard({
           —<span className="u"> %</span>
         </div>
         <div className="upokt">APR unavailable right now</div>
+      </AprShell>
+    );
+  }
+
+  if (apr === NOT_COVERED) {
+    return (
+      <AprShell>
+        <div className="big">
+          —<span className="u"> %</span>
+        </div>
+        <div className="upokt">no indexed data for the window yet</div>
       </AprShell>
     );
   }
