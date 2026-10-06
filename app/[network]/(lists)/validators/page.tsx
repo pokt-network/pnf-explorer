@@ -6,7 +6,7 @@ import { Tic } from '@/components/ui/Icons';
 import { Pager } from '@/components/ui/Pager';
 import { ValidatorStatePill } from '@/components/ui/StatusPill';
 import { EmptyState, Skeleton } from '@/components/ui/states';
-import { AprCell } from '@/components/validator/AprCell';
+import { AprCell, AprCoverageFootnote } from '@/components/validator/AprCell';
 import {
   getValidatorList,
   getValidatorChainStates,
@@ -165,6 +165,9 @@ export default async function ValidatorsPage({
               &mdash; not a promised rate, and not an indicator of future performance. A dash means the validator had
               too little settlement in the window to derive a rate{'; '}
               <span className="dim">&dagger;</span> marks one that was only settling for part of it.
+              <Suspense fallback={null}>
+                <AprCoverageFootnote network={network} />
+              </Suspense>
             </p>
             <Pager page={page} pageSize={PAGE_SIZE} totalCount={totalCount} />
           </>

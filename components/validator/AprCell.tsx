@@ -21,7 +21,7 @@ export async function AprCell({ network, valoper }: { network: NetworkId; valope
   // The catalog covered only part of the window: say on how many days of data the cell rests.
   const covered = map.coverageNote ? (
     <span className="dim" title={`Based on ${map.coveredDays.toFixed(1)} days of data. ${map.coverageNote}`}>
-      *
+      ‡
     </span>
   ) : null;
   const apr = map.byValoper.get(valoper);
@@ -51,5 +51,22 @@ export async function AprCell({ network, valoper }: { network: NetworkId; valope
       {apr.aprPct.toFixed(2)}%{apr.partialWindow ? <span className="dim">†</span> : null}
       {covered}
     </span>
+  );
+}
+
+/**
+ * The list footnote's word on coverage, from the same cached roll-up as the cells: what the ‡ marks
+ * when the catalog covers only part of the window, and why every rate is a dash when it covers none.
+ * Nothing when the window is fully covered.
+ */
+export async function AprCoverageFootnote({ network }: { network: NetworkId }) {
+  const map = await getValidatorDelegatorAprMap(network);
+  if (map === NOT_COVERED) return <> {NOT_COVERED_HINT} The dashes say nothing about the validators&rsquo; settlements.</>;
+  if (!map.coverageNote) return null;
+  return (
+    <>
+      {' '}
+      <span className="dim">‡</span> marks a rate based on {windowLabel(map.coveredDays)} of indexed data ({map.coverageNote}).
+    </>
   );
 }

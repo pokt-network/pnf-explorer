@@ -26,7 +26,8 @@ export const STOPPED_HINT =
 
 /** "in the last N days", or, when the catalog covers less of them, how much it does cover. */
 function inWindow(windowDays: number, coveredDays: number): string {
-  return coversWholeWindow(windowDays, coveredDays)
+  // Short only by a gap that rounds away: still the whole window as far as the label can tell.
+  return coversWholeWindow(windowDays, coveredDays) || windowLabel(coveredDays) === windowLabel(windowDays)
     ? `in the last ${windowDays} days`
     : `in the ${windowLabel(coveredDays)} of data from the last ${windowDays} days`;
 }
