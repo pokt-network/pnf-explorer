@@ -5,7 +5,8 @@ import { absoluteUtc } from '@/lib/time';
 // cover. Outside its coverage the old shape raised; the new one answers what it has. Every reader
 // goes through unwrapRange, so the site works against both deploys.
 
-/** The span a catalog answer covers. Times are ISO strings; `requested_from` is null for an open start. */
+/** The span a catalog answer covers. Times are ISO strings; `requested_from` is null for an open start,
+ *  `covered_from`/`covered_to` are null when nothing in the range is covered. */
 export interface CoveredRange {
   requested_from: string | null;
   requested_to: string | null;
@@ -18,15 +19,15 @@ export interface CoveredRange {
 /**
  * Splits a catalog answer into its data and the range it covers. The old shape (anything but an
  * object with both `range` and `data`) comes back as it is, with `range: null`. `data: null` means
- * nothing in the range is covered — no data, never 0 — and a range that covers nothing reads as
- * null too, whatever empty value the function answered with (`[]` for the `…Json` rows).
+ * nothing in the range is covered — no data, never 0 — and so does a range that covers nothing (no
+ * `covered_from`/`covered_to`, or an inverted span), whatever empty value came with it.
  */
 export function unwrapRange<T>(x: unknown): { data: T | null; range: CoveredRange | null } {
   if (x == null || typeof x !== 'object' || Array.isArray(x) || !('range' in x) || !('data' in x)) {
     return { data: (x ?? null) as T | null, range: null };
   }
   const range = x.range as CoveredRange;
-  const empty = range.covered_from != null && range.covered_to != null && Date.parse(range.covered_from) > Date.parse(range.covered_to);
+  const empty = range.covered_from == null || range.covered_to == null || Date.parse(range.covered_from) > Date.parse(range.covered_to);
   return { data: empty ? null : ((x.data ?? null) as T | null), range };
 }
 
