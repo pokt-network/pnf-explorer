@@ -423,7 +423,7 @@ const dayOf = (ms: number) => Math.floor(ms / DAY_MS) * DAY_MS;
 async function getRewardsWindows(
   network: NetworkId,
   days: number,
-): Promise<{ windows: Map<string, RewardsWindow>; coverage: CoveredRange | null; window: CoveredWindow | null }> {
+): Promise<{ windows: Map<string, RewardsWindow>; coverage: CoveredRange | null; window: CoveredWindow | null; coveredDays: number }> {
   // The window ends on the hour: the requests — and their fetch-cache keys — then change once an
   // hour, so only the first visitor after the hour pays for the cold reads (revalidate still
   // refreshes them every 5 minutes). Both reads give up after REWARDS_TIMEOUT_MS: the callers render
@@ -438,8 +438,10 @@ async function getRewardsWindows(
   );
   const { data: dayRows, range: coverage } = unwrapRange<RewardsDay[]>(d.getValidatorRewardsJson);
   // The window is the part the catalog covers: its rows lie there, and gaps count as no time.
-  const window = coveredWindow(coverage, Date.parse(range.rangeStart), Date.parse(range.rangeEnd));
-  if (!window) return { windows: new Map(), coverage, window };
+  const reqFrom = Date.parse(range.rangeStart);
+  const reqTo = Date.parse(range.rangeEnd);
+  const window = coveredWindow(coverage, reqFrom, reqTo);
+  if (!window) return { windows: new Map(), coverage, window, coveredDays: 0 };
   const { from, to } = window;
   const out = new Map<string, RewardsWindow & { stakeSum: number; min: bigint | null; max: bigint | null }>();
   for (const r of dayRows ?? []) {
@@ -470,6 +472,8 @@ async function getRewardsWindows(
   // with the whole day (viewed at 20:30: 20.5 h instead of 0.5 h). Re-read each validator's first
   // and last day by hour — one call per distinct day, in parallel — so the span runs from the hour
   // of its first settlement to the hour of its last. A day whose re-read fails keeps its midnight edges.
+  // The re-reads are bounded by the hour-aligned request, not by the covered window, so their
+  // fetch-cache keys do not move with the catalog's coverage; their rows are clipped to it below.
   const edgeDays = new Set<number>();
   for (const w of out.values()) {
     edgeDays.add(dayOf(w.firstAt));
@@ -482,8 +486,8 @@ async function getRewardsWindows(
         VALIDATOR_REWARDS,
         {
           validators: null,
-          rangeStart: new Date(Math.max(day, from)).toISOString(),
-          rangeEnd: new Date(Math.min(day + DAY_MS, to)).toISOString(),
+          rangeStart: new Date(Math.max(day, reqFrom)).toISOString(),
+          rangeEnd: new Date(Math.min(day + DAY_MS, reqTo)).toISOString(),
           bucket: 'hour',
         },
         { revalidate: 300, signal },
@@ -511,7 +515,7 @@ async function getRewardsWindows(
   }
   const latest = Math.max(...[...out.values()].map((w) => w.lastAt));
   for (const w of out.values()) w.inactive = w.lastAt < latest - DAY_MS;
-  return { windows: out, coverage, window };
+  return { windows: out, coverage, window, coveredDays: coveredMs(window, from, to) / DAY_MS };
 }
 
 /**
@@ -530,11 +534,11 @@ export async function getValidatorDelegatorApr(
 ): Promise<DelegatorApr | typeof NOT_COVERED | null> {
   // A failed or timed-out read throws, so the caller can tell "unavailable" from null = "no settlements"
   // and NOT_COVERED = "the catalog has no data for this window".
-  const { windows, coverage, window } = await getRewardsWindows(network, days);
+  const { windows, coverage, window, coveredDays } = await getRewardsWindows(network, days);
   if (!window) return NOT_COVERED;
   const w = windows.get(valoper);
   if (!w) return null;
-  const rate = annualise(w, window);
+  const rate = annualise(w, window, coveredDays);
   if (!rate) return null;
 
   return {
@@ -548,7 +552,7 @@ export async function getValidatorDelegatorApr(
     stakeDrifted: w.stakeDrifted,
     inactive: w.inactive,
     coverage,
-    coveredDays: rate.coveredDays,
+    coveredDays,
   };
 }
 
@@ -562,7 +566,8 @@ export async function getValidatorDelegatorApr(
 function annualise(
   w: RewardsWindow,
   window: CoveredWindow,
-): { aprPct: number | null; spanDays: number; coveredDays: number; partialWindow: boolean } | null {
+  coveredDays: number,
+): { aprPct: number | null; spanDays: number; partialWindow: boolean } | null {
   // Two settlements is the minimum that defines a rate; below that there is no rate to report.
   if (w.settlements < 2 || !(w.avgStakeUpokt > 0)) return null;
   if (!(w.lastAt > w.firstAt)) return null;
@@ -572,11 +577,9 @@ function annualise(
   // MIN_SPAN_DAYS of activity there is too little data for an annualised figure: report the
   // validator without a rate.
   const spanDays = coveredMs(window, w.firstAt, w.lastAt) / DAY_MS;
-  const coveredDays = coveredMs(window, window.from, window.to) / DAY_MS;
   return {
     aprPct: spanDays < MIN_SPAN_DAYS ? null : ((Number(w.delegatorUpokt) / spanDays) * 365 * 100) / w.avgStakeUpokt,
     spanDays,
-    coveredDays,
     // Allow a session's slack: a full window still starts a few minutes after the boundary block.
     partialWindow: spanDays < coveredDays - 0.5,
   };
@@ -607,12 +610,13 @@ export interface DelegatorAprSummary {
  *
  * Same catalog call and the same arithmetic as `getValidatorDelegatorApr`, for every validator at
  * once (`validators: null`). Validators absent from the map have no rate: render a dash, never a
- * zero, which would read as "earns nothing" rather than "not enough data".
+ * zero, which would read as "earns nothing" rather than "not enough data". NOT_COVERED when the
+ * catalog has no data for the window at all.
  */
 export const getValidatorDelegatorAprMap = cache(async function getValidatorDelegatorAprMap(
   network: NetworkId,
   days = APR_WINDOW_DAYS,
-): Promise<Map<string, DelegatorAprSummary>> {
+): Promise<Map<string, DelegatorAprSummary> | typeof NOT_COVERED> {
   const out = new Map<string, DelegatorAprSummary>();
   let read: Awaited<ReturnType<typeof getRewardsWindows>>;
   try {
@@ -620,10 +624,10 @@ export const getValidatorDelegatorAprMap = cache(async function getValidatorDele
   } catch {
     return out;
   }
-  if (!read.window) return out;
+  if (!read.window) return NOT_COVERED;
   const note = coverageNote(read.coverage);
   for (const [valoper, w] of read.windows) {
-    const rate = annualise(w, read.window);
+    const rate = annualise(w, read.window, read.coveredDays);
     if (!rate) continue;
     out.set(valoper, {
       aprPct: rate.aprPct,
@@ -632,7 +636,7 @@ export const getValidatorDelegatorAprMap = cache(async function getValidatorDele
       stakeDrifted: w.stakeDrifted,
       inactive: w.inactive,
       coverageNote: note,
-      coveredDays: rate.coveredDays,
+      coveredDays: read.coveredDays,
     });
   }
   return out;

@@ -27,6 +27,7 @@ export function unwrapRange<T>(x: unknown): { data: T | null; range: CoveredRang
   if (x == null || typeof x !== 'object' || Array.isArray(x) || !('range' in x) || !('data' in x)) {
     return { data: (x ?? null) as T | null, range: null };
   }
+  if (x.range == null || typeof x.range !== 'object') return { data: (x.data ?? null) as T | null, range: null };
   const range = x.range as CoveredRange;
   const empty = range.covered_from == null || range.covered_to == null || Date.parse(range.covered_from) > Date.parse(range.covered_to);
   return { data: empty ? null : ((x.data ?? null) as T | null), range };

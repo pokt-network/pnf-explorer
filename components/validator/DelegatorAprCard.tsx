@@ -3,7 +3,7 @@ import { Skeleton } from '@/components/ui/states';
 import type { NetworkId } from '@/lib/networks';
 import { formatPokt, formatNumber } from '@/lib/format';
 import { formatCommission } from '@/lib/validator';
-import { INACTIVE, INACTIVE_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT, windowLabel } from '@/lib/data/window';
+import { INACTIVE, INACTIVE_HINT, NOT_COVERED_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT, windowLabel } from '@/lib/data/window';
 import { NOT_COVERED, coverageNote } from '@/lib/data/range';
 
 /**
@@ -48,7 +48,7 @@ export async function DelegatorAprCard({
         <div className="big">
           —<span className="u"> %</span>
         </div>
-        <div className="upokt">no indexed data for the window yet</div>
+        <div className="upokt">{NOT_COVERED_HINT}</div>
       </AprShell>
     );
   }

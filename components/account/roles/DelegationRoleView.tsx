@@ -16,7 +16,7 @@ import { formatNumber, formatPokt, formatPoktCompact, formatCompact, truncate } 
 import { relativeTime, absoluteUtc } from '@/lib/time';
 import { validatorMoniker, formatCommission, deriveValidatorState } from '@/lib/validator';
 import { parsePage } from '@/lib/paging';
-import { START_UNKNOWN_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT, windowLabel } from '@/lib/data/window';
+import { NOT_COVERED_HINT, START_UNKNOWN_HINT, STILL_PROCESSING, STILL_PROCESSING_HINT, windowLabel } from '@/lib/data/window';
 import { NOT_COVERED, coverageNote } from '@/lib/data/range';
 
 const LIMIT = 25;
@@ -292,7 +292,7 @@ function RatePanel({ set, earnings, notCovered }: { set: DelegationSet; earnings
   if (!earnings) {
     return (
       <div className="card flush-top">
-        <EmptyState>{notCovered ? 'No indexed data for the window yet.' : 'Couldn’t compute the earnings rate right now.'}</EmptyState>
+        <EmptyState>{notCovered ? NOT_COVERED_HINT : 'Couldn’t compute the earnings rate right now.'}</EmptyState>
       </div>
     );
   }
@@ -404,6 +404,7 @@ export function DelegationRoleView({
   // No figures either way; the Rate tab says which.
   const notCovered = read === NOT_COVERED;
   const earnings = notCovered ? null : read;
+  const dash = notCovered ? <span title={NOT_COVERED_HINT}>—</span> : '—';
   const win = earnings ? windowLabel(earnings.windowDays) : `${EARNINGS_WINDOW_DAYS}d`;
 
   const tabs: TabDef[] = [
@@ -438,7 +439,7 @@ export function DelegationRoleView({
         <SummaryCard
           label={`Earned ${win}`}
           dot={DOT.mint}
-          value={earnings ? statPokt(toPokt(earnings.windowUpokt)) : '—'}
+          value={earnings ? statPokt(toPokt(earnings.windowUpokt)) : dash}
           unit="POKT"
         />
         <SummaryCard
@@ -450,7 +451,7 @@ export function DelegationRoleView({
             ) : earnings?.startUnknown ? (
               <span title={START_UNKNOWN_HINT}>—</span>
             ) : (
-              '—'
+              dash
             )
           }
           unit="POKT"
@@ -466,7 +467,7 @@ export function DelegationRoleView({
             ) : earnings?.aprPct != null ? (
               `${earnings.aprPct.toFixed(2)}%`
             ) : (
-              '—'
+              dash
             )
           }
         />

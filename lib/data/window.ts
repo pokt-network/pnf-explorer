@@ -15,6 +15,8 @@ export const START_UNKNOWN_HINT = 'Couldn’t determine when this delegation sta
 export const INACTIVE = 'Inactive';
 export const INACTIVE_HINT =
   'Last settlement over a day behind the network’s latest settlement, and less than a week of settlements in the last 30 days.';
+/** What a figure shows (as a dash's tooltip, or in place of an empty state) when the money catalog has no data for its window. */
+export const NOT_COVERED_HINT = 'No indexed data for the window yet.';
 /** Tooltip on a rate quoted for a validator that has stopped settling. */
 export const STOPPED_HINT =
   'Last settlement over a day behind the network’s latest settlement; the rate covers its active days only.';

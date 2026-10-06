@@ -308,7 +308,8 @@ export async function getDelegationEarnings(
   }
   const { data: income, range: coverage } = unwrapRange<{ bucket_start: string; validator_operator: string; amount_upokt: string | null }[]>(d.income);
   const pools = unwrapRange<{ validator_operator: string; delegators_upokt: string | null; distributions: string | null }[]>(d.pools).data;
-  const win = coveredWindow(coverage, requestedStart, Date.parse(range.rangeEnd));
+  const requestedEnd = Date.parse(range.rangeEnd);
+  const win = coveredWindow(coverage, requestedStart, requestedEnd);
   // Nothing in the window is covered: say so, rather than 0 earned or "couldn't load".
   if (!win) return NOT_COVERED;
 
@@ -359,7 +360,8 @@ export async function getDelegationEarnings(
       const h = await gqlFetch<{ getDelegatorIncomeJson: unknown }>(
         network,
         DELEGATION_FIRST_HOUR,
-        { delegators: [address], rangeStart: new Date(firstAt).toISOString(), rangeEnd: new Date(Math.min(firstDay + 86_400_000, to)).toISOString() },
+        // Bounded by the request, not the covered window, so the fetch-cache key does not move with coverage.
+        { delegators: [address], rangeStart: new Date(Math.max(firstDay, requestedStart)).toISOString(), rangeEnd: new Date(Math.min(firstDay + 86_400_000, requestedEnd)).toISOString() },
         { revalidate: 60 },
       );
       const hourRows = unwrapRange<{ bucket_start: string; amount_upokt: string | null }[]>(h.getDelegatorIncomeJson).data;
