@@ -55,7 +55,7 @@ export interface ServiceListRowWithCount extends ServiceListRow {
   activeSuppliers: number;
 }
 
-// The indexer caps connection page size at 1000 (verified 2026-10-05: `services(first: 1000)` returns all 262 mainnet services).
+// The indexer caps connection page size at 1000 (verified 2026-10-06: `services(first: 1000)` returns all 263 mainnet services).
 const PAGE_CAP = 1000;
 
 /** One page of services (ordered by name). 12h ISR — services rarely change. */
