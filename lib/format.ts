@@ -111,8 +111,8 @@ export function formatCompact(v: Numeric, digits = 2): string {
 /** Compact POKT for summary cards: upokt → POKT → compact, e.g. "1.66B POKT" value part. */
 export function formatPoktCompact(upokt: Numeric, digits = 2): string {
   const pokt = Number(toBigInt(upokt)) / UPOKT_PER_POKT;
-  // below the K suffix, compact notation rounds to a whole number (0.4 POKT → "0"): show decimals instead
-  if (Math.abs(pokt) < 1000) return formatPokt(upokt, digits);
+  // compact notation rounds below 1 POKT to "0" (0.4 POKT, a 17 upokt fee): show its decimals instead
+  if (Math.abs(pokt) < 1) return formatPokt(upokt, digits);
   return formatCompact(pokt, digits);
 }
 
