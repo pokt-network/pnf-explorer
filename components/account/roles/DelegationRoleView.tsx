@@ -16,6 +16,8 @@ import { formatNumber, formatPokt, formatPoktCompact, formatCompact, truncate } 
 import { relativeTime, absoluteUtc } from '@/lib/time';
 import { validatorMoniker, formatCommission, deriveValidatorState } from '@/lib/validator';
 import { parsePage } from '@/lib/paging';
+import { NOT_COVERED_HINT, START_UNKNOWN_HINT, STILL_PROCESSING, stillProcessingHint, windowLabel } from '@/lib/data/window';
+import { NOT_COVERED, coverageNote } from '@/lib/data/range';
 
 const LIMIT = 25;
 
@@ -25,12 +27,6 @@ const LIMIT = 25;
  */
 function statPokt(pokt: number): string {
   return pokt >= 1000 ? formatCompact(pokt) : pokt.toFixed(2);
-}
-
-/** Round a window in days to something a label can say without implying false precision. */
-function windowLabel(days: number): string {
-  if (days >= 1.5) return `${Math.round(days)}d`;
-  return `${Math.max(1, Math.round(days * 24))}h`;
 }
 
 /** Validator monikers/commission/status, keyed by valoper. Cosmetic — failure leaves bare addresses. */
@@ -51,29 +47,34 @@ async function validatorMeta(network: NetworkId) {
 /**
  * Validators tab — where the stake sits and what each validator returned over the window.
  *
- * Bonded amount and claimable balance are always-LCD; the per-validator earnings column is derived
- * from that validator's settlements (see lib/queries/delegations.ts).
+ * Bonded amount and claimable balance are always-LCD; the per-validator earnings column is what
+ * this address received from that validator (see lib/queries/delegations.ts).
  */
 async function ValidatorsPanel({
   network,
   set,
   earnings,
+  notCovered,
 }: {
   network: NetworkId;
   set: DelegationSet;
   earnings: DelegationEarnings | null;
+  notCovered: boolean;
 }) {
   // Where someone decides who to delegate to next, so the active-set distinction matters most
   // here: a validator below the cutoff is a live choice, a jailed one is not.
   const [meta, chain] = await Promise.all([validatorMeta(network), getValidatorChainStates(network)]);
   const earnBy = new Map((earnings?.byValidator ?? []).map((v) => [v.validatorAddress, v]));
   const win = earnings ? windowLabel(earnings.windowDays) : `${EARNINGS_WINDOW_DAYS}d`;
+  // Validators that paid this address inside the window but no longer hold its stake: listed so the
+  // rows add up to the Earned total.
+  const former = (earnings?.byValidator ?? []).filter((v) => v.former);
 
   return (
     <div className="card flush-top">
       <LcdSourceStrip>
         The bonded amount and the claimable balance are read live from the chain — staking delegations are not served by the
-        GraphQL indexer. Earnings are derived from each validator’s settlement events.
+        GraphQL indexer. Earnings are what each validator’s settlements paid this address.
       </LcdSourceStrip>
       <div className="tbl-scroll">
         <table className="tbl">
@@ -112,14 +113,56 @@ async function ValidatorsPanel({
                   <td className="num mono">{m?.commission ? formatCommission(m.commission) : '—'}</td>
                   <td className="num mono">{formatPokt(r.amountUpokt)}</td>
                   <td className="num mono">
-                    {e ? formatPokt(Math.round(e.myShareUpokt)) : <span className="dim">—</span>}
                     {e ? (
+                      formatPokt(Math.round(e.myShareUpokt))
+                    ) : (
+                      <span className="dim" title={notCovered ? NOT_COVERED_HINT : undefined}>
+                        —
+                      </span>
+                    )}
+                    {e?.settlements != null ? (
                       <div className="dim" style={{ fontSize: 12 }}>
                         {formatNumber(e.settlements)} settlements
                       </div>
                     ) : null}
                   </td>
                   <td className="num mono">{formatPokt(r.claimableUpokt)}</td>
+                </tr>
+              );
+            })}
+            {former.map((e) => {
+              const m = meta.get(e.validatorAddress);
+              return (
+                <tr key={e.validatorAddress}>
+                  <td>
+                    <Link href={`/validator/${e.validatorAddress}`}>{m?.moniker ?? truncate(e.validatorAddress, 12, 6)}</Link>
+                    <div className="dim" style={{ fontSize: 12 }}>
+                      former delegation
+                    </div>
+                  </td>
+                  <td>
+                    <ValidatorStatePill
+                      state={deriveValidatorState(chain.byValoper.get(e.validatorAddress), chain.ok)}
+                      fallbackStatus={m?.stakeStatus}
+                      maxValidators={chain.maxValidators}
+                      sm
+                    />
+                  </td>
+                  <td className="num mono">{m?.commission ? formatCommission(m.commission) : '—'}</td>
+                  <td className="num mono">
+                    <span className="dim">—</span>
+                  </td>
+                  <td className="num mono">
+                    {formatPokt(Math.round(e.myShareUpokt))}
+                    {e.lastPaidAt ? (
+                      <div className="dim" style={{ fontSize: 12 }}>
+                        last paid {e.lastPaidAt.slice(0, 10)}
+                      </div>
+                    ) : null}
+                  </td>
+                  <td className="num mono">
+                    <span className="dim">—</span>
+                  </td>
                 </tr>
               );
             })}
@@ -153,11 +196,13 @@ async function SettlementsPanel({
   network,
   set,
   earnings,
+  notCovered,
   page,
 }: {
   network: NetworkId;
   set: DelegationSet;
   earnings: DelegationEarnings | null;
+  notCovered: boolean;
   page: number;
 }) {
   let data: Awaited<ReturnType<typeof getDelegationSettlements>>;
@@ -180,6 +225,7 @@ async function SettlementsPanel({
 
   const meta = await validatorMeta(network);
   const win = earnings ? windowLabel(earnings.windowDays) : `${EARNINGS_WINDOW_DAYS}d`;
+  const note = earnings ? coverageNote(earnings.coverage) : null;
 
   return (
     <div className="card flush-top">
@@ -189,13 +235,19 @@ async function SettlementsPanel({
           <div className="v">
             {earnings ? (
               <>
-                <b>{formatPokt(Math.round(earnings.windowUpokt))} POKT</b>{' '}
-                <span className="dim">
-                  across {formatNumber(earnings.settlements)} settlement{earnings.settlements === 1 ? '' : 's'}
-                </span>
+                <b>{formatPokt(Math.round(earnings.windowUpokt))} POKT</b>
+                {earnings.settlements != null ? (
+                  <span className="dim">
+                    {' '}
+                    across {formatNumber(earnings.settlements)} settlement{earnings.settlements === 1 ? '' : 's'}
+                  </span>
+                ) : null}
+                {note ? <div className="dim">{note}</div> : null}
               </>
             ) : (
-              <span className="dim">—</span>
+              <span className="dim" title={notCovered ? NOT_COVERED_HINT : undefined}>
+                —
+              </span>
             )}
             <div className="muted" style={{ marginTop: 4 }}>
               Each row is one validator’s session-end settlement. Shannon pays the delegator pool’s share directly to delegator
@@ -248,15 +300,16 @@ async function SettlementsPanel({
 }
 
 /** Rate tab — how the daily average and the APR on the summary row were derived, and what limits them. */
-function RatePanel({ set, earnings }: { set: DelegationSet; earnings: DelegationEarnings | null }) {
+function RatePanel({ set, earnings, notCovered }: { set: DelegationSet; earnings: DelegationEarnings | null; notCovered: boolean }) {
   if (!earnings) {
     return (
       <div className="card flush-top">
-        <EmptyState>Couldn’t compute the earnings rate right now.</EmptyState>
+        <EmptyState>{notCovered ? NOT_COVERED_HINT : 'Couldn’t compute the earnings rate right now.'}</EmptyState>
       </div>
     );
   }
   const win = windowLabel(earnings.windowDays);
+  const note = coverageNote(earnings.coverage);
   return (
     <div className="card flush-top">
       <div className="kv" style={{ paddingTop: 0 }}>
@@ -265,21 +318,50 @@ function RatePanel({ set, earnings }: { set: DelegationSet; earnings: Delegation
           <div className="v">
             Trailing <b>{win}</b>{' '}
             <span className="dim">
-              · {formatNumber(earnings.settlements)} settlement{earnings.settlements === 1 ? '' : 's'} ·{' '}
-              {formatPokt(Math.round(earnings.windowUpokt))} POKT
+              {earnings.settlements != null
+                ? `· ${formatNumber(earnings.settlements)} settlement${earnings.settlements === 1 ? '' : 's'} `
+                : ''}
+              · {formatPokt(Math.round(earnings.windowUpokt))} POKT
             </span>
+            {note ? <div className="dim">{note}</div> : null}
           </div>
         </div>
         <div className="line">
           <div className="k">Daily average</div>
           <div className="v">
-            <b>{formatPokt(Math.round(earnings.dailyAvgUpokt))} POKT</b> <span className="dim">per day</span>
+            {earnings.dailyAvgUpokt == null ? (
+              <span className="dim" title={START_UNKNOWN_HINT}>
+                —
+              </span>
+            ) : (
+              <>
+                <b>{formatPokt(Math.round(earnings.dailyAvgUpokt))} POKT</b>{' '}
+                <span className="dim">
+                  per day
+                  {earnings.activeDays < earnings.windowDays - 0.5
+                    ? ` · over the ${earnings.activeDays.toFixed(1)} days it has been delegating`
+                    : ''}
+                </span>
+              </>
+            )}
           </div>
         </div>
         <div className="line">
           <div className="k">APR</div>
           <div className="v">
-            {earnings.aprPct != null ? <b>{earnings.aprPct.toFixed(2)}%</b> : <span className="dim">—</span>}
+            {earnings.startUnknown ? (
+              <span className="dim" title={START_UNKNOWN_HINT}>
+                —
+              </span>
+            ) : earnings.stillProcessing ? (
+              <span className="dim" title={stillProcessingHint(EARNINGS_WINDOW_DAYS, earnings.windowDays)}>
+                {STILL_PROCESSING}
+              </span>
+            ) : earnings.aprPct != null ? (
+              <b>{earnings.aprPct.toFixed(2)}%</b>
+            ) : (
+              <span className="dim">—</span>
+            )}
             <div className="muted" style={{ marginTop: 4 }}>
               Daily average annualised over the {formatPokt(set.totalUpokt)} POKT bonded. Backward-looking: it reflects the
               settlement volume these validators actually earned in the window, not a promised or forward rate.
@@ -289,15 +371,12 @@ function RatePanel({ set, earnings }: { set: DelegationSet; earnings: Delegation
         <div className="line">
           <div className="k">How it’s derived</div>
           <div className="v">
-            Shannon pays the validator pool’s share of relay settlement directly to delegator wallets at each session end. This
-            address’s income is its slice of that pool: <b>pool × (bonded stake ÷ total delegated stake)</b>, summed over the
-            window.
+            Shannon pays the validator pool’s share of relay settlement directly to delegator wallets at each session end. The
+            income above is the exact amount those settlements paid this address over the window, from the delegations it held
+            at each one — including validators it has since left.
             <div className="muted" style={{ marginTop: 4 }}>
-              The slice uses the stake bonded <i>today</i>. Cosmos staking messages are not indexed, so a delegation that changed
-              size inside the window cannot be corrected for and would skew both the daily average and the APR.
-              {earnings.approximate
-                ? ' A validator’s total delegated stake also moved during this window, so its share is a mean rather than an exact figure.'
-                : ' Every validator’s total delegated stake held steady across this window, so the slice is exact.'}
+              The APR divides that income by the stake bonded <i>today</i>, so a delegation that changed size inside the window
+              moves it.
             </div>
           </div>
         </div>
@@ -325,15 +404,19 @@ export function DelegationRoleView({
   network,
   address,
   set,
-  earnings,
+  earnings: read,
   settlementsPage,
 }: {
   network: NetworkId;
   address: string;
   set: DelegationSet;
-  earnings: DelegationEarnings | null;
+  earnings: DelegationEarnings | typeof NOT_COVERED | null;
   settlementsPage: string | undefined;
 }) {
+  // No figures either way; the Rate tab says which.
+  const notCovered = read === NOT_COVERED;
+  const earnings = notCovered ? null : read;
+  const dash = notCovered ? <span title={NOT_COVERED_HINT}>—</span> : '—';
   const win = earnings ? windowLabel(earnings.windowDays) : `${EARNINGS_WINDOW_DAYS}d`;
 
   const tabs: TabDef[] = [
@@ -341,14 +424,14 @@ export function DelegationRoleView({
       key: 'validators',
       label: 'Validators',
       badge: set.rows.length || undefined,
-      panel: <ValidatorsPanel network={network} set={set} earnings={earnings} />,
+      panel: <ValidatorsPanel network={network} set={set} earnings={earnings} notCovered={notCovered} />,
     },
     {
       key: 'settlements',
       label: 'Settlements',
-      panel: <SettlementsPanel network={network} set={set} earnings={earnings} page={parsePage(settlementsPage)} />,
+      panel: <SettlementsPanel network={network} set={set} earnings={earnings} notCovered={notCovered} page={parsePage(settlementsPage)} />,
     },
-    { key: 'rate', label: 'Rate', panel: <RatePanel set={set} earnings={earnings} /> },
+    { key: 'rate', label: 'Rate', panel: <RatePanel set={set} earnings={earnings} notCovered={notCovered} /> },
     {
       key: 'raw',
       label: 'Raw',
@@ -368,19 +451,37 @@ export function DelegationRoleView({
         <SummaryCard
           label={`Earned ${win}`}
           dot={DOT.mint}
-          value={earnings ? statPokt(toPokt(earnings.windowUpokt)) : '—'}
+          value={earnings ? statPokt(toPokt(earnings.windowUpokt)) : dash}
           unit="POKT"
         />
         <SummaryCard
           label={`Daily Avg ${win}`}
           dot={DOT.blue}
-          value={earnings ? statPokt(toPokt(earnings.dailyAvgUpokt)) : '—'}
+          value={
+            earnings?.dailyAvgUpokt != null ? (
+              statPokt(toPokt(earnings.dailyAvgUpokt))
+            ) : earnings?.startUnknown ? (
+              <span title={START_UNKNOWN_HINT}>—</span>
+            ) : (
+              dash
+            )
+          }
           unit="POKT"
         />
         <SummaryCard
           label={`APR ${win}`}
           dot={DOT.gold}
-          value={earnings?.aprPct != null ? `${earnings.aprPct.toFixed(2)}%` : '—'}
+          value={
+            earnings?.startUnknown ? (
+              <span title={START_UNKNOWN_HINT}>—</span>
+            ) : earnings?.stillProcessing ? (
+              <span title={stillProcessingHint(EARNINGS_WINDOW_DAYS, earnings.windowDays)}>{STILL_PROCESSING}</span>
+            ) : earnings?.aprPct != null ? (
+              `${earnings.aprPct.toFixed(2)}%`
+            ) : (
+              dash
+            )
+          }
         />
       </RoleStats>
 

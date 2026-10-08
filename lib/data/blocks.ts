@@ -54,8 +54,14 @@ function revalidateForHeight(height: number | null, targetHeight: number | null)
 }
 
 // ---- lists ----
-export async function getBlockList(network: NetworkId, limit: number, offset: number) {
-  const data = await gqlFetch<{ blocks: { nodes: BlockRow[]; totalCount: number } }>(network, BLOCK_LIST, { limit, offset }, { revalidate: 15 });
+/** `withCount: false` skips the total (a count over every block) for callers that don't show it. */
+export async function getBlockList(network: NetworkId, limit: number, offset: number, withCount = true) {
+  const data = await gqlFetch<{ blocks: { nodes: BlockRow[]; totalCount?: number } }>(
+    network,
+    BLOCK_LIST,
+    { limit, offset, withCount },
+    { revalidate: 15 },
+  );
   return data.blocks;
 }
 

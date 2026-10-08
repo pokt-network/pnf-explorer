@@ -53,6 +53,8 @@ interface AddressSearchParams {
   svcs?: string;
   settlements?: string;
   earn?: string;
+  /** An array when the URL repeats it (`?tab=a&tab=b`). */
+  tab?: string | string[];
   txs?: string;
   transfers?: string;
 }
@@ -111,7 +113,7 @@ export default async function AccountDetailPage({
       const view = await getSupplierRole(network, id).catch(() => null);
       body =
         view && profile.supplier ? (
-          <SupplierRoleView network={network} view={view} legacy={profile.supplier} currentHeight={currentHeight} earnPage={sp.earn} />
+          <SupplierRoleView network={network} view={view} legacy={profile.supplier} currentHeight={currentHeight} earnPage={sp.earn} tab={Array.isArray(sp.tab) ? sp.tab[0] : sp.tab} />
         ) : (
           <RoleUnavailable what="supplier" />
         );
@@ -151,7 +153,7 @@ export default async function AccountDetailPage({
       // `getDelegations` is cache()-deduped with the profile probe above, so this is free.
       const set = await getDelegations(network, id).catch(() => null);
       if (set) {
-        const earnings = await getDelegationEarnings(network, set).catch(() => null);
+        const earnings = await getDelegationEarnings(network, id, set).catch(() => null);
         body = <DelegationRoleView network={network} address={id} set={set} earnings={earnings} settlementsPage={sp.settlements} />;
       } else {
         body = <RoleUnavailable what="delegation" />;

@@ -4,9 +4,9 @@ import { lcdFetch } from '@/lib/lcd';
 import type { NetworkId } from '@/lib/networks';
 import { UPOKT_PER_POKT } from '@/lib/config';
 import { toBigInt } from '@/lib/format';
-import { toDate } from '@/lib/time';
-import { DELEGATION_SETTLEMENTS, DELEGATION_WINDOW } from '@/lib/queries/delegations';
-import { resolveWindowStart } from '@/lib/data/window';
+import { DELEGATION_FIRST_HOUR, DELEGATION_SETTLEMENTS, DELEGATION_WINDOW, WINDOW_START_BLOCK } from '@/lib/queries/delegations';
+import { MIN_SPAN_DAYS, trailingRange } from '@/lib/data/window';
+import { NOT_COVERED, coveredMs, coveredWindow, unwrapRange, type CoveredRange } from '@/lib/data/range';
 
 // Staking-delegation data layer. See lib/queries/delegations.ts for the verified model; the short
 // version is that Shannon pays the validator pool's settlement share DIRECTLY to delegator wallets
@@ -14,7 +14,8 @@ import { resolveWindowStart } from '@/lib/data/window';
 // separately-claimable LCD balance is the Cosmos minimum-inflation pool and is NOT that income.
 //
 //   - LCD → the delegations, and the claimable minimum-inflation balance.
-//   - GQL → eventValidatorRewardDistributions, from which income is derived per session.
+//   - GQL → eventValidatorRewardDistributions for the per-settlement list (derived share), and the
+//     money catalog for the window's exact income.
 
 /** Trailing window for earned/daily-average/APR. Long enough to smooth per-session variance. */
 export const EARNINGS_WINDOW_DAYS = 30;
@@ -126,6 +127,39 @@ export const getDelegations = cache(async (network: NetworkId, address: string):
 
 // ---- derived income ----
 
+/** Budget for the start-of-window delegation check: the page awaits it, so a hung LCD must not stall it. */
+const DELEGATED_AT_TIMEOUT_MS = 3000;
+
+/**
+ * The validators the address delegated to at `atMs` (empty: none): the chain's own record (historical LCD read at
+ * the block of that time), since the indexer exposes no delegations. `atMs` should sit on a stable
+ * boundary (the caller passes the hour), so the block and the LCD read are cached for an hour rather
+ * than once per minute. Null — unknown — when either read fails or times out (LCD down, or the
+ * height pruned: HTTP 500 "version does not exist").
+ */
+async function delegatedAt(network: NetworkId, address: string, atMs: number): Promise<Set<string> | null> {
+  const signal = AbortSignal.timeout(DELEGATED_AT_TIMEOUT_MS);
+  try {
+    const b = await gqlFetch<{ blocks: { nodes: { id: string }[] } }>(
+      network,
+      WINDOW_START_BLOCK,
+      // Indexer timestamps are UTC-naive, so the cutoff goes without the trailing Z.
+      { cutoff: new Date(atMs).toISOString().replace('Z', '') },
+      { revalidate: 3600, signal },
+    );
+    const height = b.blocks.nodes[0]?.id;
+    if (!height) return null;
+    const res = await lcdFetch<LcdDelegationResponse>(
+      network,
+      `/cosmos/staking/v1beta1/delegations/${address}?pagination.limit=${DELEGATION_PAGE}`,
+      { revalidate: 3600, height, signal },
+    );
+    return new Set((res.delegation_responses ?? []).map((r) => r.delegation?.validator_address).filter((v): v is string => !!v));
+  } catch {
+    return null;
+  }
+}
+
 /** Pro-rata slice of a pool. Returns 0 rather than NaN when the pool's stake is missing/zero. */
 function slice(poolUpokt: number, myStakeUpokt: number, totalStakeUpokt: number): number {
   if (!(totalStakeUpokt > 0)) return 0;
@@ -206,107 +240,176 @@ export async function getDelegationSettlements(
 /** Per-validator contribution to the window total. */
 export interface ValidatorEarning {
   validatorAddress: string;
-  settlements: number;
+  /** The validator's settlements over the window, which paid this address only when it delegated to it
+   *  for the whole window: null otherwise (a former delegation, or one that started inside the window).
+   *  The catalog has no per-delegator payout count. */
+  settlements: number | null;
+  /** Start of the last UTC day it paid this address (ISO). */
+  lastPaidAt: string | null;
   /** The validator's whole delegator pool over the window, upokt. */
   poolUpokt: number;
-  /** This address's derived slice of it, upokt. */
+  /** What this address received from it, upokt. */
   myShareUpokt: number;
-  /** True when the pool's total staked amount moved during the window (slice is then a mean). */
-  poolDrifted: boolean;
+  /** True when the address no longer delegates to this validator (it paid inside the window). */
+  former: boolean;
 }
 
 export interface DelegationEarnings {
-  /** Derived income over the window, upokt. */
+  /** Income received over the window, upokt. */
   windowUpokt: number;
-  /** Settlements counted. */
-  settlements: number;
-  /** Days the window actually covers. */
+  /** Settlements that paid this address, summed over the current delegations; null when no count is
+   *  known to be true (see ValidatorEarning.settlements). */
+  settlements: number | null;
+  /** Days the window actually covers: the part the catalog has data for, gaps excluded. */
   windowDays: number;
-  dailyAvgUpokt: number;
-  /** Annualised window income over the current bonded stake, percent. Null when nothing is bonded. */
+  /** Days the address has been delegating inside the window: the whole window when it already held a
+   *  delegation at its start, otherwise from its first payment. Gaps excluded. */
+  activeDays: number;
+  /** Income per active day. Null when `startUnknown`. */
+  dailyAvgUpokt: number | null;
+  /** Annualised income over the current bonded stake, percent. Null when nothing is bonded, when
+   *  `stillProcessing` or when `startUnknown`. */
   aprPct: number | null;
+  /** True when the address was first paid after the window started and the chain could not say whether
+   *  it was already delegating then: the span, and with it any rate, is unknown. */
+  startUnknown: boolean;
+  /** True when the address has been paid for under MIN_SPAN_DAYS: too little data for an APR. */
+  stillProcessing: boolean;
+  /** The span the catalog covered; null from a catalog that predates the range contract. */
+  coverage: CoveredRange | null;
   byValidator: ValidatorEarning[];
-  /** True when any validator's pool moved during the window — the totals are then approximate. */
-  approximate: boolean;
 }
 
 /**
- * Trailing-window income, daily average and APR, derived per validator in one round trip.
+ * Trailing-window income, daily average and APR, in one round trip to the money catalog (see
+ * DELEGATION_WINDOW). The income is exact, including from validators the address has since left.
  *
- * Two caveats, both surfaced on the view: APR is backward-looking (it annualises the settlement
- * volume this address's validators actually earned in the window, not a promised rate), and the
- * slice divides by the stake as it stands NOW because historical delegation sizes are not
- * recoverable from the indexer.
+ * APR is backward-looking: it annualises what the window paid over the stake bonded NOW, not a
+ * promised rate.
  */
 export async function getDelegationEarnings(
   network: NetworkId,
+  address: string,
   set: DelegationSet,
   days = EARNINGS_WINDOW_DAYS,
-): Promise<DelegationEarnings | null> {
-  const start = await resolveWindowStart(network, days);
-  if (!start) return null;
-
-  const validators = set.rows.map((r) => r.validatorAddress);
-  let d: {
-    eventValidatorRewardDistributions: {
-      totalCount: number;
-      byValidator: {
-        keys: string[] | null;
-        sum: { delegatorsRewardAmount: string | null } | null;
-        average: { totalDelegatedStakeAmount: string | null } | null;
-        min: { totalDelegatedStakeAmount: string | null } | null;
-        max: { totalDelegatedStakeAmount: string | null } | null;
-        distinctCount: { id: string | null } | null;
-      }[] | null;
-    } | null;
-  };
+): Promise<DelegationEarnings | typeof NOT_COVERED | null> {
+  const current = new Set(set.rows.map((r) => r.validatorAddress));
+  const range = trailingRange(days, 60);
+  const hourOf = (ms: number) => Math.floor(ms / 3_600_000) * 3_600_000;
+  // In parallel with the catalog read below; checked at the hour the window starts in, and read again
+  // below in the rare case the catalog covers the window only from a later hour.
+  const requestedStart = Date.parse(range.rangeStart);
+  const bondedAtStart = delegatedAt(network, address, hourOf(requestedStart));
+  let d: { income: unknown; pools: unknown };
   try {
-    d = await gqlFetch(network, DELEGATION_WINDOW, { validators, windowStartBlock: start.height }, { revalidate: 60 });
+    d = await gqlFetch(network, DELEGATION_WINDOW, { delegators: [address], ...range }, { revalidate: 60 });
   } catch {
     return null;
   }
+  const { data: income, range: coverage } = unwrapRange<{ bucket_start: string; validator_operator: string; amount_upokt: string | null }[]>(d.income);
+  const pools = unwrapRange<{ validator_operator: string; delegators_upokt: string | null; distributions: string | null }[]>(d.pools).data;
+  const requestedEnd = Date.parse(range.rangeEnd);
+  const win = coveredWindow(coverage, requestedStart, requestedEnd);
+  // Nothing in the window is covered: say so, rather than 0 earned or "couldn't load".
+  if (!win) return NOT_COVERED;
 
-  const stakeBy = new Map(set.rows.map((r) => [r.validatorAddress, Number(toBigInt(r.amountUpokt))]));
-  const byValidator: ValidatorEarning[] = [];
+  // Day rows per validator: sum them, and note the first day the address was paid.
+  const mineBy = new Map<string, number>();
+  const lastPaidBy = new Map<string, string>();
   let windowUpokt = 0;
-
-  for (const g of d.eventValidatorRewardDistributions?.byValidator ?? []) {
-    const validatorAddress = g.keys?.[0];
-    if (!validatorAddress) continue;
-    const pool = Number(g.sum?.delegatorsRewardAmount ?? 0);
-    // The average is the right divisor for a summed pool: sum(pool) / mean(stake) is the mean slice
-    // weighted by nothing, which is exact while the stake holds still and a fair estimate when it
-    // does not. min !== max is the tell that it did not.
-    const avgStake = Number(g.average?.totalDelegatedStakeAmount ?? 0);
-    const myShareUpokt = slice(pool, stakeBy.get(validatorAddress) ?? 0, avgStake);
-    byValidator.push({
-      validatorAddress,
-      settlements: Number(g.distinctCount?.id ?? 0),
-      poolUpokt: pool,
-      myShareUpokt,
-      poolDrifted: (g.min?.totalDelegatedStakeAmount ?? null) !== (g.max?.totalDelegatedStakeAmount ?? null),
-    });
-    windowUpokt += myShareUpokt;
+  let firstDay = Infinity;
+  for (const r of income ?? []) {
+    const amount = Number(r.amount_upokt ?? 0);
+    windowUpokt += amount;
+    if (amount > 0) firstDay = Math.min(firstDay, Date.parse(r.bucket_start));
+    if (!r.validator_operator) continue;
+    mineBy.set(r.validator_operator, (mineBy.get(r.validator_operator) ?? 0) + amount);
+    const last = lastPaidBy.get(r.validator_operator);
+    if (amount > 0 && (last == null || r.bucket_start > last)) lastPaidBy.set(r.validator_operator, r.bucket_start);
   }
 
-  // The window can only cover as much history as the chain has; clamp so a young chain or a thin
-  // window never inflates the daily average by dividing by days that were not actually observed.
-  const startedAt = toDate(start.timestamp)?.getTime() ?? null;
-  const windowDays = startedAt != null ? Math.max((Date.now() - startedAt) / 86_400_000, 1 / 24) : days;
+  const poolBy = new Map((pools ?? []).map((p) => [p.validator_operator, p]));
+  const byValidator: ValidatorEarning[] = [];
+  for (const [validatorAddress, myShareUpokt] of mineBy) {
+    const pool = poolBy.get(validatorAddress);
+    byValidator.push({
+      validatorAddress,
+      settlements: null,
+      lastPaidAt: lastPaidBy.get(validatorAddress) ?? null,
+      poolUpokt: Number(pool?.delegators_upokt ?? 0),
+      myShareUpokt,
+      former: !current.has(validatorAddress),
+    });
+  }
 
-  const dailyAvgUpokt = windowUpokt / windowDays;
+  // The active span is the whole window when the address already held a delegation at its start
+  // (whether or not its validators paid early on). Otherwise it began delegating inside the window,
+  // and the span starts at the hour of its first payment (re-read by hour over that day) — later
+  // than the delegation itself only if its validator paid nothing at first. When the check failed,
+  // a first payment in the window's first hour still means it was delegating from the start; a later
+  // one leaves the span unknown, and no rate is shown rather than a wrong one.
+  // The window is the part the catalog covers: nothing outside it was read, and gaps count as no time.
+  const { from, to } = win;
+  const atStart = hourOf(from) === hourOf(requestedStart) ? await bondedAtStart : await delegatedAt(network, address, hourOf(from));
+  const bondedAt = atStart == null ? null : atStart.size > 0;
+  let firstAt = from;
+  let startUnknown = false;
+  if (bondedAt !== true && Number.isFinite(firstDay)) {
+    firstAt = Math.max(firstDay, from);
+    try {
+      const h = await gqlFetch<{ getDelegatorIncomeJson: unknown }>(
+        network,
+        DELEGATION_FIRST_HOUR,
+        // Bounded by the request, not the covered window, so the fetch-cache key does not move with coverage.
+        { delegators: [address], rangeStart: new Date(Math.max(firstDay, requestedStart)).toISOString(), rangeEnd: new Date(Math.min(firstDay + 86_400_000, requestedEnd)).toISOString() },
+        { revalidate: 60 },
+      );
+      const hourRows = unwrapRange<{ bucket_start: string; amount_upokt: string | null }[]>(h.getDelegatorIncomeJson).data;
+      const hours = (hourRows ?? []).filter((r) => Number(r.amount_upokt ?? 0) > 0).map((r) => Date.parse(r.bucket_start));
+      if (hours.length > 0) firstAt = Math.max(Math.min(...hours), from);
+    } catch {
+      /* keep the day's start */
+    }
+    if (bondedAt === null) {
+      if (firstAt > from + 3_600_000) startUnknown = true;
+      else firstAt = from;
+    }
+  } else if (bondedAt !== true) {
+    // Not paid yet inside the window and not delegating at its start: a new delegation with no data
+    // (no span → "Still processing"), or an unknown start. Never a 0% rate.
+    if (bondedAt === null) startUnknown = true;
+    else firstAt = to;
+  }
+  const activeDays = coveredMs(win, firstAt, to) / 86_400_000;
+  // A validator's settlement count is the number that paid this address only for a delegation held
+  // over the whole window: to a validator it delegated to at the window's start and still does (it
+  // could have left and come back inside the window, which this cannot see). Other rows get no count,
+  // and the total sums the counted ones only when every row that paid has one.
+  for (const v of byValidator) {
+    if (!v.former && atStart?.has(v.validatorAddress)) v.settlements = Number(poolBy.get(v.validatorAddress)?.distributions ?? 0);
+  }
+  const settlements = byValidator.every((v) => v.settlements != null)
+    ? byValidator.reduce((n, v) => n + (v.settlements ?? 0), 0)
+    : null;
+
+  const windowDays = coveredMs(win, from, to) / 86_400_000;
+  const dailyAvgUpokt = startUnknown ? null : activeDays > 0 ? windowUpokt / activeDays : 0;
   const bonded = Number(toBigInt(set.totalUpokt));
-  const aprPct = bonded > 0 ? ((dailyAvgUpokt * 365) / bonded) * 100 : null;
+  const stillProcessing = !startUnknown && activeDays < MIN_SPAN_DAYS;
+  const aprPct = bonded > 0 && dailyAvgUpokt != null && !stillProcessing ? ((dailyAvgUpokt * 365) / bonded) * 100 : null;
 
   byValidator.sort((a, b) => b.myShareUpokt - a.myShareUpokt);
   return {
     windowUpokt,
-    settlements: d.eventValidatorRewardDistributions?.totalCount ?? 0,
+    settlements,
     windowDays,
+    activeDays,
     dailyAvgUpokt,
     aprPct,
+    stillProcessing,
+    startUnknown,
+    coverage,
     byValidator,
-    approximate: byValidator.some((v) => v.poolDrifted),
   };
 }
 

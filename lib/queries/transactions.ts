@@ -4,8 +4,7 @@
 //   by-address → { signerAddress: { equalTo: <addr> } }  (and/or relation filters)
 //   by-type    → { <msg>Exist: true } e.g. msgCreateClaimsExist  (DATA-CONTRACT §4)
 
-const TX_FIELDS = /* GraphQL */ `
-  totalCount
+const TX_NODES = /* GraphQL */ `
   nodes {
     id
     code
@@ -20,6 +19,11 @@ const TX_FIELDS = /* GraphQL */ `
     amountOfMessages
     amountSentByDenom
   }
+`;
+
+const TX_FIELDS = /* GraphQL */ `
+  totalCount
+  ${TX_NODES}
 `;
 
 export const TRANSACTIONS_BY_HEIGHT = /* GraphQL */ `
@@ -39,9 +43,11 @@ export const TRANSACTIONS_BY_ADDRESS = /* GraphQL */ `
 `;
 
 export const TRANSACTIONS_LIST = /* GraphQL */ `
-  query transactionsList($limit: Int!, $offset: Int!, $filter: TransactionFilter) {
+  query transactionsList($limit: Int!, $offset: Int!, $filter: TransactionFilter, $withCount: Boolean = true) {
     transactions(first: $limit, offset: $offset, orderBy: BLOCK_ID_DESC, filter: $filter) {
-      ${TX_FIELDS}
+      # A count over every transaction: skipped where the total is not shown.
+      totalCount @include(if: $withCount)
+      ${TX_NODES}
     }
   }
 `;
@@ -100,22 +106,33 @@ export const TRANSFERS_LIST = /* GraphQL */ `
   }
 `;
 
+// Counts come from the per-block counters (blocks.total_txs / successful_txs / failed_txs), which
+// sum to exactly the transaction counts (verified 2026-10-05 on both networks at a pinned height)
+// without counting the 42M-row transactions table. `chain` is the all-time total, only needed by
+// the all/success/failed chips.
 export const TRANSACTIONS_SUMMARY = /* GraphQL */ `
-  query transactionsSummary($startDate: Datetime!, $endDate: Datetime!) {
+  query transactionsSummary($startDate: Datetime!, $endDate: Datetime!, $withChain: Boolean!) {
     blocks(orderBy: ID_DESC, first: 1) {
       nodes {
         totalTxs
       }
     }
-    validTxs: transactions(
-      filter: { code: { equalTo: 0 }, block: { timestamp: { greaterThanOrEqualTo: $startDate, lessThanOrEqualTo: $endDate } } }
-    ) {
-      totalCount
+    day: blocks(filter: { timestamp: { greaterThanOrEqualTo: $startDate, lessThanOrEqualTo: $endDate } }) {
+      aggregates {
+        sum {
+          successfulTxs
+          failedTxs
+        }
+      }
     }
-    failedTxs: transactions(
-      filter: { code: { notEqualTo: 0 }, block: { timestamp: { greaterThanOrEqualTo: $startDate, lessThanOrEqualTo: $endDate } } }
-    ) {
-      totalCount
+    chain: blocks @include(if: $withChain) {
+      aggregates {
+        sum {
+          totalTxs
+          successfulTxs
+          failedTxs
+        }
+      }
     }
   }
 `;

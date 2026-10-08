@@ -5,7 +5,7 @@ import { SummaryCard, DOT } from '@/components/ui/SummaryCard';
 import { Pager } from '@/components/ui/Pager';
 import { TxTable } from '@/components/tx/TxTable';
 import { TxFilterChips } from '@/components/tx/TxFilterChips';
-import { getTransactionsList, getTransactionsSummary, txFilterKey } from '@/lib/data/transactions';
+import { getTransactionsList, getTransactionsSummary, hasChainTotal, txFilterKey } from '@/lib/data/transactions';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber } from '@/lib/format';
 
@@ -29,8 +29,13 @@ export default async function TxsPage({
   const offset = (page - 1) * PAGE_SIZE;
   const filter = txFilterKey(typeParam);
 
-  const [list, summary] = await Promise.all([getTransactionsList(network, PAGE_SIZE, offset, filter), getTransactionsSummary(network)]);
-  const { nodes, totalCount } = list;
+  // The list counts its own rows only for the chips the per-block counters can't total.
+  const [list, summary] = await Promise.all([
+    getTransactionsList(network, PAGE_SIZE, offset, filter, !hasChainTotal(filter)),
+    getTransactionsSummary(network, filter),
+  ]);
+  const { nodes } = list;
+  const totalCount = summary.chainTotal ?? list.totalCount ?? 0;
   const from = totalCount === 0 ? 0 : offset + 1;
   const to = Math.min(offset + PAGE_SIZE, totalCount);
 

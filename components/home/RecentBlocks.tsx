@@ -8,7 +8,7 @@ import { relativeTime, absoluteUtc } from '@/lib/time';
 
 // Latest 10 blocks panel (home). Reuses the verified blockList fetch.
 export async function RecentBlocks({ network }: { network: NetworkId }) {
-  const { nodes } = await getBlockList(network, 10, 0);
+  const { nodes } = await getBlockList(network, 10, 0, false);
   return (
     <div className="card panel">
       <div className="head">

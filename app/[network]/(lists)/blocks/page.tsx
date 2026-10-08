@@ -36,7 +36,7 @@ export default async function BlocksPage({
   const offset = (page - 1) * PAGE_SIZE;
 
   const [list, summary] = await Promise.all([getBlockList(network, PAGE_SIZE, offset), getBlockSummary(network)]);
-  const { nodes, totalCount } = list;
+  const { nodes, totalCount = 0 } = list;
   const from = totalCount === 0 ? 0 : offset + 1;
   const to = Math.min(offset + PAGE_SIZE, totalCount);
 

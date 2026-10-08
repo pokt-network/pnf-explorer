@@ -23,7 +23,10 @@ interface UseStatusState {
 
 const POLL_MS = 15_000;
 
-/** Client-polls `status` every 15s for the live badge + "refresh on new block" (§3 heartbeat). */
+/**
+ * Client-polls `status` every 15s for the live badge + "refresh on new block" (§3 heartbeat).
+ * Paused while the tab is hidden; polls at once when it is shown again.
+ */
 export function useStatus(): UseStatusState {
   const network = useNetwork();
   const [state, setState] = useState<UseStatusState>({ status: null, error: false, loading: true });
@@ -61,12 +64,18 @@ export function useStatus(): UseStatusState {
       }
     }
 
+    function pollIfVisible() {
+      if (document.visibilityState === 'visible') poll();
+    }
+
     poll();
-    const id = setInterval(poll, POLL_MS);
+    const id = setInterval(pollIfVisible, POLL_MS);
+    document.addEventListener('visibilitychange', pollIfVisible);
     return () => {
       active = false;
       controller?.abort();
       clearInterval(id);
+      document.removeEventListener('visibilitychange', pollIfVisible);
     };
   }, [network]);
 

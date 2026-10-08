@@ -1,7 +1,14 @@
 import { gqlFetch } from '@/lib/graphql';
 import { lcdFetch } from '@/lib/lcd';
 import type { NetworkId } from '@/lib/networks';
-import { SERVICES_LIST, SERVICE_BY_ID, SERVICE_SUPPLIERS, SERVICE_APPLICATIONS, SERVICE_DIFFICULTY } from '@/lib/queries/services';
+import {
+  SERVICES_LIST,
+  SERVICE_ACTIVE_SUPPLIER_COUNTS,
+  SERVICE_BY_ID,
+  SERVICE_SUPPLIERS,
+  SERVICE_APPLICATIONS,
+  SERVICE_DIFFICULTY,
+} from '@/lib/queries/services';
 
 // Services are infrequently updated and stable for long stretches, so the list + its per-service
 // active-supplier counts use a long (12h) ISR window — adequate for a top-level overview.
@@ -48,8 +55,8 @@ export interface ServiceListRowWithCount extends ServiceListRow {
   activeSuppliers: number;
 }
 
-// The indexer caps connection page size at 100.
-const PAGE_CAP = 100;
+// The indexer caps connection page size at 1000 (verified 2026-10-06: `services(first: 1000)` returns all 263 mainnet services).
+const PAGE_CAP = 1000;
 
 /** One page of services (ordered by name). 12h ISR — services rarely change. */
 export async function getServiceList(network: NetworkId, limit: number, offset: number) {
@@ -63,44 +70,39 @@ export async function getServiceList(network: NetworkId, limit: number, offset: 
 }
 
 /**
- * Active (Staked) supplier count per service id. Built as aliased+parameterized batches
- * (cN: …, $idN), chunked to the 100-field cap. 12h ISR — these move slowly and per-service
- * counts would otherwise be hundreds of separate calls. Map keyed by id; missing ids → 0.
+ * Active (Staked) supplier count per service id, every service in one grouped query. 12h ISR —
+ * these move slowly. Map keyed by id; missing ids → 0.
  */
-export async function getServiceActiveSupplierCounts(network: NetworkId, ids: string[]): Promise<Map<string, number>> {
+export async function getServiceActiveSupplierCounts(network: NetworkId): Promise<Map<string, number>> {
   const map = new Map<string, number>();
-  for (let start = 0; start < ids.length; start += PAGE_CAP) {
-    const chunk = ids.slice(start, start + PAGE_CAP);
-    const varDefs = chunk.map((_, i) => `$id${i}: String!`).join(', ');
-    const fields = chunk
-      .map((_, i) => `c${i}: supplierServiceConfigs(filter:{serviceId:{equalTo:$id${i}},supplier:{stakeStatus:{equalTo:Staked}}}){totalCount}`)
-      .join('\n');
-    const query = `query serviceSupplierCounts(${varDefs}) {\n${fields}\n}`;
-    const vars: Record<string, string> = {};
-    chunk.forEach((id, i) => (vars[`id${i}`] = id));
-    try {
-      const data = await gqlFetch<Record<string, { totalCount: number } | null>>(network, query, vars, { revalidate: SERVICES_TTL });
-      chunk.forEach((id, i) => map.set(id, data[`c${i}`]?.totalCount ?? 0));
-    } catch {
-      /* leave this chunk's counts unset → those rows render 0 */
+  try {
+    const data = await gqlFetch<{
+      supplierServiceConfigs: { groupedAggregates: { keys: string[] | null; distinctCount: { id: string | null } | null }[] | null } | null;
+    }>(network, SERVICE_ACTIVE_SUPPLIER_COUNTS, {}, { revalidate: SERVICES_TTL });
+    for (const g of data.supplierServiceConfigs?.groupedAggregates ?? []) {
+      const id = g.keys?.[0];
+      if (id) map.set(id, Number(g.distinctCount?.id ?? 0));
     }
+  } catch {
+    /* counts unset → rows render 0 */
   }
   return map;
 }
 
 /**
- * Every service (paged through the 100-row cap) with its active-supplier count. 12h ISR. Used by
+ * Every service (paged through the 1000-row cap) with its active-supplier count. 12h ISR. Used by
  * the services list so it can sort by CU/relay OR active suppliers across the FULL set, then
  * paginate in memory (the supplier count is computed, not an orderable indexer field).
  */
 export async function getAllServicesWithCounts(network: NetworkId): Promise<ServiceListRowWithCount[]> {
   const all: ServiceListRow[] = [];
+  const countsP = getServiceActiveSupplierCounts(network);
   for (let i = 0; i < 20; i++) {
     const { nodes, totalCount } = await getServiceList(network, PAGE_CAP, all.length);
     all.push(...nodes);
     if (nodes.length === 0 || all.length >= totalCount) break;
   }
-  const counts = await getServiceActiveSupplierCounts(network, all.map((n) => n.id));
+  const counts = await countsP;
   return all.map((n) => ({ ...n, activeSuppliers: counts.get(n.id) ?? 0 }));
 }
 

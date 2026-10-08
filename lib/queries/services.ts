@@ -1,13 +1,15 @@
 // Service queries (scope expansion — services detail view; not in the original MVP api-index).
 // Verified live 2026-06-06 against data.pocket.network/graphql.
 //
-// "Active" suppliers/applications = those whose owning actor is currently Staked. Each supplier
-// has exactly ONE SupplierServiceConfig per service (distinctCount == totalCount), so a filtered
-// totalCount IS the distinct active count — no dedup needed. Counting raw configs would include
-// suppliers that have since unstaked (eth: 8746 configs vs 4063 currently Staked).
+// "Active" suppliers/applications = those whose owning actor is currently Staked. On chain a
+// supplier has ONE SupplierServiceConfig per service, but the indexer holds a few duplicated config
+// ids (35 rows among the Staked suppliers' configs on mainnet, measured 2026-10-06: totalCount
+// 156,422 vs distinctCount 156,387 — an indexer bug being fixed), so a filtered totalCount can count
+// a supplier twice. Counting raw configs would include suppliers that have since unstaked (eth:
+// 8746 configs vs 4063 currently Staked).
 
-// List of services (173 total), ordered by display name. Active-supplier counts are fetched
-// separately (one aliased batch query) and cached 12h — see lib/data/services.ts.
+// List of services (263 on mainnet, measured 2026-10-06), ordered by display name. Active-supplier counts are fetched
+// separately (one grouped query) and cached 12h — see lib/data/services.ts.
 export const SERVICES_LIST = /* GraphQL */ `
   query servicesList($limit: Int!, $offset: Int!) {
     services(first: $limit, offset: $offset, orderBy: NAME_ASC) {
@@ -17,6 +19,22 @@ export const SERVICES_LIST = /* GraphQL */ `
         name
         computeUnitsPerRelay
         ownerId
+      }
+    }
+  }
+`;
+
+// Active-supplier count of every service in one statement: `distinctCount { id }` counts the
+// group's distinct config ids. It equals the per-service filtered `totalCount` except where the
+// indexer duplicated a config id (see above): there it counts the supplier once, totalCount twice.
+export const SERVICE_ACTIVE_SUPPLIER_COUNTS = /* GraphQL */ `
+  query serviceSupplierCounts {
+    supplierServiceConfigs(filter: { supplier: { stakeStatus: { equalTo: Staked } } }) {
+      groupedAggregates(groupBy: SERVICE_ID) {
+        keys
+        distinctCount {
+          id
+        }
       }
     }
   }

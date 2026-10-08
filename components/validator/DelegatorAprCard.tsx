@@ -3,6 +3,8 @@ import { Skeleton } from '@/components/ui/states';
 import type { NetworkId } from '@/lib/networks';
 import { formatPokt, formatNumber } from '@/lib/format';
 import { formatCommission } from '@/lib/validator';
+import { INACTIVE, inactiveHint, NOT_COVERED_HINT, STILL_PROCESSING, stillProcessingHint, windowLabel } from '@/lib/data/window';
+import { NOT_COVERED, coverageNote } from '@/lib/data/range';
 
 /**
  * Net delegator return for a validator, over a trailing window.
@@ -25,26 +27,60 @@ export async function DelegatorAprCard({
   valoper: string;
   commission: unknown;
 }) {
-  const apr = await getValidatorDelegatorApr(network, valoper).catch(() => null);
-
-  if (!apr) {
+  let apr: Awaited<ReturnType<typeof getValidatorDelegatorApr>>;
+  try {
+    apr = await getValidatorDelegatorApr(network, valoper);
+  } catch {
+    // The catalog read failed or timed out: that says nothing about the validator's settlements.
     return (
       <AprShell>
         <div className="big">
           —<span className="u"> %</span>
         </div>
+        <div className="upokt">APR unavailable right now</div>
+      </AprShell>
+    );
+  }
+
+  if (apr === NOT_COVERED) {
+    return (
+      <AprShell>
+        <div className="big">
+          —<span className="u"> %</span>
+        </div>
+        <div className="upokt">{NOT_COVERED_HINT}</div>
+      </AprShell>
+    );
+  }
+
+  const note = coverageNote(apr.coverage);
+  if ('noRate' in apr) {
+    return (
+      <AprShell days={apr.coveredDays}>
+        <div className="big">
+          —<span className="u"> %</span>
+        </div>
         <div className="upokt">no settlements in the window</div>
+        {note ? <div className="upd dim">{note}</div> : null}
       </AprShell>
     );
   }
 
   return (
-    <AprShell>
-      <div className="big">
-        {apr.aprPct.toFixed(2)}
-        <span className="u"> %</span>
+    <AprShell days={apr.coveredDays}>
+      {apr.aprPct == null ? (
+        <div className="big" title={apr.inactive ? inactiveHint(APR_WINDOW_DAYS, apr.coveredDays) : stillProcessingHint(APR_WINDOW_DAYS, apr.coveredDays)}>
+          {apr.inactive ? INACTIVE : STILL_PROCESSING}
+        </div>
+      ) : (
+        <div className="big">
+          {apr.aprPct.toFixed(2)}
+          <span className="u"> %</span>
+        </div>
+      )}
+      <div className="upokt">
+        {apr.aprPct == null ? (apr.inactive ? inactiveHint(APR_WINDOW_DAYS, apr.coveredDays) : stillProcessingHint(APR_WINDOW_DAYS, apr.coveredDays)) : <>net of {formatCommission(commission)} commission</>}
       </div>
-      <div className="upokt">net of {formatCommission(commission)} commission</div>
       <div className="upd">
         {formatPokt(apr.delegatorUpokt)} POKT to delegators
         <span className="dim"> · {formatNumber(apr.settlements)} settlements</span>
@@ -52,16 +88,18 @@ export async function DelegatorAprCard({
           <div className="dim">Covers {apr.activeDays.toFixed(1)}d — this validator did not settle for the whole window.</div>
         ) : null}
         {apr.stakeDrifted ? <div className="dim">Bonded stake moved during the window, so this is an average.</div> : null}
+        {note ? <div className="dim">{note}</div> : null}
       </div>
     </AprShell>
   );
 }
 
-/** Shared frame so the skeleton and the resolved card are the same shape — no layout shift. */
-function AprShell({ children }: { children: React.ReactNode }) {
+/** Shared frame so the skeleton and the resolved card are the same shape — no layout shift. `days`: the
+ *  days the rate covers, when the catalog covers less than the window. */
+function AprShell({ children, days = APR_WINDOW_DAYS }: { children: React.ReactNode; days?: number }) {
   return (
     <div className="card balance">
-      <div className="lbl">Delegator APR ({APR_WINDOW_DAYS}d avg)</div>
+      <div className="lbl">Delegator APR ({windowLabel(days)} avg)</div>
       {children}
     </div>
   );
