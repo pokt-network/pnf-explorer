@@ -13,6 +13,7 @@ import type { DelegationSet, DelegationEarnings } from '@/lib/data/delegations';
 import { getValidatorList, getValidatorChainStates } from '@/lib/data/validators';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, formatPoktCompact, formatCompact, truncate } from '@/lib/format';
+import { UPOKT_PER_POKT } from '@/lib/config';
 import { relativeTime, absoluteUtc } from '@/lib/time';
 import { validatorMoniker, formatCommission, deriveValidatorState } from '@/lib/validator';
 import { parsePage } from '@/lib/paging';
@@ -23,10 +24,10 @@ const LIMIT = 25;
 
 /**
  * POKT for a stat card. Compact past a thousand, two decimals below it — a 4.89 POKT/day average
- * must not render as "5", which is what plain compact notation does to small values.
+ * must not render as "5", which is what plain compact notation does to small values, nor 0.003 as "0.00".
  */
 function statPokt(pokt: number): string {
-  return pokt >= 1000 ? formatCompact(pokt) : pokt.toFixed(2);
+  return pokt >= 1000 ? formatCompact(pokt) : formatPokt(Math.round(pokt * UPOKT_PER_POKT), 2);
 }
 
 /** Validator monikers/commission/status, keyed by valoper. Cosmetic — failure leaves bare addresses. */

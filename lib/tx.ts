@@ -42,7 +42,10 @@ export function sumUpokt(entries: unknown): bigint {
   return sum;
 }
 
-/** Tx fee in POKT for table cells, e.g. "0.0123". */
-export function formatFees(fees: unknown, decimals = 4): string {
+/**
+ * Tx fee in POKT for table cells, exact to the upokt and fixed-width: "0.012300", "0.000017". Claim and proof fees are
+ * often a few dozen upokt, which 4 decimals showed as 0.0000.
+ */
+export function formatFees(fees: unknown, decimals = 6): string {
   return formatPokt(sumUpokt(fees), decimals);
 }
