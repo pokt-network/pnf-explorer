@@ -69,14 +69,14 @@ interface TxSums {
 /** The all-time total behind a chip, where the per-block counters have it (all/success/failed). */
 const CHAIN_TOTAL: Partial<Record<TxFilterKey, keyof TxSums>> = { all: 'totalTxs', success: 'successfulTxs', failed: 'failedTxs' };
 
-/** True when `getTransactionsSummary` returns this chip's total, so the list need not count it. */
+/** True when `getTransactionsSummary` returns this chip's total; the other chips show none (counting them is too costly). */
 export function hasChainTotal(filter: TxFilterKey): boolean {
   return CHAIN_TOTAL[filter] != null;
 }
 
 /**
  * Latest-block and 24h counts, plus the chip's all-time total when the per-block counters carry it
- * (`chainTotal`, null otherwise — the list then counts its own filter).
+ * (`chainTotal`, null otherwise — the list then shows no total and pages by its next row).
  */
 export async function getTransactionsSummary(network: NetworkId, filter: TxFilterKey) {
   const end = new Date();
