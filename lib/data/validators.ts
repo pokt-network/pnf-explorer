@@ -567,7 +567,7 @@ export async function getValidatorDelegatorApr(
  * quote different numbers for the same validator.
  *
  * Null means "no rate to report", never "zero": under two settlements, no delegated stake, or an
- * unresolvable span all leave nothing to annualise.
+ * unresolvable span all leave nothing to annualise. A validator whose commission kept every reward is a real 0%.
  */
 function annualise(
   w: RewardsWindow,
@@ -575,7 +575,11 @@ function annualise(
   coveredDays: number,
 ): { aprPct: number | null; spanDays: number; partialWindow: boolean } | null {
   // Two settlements is the minimum that defines a rate; below that there is no rate to report.
-  if (w.settlements < 2 || !(w.avgStakeUpokt > 0)) return null;
+  if (w.settlements < 2) return null;
+  // A 100% commission keeps every reward: delegators earn 0%, a rate, even though the chain then reports no delegated
+  // stake (PNF-Sirius on mainnet: 2131 settlements in 30 d, 0 to delegators, stake 0).
+  const allCommission = w.delegatorUpokt === BigInt(0) && w.commissionUpokt > BigInt(0);
+  if (!allCommission && !(w.avgStakeUpokt > 0)) return null;
   if (!(w.lastAt > w.firstAt)) return null;
 
   // The span runs from the start of the hour of the first settlement to the end of the hour of the
@@ -584,7 +588,7 @@ function annualise(
   // validator without a rate.
   const spanDays = coveredMs(window, w.firstAt, w.lastAt) / DAY_MS;
   return {
-    aprPct: spanDays < MIN_SPAN_DAYS ? null : ((Number(w.delegatorUpokt) / spanDays) * 365 * 100) / w.avgStakeUpokt,
+    aprPct: spanDays < MIN_SPAN_DAYS ? null : allCommission ? 0 : ((Number(w.delegatorUpokt) / spanDays) * 365 * 100) / w.avgStakeUpokt,
     spanDays,
     // Allow a session's slack: a full window still starts a few minutes after the boundary block.
     partialWindow: spanDays < coveredDays - 0.5,
