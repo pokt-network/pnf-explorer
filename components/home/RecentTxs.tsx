@@ -4,15 +4,15 @@ import { TxIcon } from '@/components/ui/Icons';
 import { getTransactionsList } from '@/lib/data/transactions';
 import type { NetworkId } from '@/lib/networks';
 import { primaryMessage, formatFees, sumUpokt } from '@/lib/tx';
-import { formatPokt } from '@/lib/format';
+import { formatPoktExact } from '@/lib/format';
 import { relativeTime, absoluteUtc } from '@/lib/time';
 import type { BlockTx } from '@/lib/data/blocks';
 
 // For transfers (MsgSend) the moved amount is more meaningful than the fee.
 function amountLabel(tx: BlockTx): { value: string; unit: string } {
   const sent = sumUpokt(tx.amountSentByDenom);
-  if (sent > BigInt(0)) return { value: formatPokt(sent, 2), unit: 'POKT' };
-  return { value: formatFees(tx.fees, 4), unit: 'POKT' };
+  if (sent > BigInt(0)) return { value: formatPoktExact(sent, 2), unit: 'POKT' };
+  return { value: formatFees(tx.fees), unit: 'POKT' };
 }
 
 // Latest 10 transactions panel (home). Reuses the verified transactionsList fetch.

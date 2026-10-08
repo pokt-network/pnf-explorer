@@ -22,7 +22,8 @@ function groupThousands(intDigits: string): string {
 /**
  * Format a upokt amount as POKT (÷1e6). The single shared conversion util (§13) —
  * never inline ÷1e6 anywhere. BigInt-based so large balances/supply stay exact.
- * @param decimals fractional POKT digits to show (default 2); trailing zeros kept.
+ * @param decimals fractional POKT digits to show (default 2); trailing zeros kept. An amount under 1 POKT that
+ *   these digits would show as zero gets more, up to its first significant digit (0.000017, never 0.00).
  */
 export function formatPokt(upokt: Numeric, decimals = 2): string {
   const micro = toBigInt(upokt);
@@ -30,11 +31,12 @@ export function formatPokt(upokt: Numeric, decimals = 2): string {
   const abs = neg ? -micro : micro;
   const whole = abs / BigInt(UPOKT_PER_POKT);
   const frac = abs % BigInt(UPOKT_PER_POKT);
+  const fracFull = frac.toString().padStart(6, '0');
+  // never show a nonzero amount as zero: below 1 POKT, widen to its first significant digit (at most 6)
+  let shown = decimals;
+  if (whole === BigInt(0) && frac > BigInt(0)) shown = Math.max(shown, fracFull.search(/[1-9]/) + 1);
   let out = groupThousands(whole.toString());
-  if (decimals > 0) {
-    const fracStr = frac.toString().padStart(6, '0').slice(0, decimals);
-    out += '.' + fracStr;
-  }
+  if (shown > 0) out += '.' + fracFull.slice(0, shown);
   return (neg ? '-' : '') + out;
 }
 
@@ -109,6 +111,8 @@ export function formatCompact(v: Numeric, digits = 2): string {
 /** Compact POKT for summary cards: upokt → POKT → compact, e.g. "1.66B POKT" value part. */
 export function formatPoktCompact(upokt: Numeric, digits = 2): string {
   const pokt = Number(toBigInt(upokt)) / UPOKT_PER_POKT;
+  // below the K suffix, compact notation rounds to a whole number (0.4 POKT → "0"): show decimals instead
+  if (Math.abs(pokt) < 1000) return formatPokt(upokt, digits);
   return formatCompact(pokt, digits);
 }
 
