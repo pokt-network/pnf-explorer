@@ -21,11 +21,24 @@ function pageList(current: number, total: number): (number | '…')[] {
  * Detail-page tab panels pass a distinct `param` each (e.g. `?suppliers=2`) so paginating one
  * tab never moves another — existing params (incl. `?tab=`) are preserved on navigation.
  */
-export function Pager({ page, pageSize, totalCount, param = 'page' }: { page: number; pageSize: number; totalCount: number; param?: string }) {
+export function Pager({
+  page,
+  pageSize,
+  totalCount,
+  hasNext,
+  param = 'page',
+}: {
+  page: number;
+  pageSize: number;
+  // null: the total is not counted (too costly); the pager then shows only ‹ page › and needs `hasNext`
+  totalCount: number | null;
+  hasNext?: boolean;
+  param?: string;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const totalPages = totalCount == null ? (hasNext ? page + 1 : page) : Math.max(1, Math.ceil(totalCount / pageSize));
 
   function go(p: number) {
     if (p < 1 || p > totalPages || p === page) return;
@@ -43,7 +56,7 @@ export function Pager({ page, pageSize, totalCount, param = 'page' }: { page: nu
         <button onClick={() => go(page - 1)} disabled={page <= 1} aria-label="Previous page">
           ‹
         </button>
-        {pageList(page, totalPages).map((p, i) =>
+        {(totalCount == null ? [page] : pageList(page, totalPages)).map((p, i) =>
           p === '…' ? (
             <button key={`e${i}`} disabled>
               …

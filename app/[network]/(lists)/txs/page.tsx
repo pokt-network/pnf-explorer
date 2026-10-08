@@ -29,15 +29,18 @@ export default async function TxsPage({
   const offset = (page - 1) * PAGE_SIZE;
   const filter = txFilterKey(typeParam);
 
-  // The list counts its own rows only for the chips the per-block counters can't total.
+  // Only the chips the per-block counters total (all/success/failed) show a total. Counting a message-type
+  // chip means counting tens of millions of rows (MsgClaim and MsgProof hit the API's 30 s timeout), so those
+  // fetch one extra row to know whether a next page exists.
   const [list, summary] = await Promise.all([
-    getTransactionsList(network, PAGE_SIZE, offset, filter, !hasChainTotal(filter)),
+    getTransactionsList(network, PAGE_SIZE + 1, offset, filter, false),
     getTransactionsSummary(network, filter),
   ]);
-  const { nodes } = list;
-  const totalCount = summary.chainTotal ?? list.totalCount ?? 0;
-  const from = totalCount === 0 ? 0 : offset + 1;
-  const to = Math.min(offset + PAGE_SIZE, totalCount);
+  const hasNext = list.nodes.length > PAGE_SIZE;
+  const nodes = list.nodes.slice(0, PAGE_SIZE);
+  const totalCount = hasChainTotal(filter) ? (summary.chainTotal ?? 0) : null;
+  const from = nodes.length === 0 ? 0 : offset + 1;
+  const to = offset + nodes.length;
 
   return (
     <>
@@ -46,7 +49,8 @@ export default async function TxsPage({
         <Tic entity="tx" iconSize={20} />
         <h1>Transactions</h1>
         <span className="cnt">
-          Showing {formatNumber(from)}–{formatNumber(to)} of {formatNumber(totalCount)}
+          Showing {formatNumber(from)}–{formatNumber(to)}
+          {totalCount != null ? <> of {formatNumber(totalCount)}</> : null}
         </span>
       </div>
 
@@ -64,7 +68,7 @@ export default async function TxsPage({
 
       <div className="card">
         <TxTable txs={nodes} columns={['type', 'block', 'age', 'signer', 'fee', 'result']} empty="No transactions found." />
-        {nodes.length > 0 ? <Pager page={page} pageSize={PAGE_SIZE} totalCount={totalCount} /> : null}
+        {nodes.length > 0 ? <Pager page={page} pageSize={PAGE_SIZE} totalCount={totalCount} hasNext={hasNext} /> : null}
       </div>
     </>
   );

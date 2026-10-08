@@ -12,14 +12,17 @@ const HEX64 = /^[0-9a-fA-F]{64}$/;
 export type TxFilterKey = 'all' | 'success' | 'failed' | 'msgsend' | 'msgclaim' | 'msgproof';
 
 // The indexer rejects both null and empty `{}` filters, so "all" uses a no-op that
-// matches every row (every tx has an id).
+// matches every row (every tx has an id). Every chip keeps it: it is the predicate of the indexer's
+// (block_id DESC) partial index on live rows, without which a chip sorts all ~43M transactions
+// (Success 6.9 s → 0.6 s on mainnet, 2026-10-08).
+const LIVE = { id: { isNull: false } };
 const FILTERS: Record<TxFilterKey, Record<string, unknown>> = {
-  all: { id: { isNull: false } },
-  success: { code: { equalTo: 0 } },
-  failed: { code: { notEqualTo: 0 } },
-  msgsend: { nativeTransfersExist: true },
-  msgclaim: { msgCreateClaimsExist: true },
-  msgproof: { msgSubmitProofsExist: true },
+  all: LIVE,
+  success: { ...LIVE, code: { equalTo: 0 } },
+  failed: { ...LIVE, code: { notEqualTo: 0 } },
+  msgsend: { ...LIVE, nativeTransfersExist: true },
+  msgclaim: { ...LIVE, msgCreateClaimsExist: true },
+  msgproof: { ...LIVE, msgSubmitProofsExist: true },
 };
 
 export function txFilterKey(raw: string | undefined): TxFilterKey {
