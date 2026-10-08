@@ -38,9 +38,10 @@ export default async function TxsPage({
   ]);
   const hasNext = list.nodes.length > PAGE_SIZE;
   const nodes = list.nodes.slice(0, PAGE_SIZE);
-  const totalCount = hasChainTotal(filter) ? (summary.chainTotal ?? 0) : null;
+  // no total when the chip has none or the counters did not answer: the pager then pages by hasNext
+  const totalCount = hasChainTotal(filter) ? summary.chainTotal : null;
   const from = nodes.length === 0 ? 0 : offset + 1;
-  const to = offset + nodes.length;
+  const to = nodes.length === 0 ? 0 : totalCount != null ? Math.min(offset + nodes.length, totalCount) : offset + nodes.length;
 
   return (
     <>
@@ -68,7 +69,7 @@ export default async function TxsPage({
 
       <div className="card">
         <TxTable txs={nodes} columns={['type', 'block', 'age', 'signer', 'fee', 'result']} empty="No transactions found." />
-        {nodes.length > 0 ? <Pager page={page} pageSize={PAGE_SIZE} totalCount={totalCount} hasNext={hasNext} /> : null}
+        {nodes.length > 0 || page > 1 ? <Pager page={page} pageSize={PAGE_SIZE} totalCount={totalCount} hasNext={hasNext} /> : null}
       </div>
     </>
   );
