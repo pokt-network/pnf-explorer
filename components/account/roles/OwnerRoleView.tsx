@@ -5,19 +5,19 @@ import type { TabDef } from '@/components/ui/Tabs';
 import { EmptyState } from '@/components/ui/states';
 import { OperatorsPanel } from '@/components/account/OperatorsPanel';
 import { RoleStats, SummaryCard, DOT } from './RoleStats';
-import { getFleetEarnings } from '@/lib/data/roles';
+import { CONNECTION_CAP, getFleetEarnings } from '@/lib/data/roles';
 import type { OwnerRole } from '@/lib/data/accounts';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, formatPoktCompact, formatCompact } from '@/lib/format';
-import { agoFromBlocks } from '@/lib/time';
+import { absoluteUtc, agoFromBlocks } from '@/lib/time';
 import { parsePage } from '@/lib/paging';
 
 /**
  * Fleet earnings — the rollup a professional node-runner actually wants: what the whole fleet
  * earned, per operator and per service, without opening 65 operator pages.
  *
- * Sourced through the fleet's supplier ids, NOT `supplierOwnerId` on the claim events — that field
- * is newer and present on only ~25% of rows, which silently under-reports by ~20×.
+ * Sourced from the settlement catalog's `owners` (every supplier the owner owns now), NOT `supplierOwnerId` on the
+ * claim events — that field is newer and present on only ~25% of rows, which silently under-reports by ~20×.
  */
 async function FleetEarningsPanel({ network, ownerId, currentHeight }: { network: NetworkId; ownerId: string; currentHeight: number | null }) {
   let f: Awaited<ReturnType<typeof getFleetEarnings>>;
@@ -33,7 +33,11 @@ async function FleetEarningsPanel({ network, ownerId, currentHeight }: { network
   if (f.totals.claims === 0) {
     return (
       <div className="card flush-top">
-        <EmptyState>No settled claims across this owner’s operators yet.</EmptyState>
+        <EmptyState>
+          {f.dataSince
+            ? `No settled claims across this owner’s operators since ${absoluteUtc(f.dataSince)}; older settlements are still being indexed.`
+            : 'No settled claims across this owner’s operators yet.'}
+        </EmptyState>
       </div>
     );
   }
@@ -46,10 +50,15 @@ async function FleetEarningsPanel({ network, ownerId, currentHeight }: { network
             <div className="k">Fleet</div>
             <div className="v">
               <b>{formatNumber(f.totals.relays)}</b> relays <span className="dim">· {formatPokt(f.totals.settledUpokt)} POKT settled</span>
-              {f.truncated ? (
+              {f.dataSince ? (
                 <div className="muted" style={{ marginTop: 4 }}>
-                  Covers the {formatNumber(f.covered)} largest-staked operators of {formatNumber(f.fleetSize)} — the indexer caps a
-                  filtered set at {formatNumber(f.covered)}.
+                  Settlements since {absoluteUtc(f.dataSince)}; older ones are still being indexed.
+                </div>
+              ) : null}
+              {f.fleetSize > CONNECTION_CAP ? (
+                <div className="muted" style={{ marginTop: 4 }}>
+                  The table lists the {formatNumber(CONNECTION_CAP)} largest-staked operators of {formatNumber(f.fleetSize)}; the totals and
+                  By service cover all of them.
                 </div>
               ) : null}
             </div>

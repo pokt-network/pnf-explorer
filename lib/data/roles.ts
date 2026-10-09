@@ -2,6 +2,7 @@ import { gqlFetch } from '@/lib/graphql';
 import { lcdFetch } from '@/lib/lcd';
 import type { NetworkId } from '@/lib/networks';
 import { toBigInt } from '@/lib/format';
+import { unwrapRange } from '@/lib/data/range';
 import type { RevShareEntry, SupplierEndpoint } from '@/lib/data/accounts';
 import {
   SUPPLIER_ROLE,
@@ -9,6 +10,7 @@ import {
   SUPPLIER_HISTORY,
   OWNER_FLEET_IDS,
   FLEET_EARNINGS,
+  lastSettledQuery,
   APPLICATION_ROLE,
   GATEWAY_ROLE,
   GATEWAY_TRAFFIC,
@@ -212,57 +214,86 @@ export async function getSupplierHistory(network: NetworkId, id: string, limit: 
 
 // ---- supplier owner (fleet) ----
 export interface FleetEarnings {
-  /** Operator count covered by the rollup (may be < the full fleet — see `truncated`). */
-  covered: number;
   fleetSize: number;
-  truncated: boolean;
+  /** Totals and `byService` cover the whole fleet; `bySupplier` lists the CONNECTION_CAP largest-staked operators. */
   totals: { claims: number; relays: number; claimedUpokt: string; settledUpokt: string };
   bySupplier: ServiceSettlement[];
   byService: ServiceSettlement[];
+  /** Where the settlement catalog's data starts when older settlements are not indexed yet; null when it has them all. */
+  dataSince: string | null;
+}
+
+interface EarningsRow {
+  supplier_id: string;
+  service_id: string;
+  relays: number | string | null;
+  claimed_upokt: number | string | null;
+  settled_upokt: number | string | null;
+  settled_claims: number | string | null;
+}
+
+// Catalog amounts are JSON numbers: exact below 2^53 upokt (9 billion POKT), far above any fleet's lifetime total.
+const amount = (v: number | string | null | undefined) => (v == null ? '0' : String(v));
+
+function toEarnings(rows: EarningsRow[] | null, key: 'supplier_id' | 'service_id'): ServiceSettlement[] {
+  return (rows ?? []).map((r) => ({
+    serviceId: r[key],
+    relays: Number(r.relays ?? 0),
+    claimedUpokt: amount(r.claimed_upokt),
+    settledUpokt: amount(r.settled_upokt),
+    lastBlock: 0,
+  }));
 }
 
 /**
- * Fleet-wide settlement for an owner wallet. Goes through the fleet's supplier ids — NOT
- * `supplierOwnerId`, which is a newer field present on only ~25% of claim events and under-reports
- * by ~20× (design doc §5.1).
+ * Lifetime settlement of every supplier an owner wallet owns now, from the settlement catalog (`owners`), so a fleet
+ * larger than the connection cap is counted whole. The operator table lists the CONNECTION_CAP largest-staked ones,
+ * each with the block of its latest settled claim.
  */
 export async function getFleetEarnings(network: NetworkId, ownerId: string): Promise<FleetEarnings> {
-  const fleet = await gqlFetch<{ suppliers: { totalCount: number; nodes: { id: string }[] } }>(
+  const earnings = (bySupplier: boolean, byService: boolean) =>
+    gqlFetch<{ getSupplierEarningsJson: unknown }>(network, FLEET_EARNINGS, { owners: [ownerId], bySupplier, byService }, { revalidate: 300 }).then(
+      (d) => unwrapRange<EarningsRow[]>(d.getSupplierEarningsJson),
+    );
+  // The listed operators' latest settled blocks chain on the fleet ids, alongside the catalog reads.
+  const listedFleet = gqlFetch<{ suppliers: { totalCount: number; nodes: { id: string }[] } }>(
     network,
     OWNER_FLEET_IDS,
     { id: ownerId, limit: CONNECTION_CAP },
     { revalidate: 30 },
-  );
-  const ids = fleet.suppliers?.nodes?.map((n) => n.id) ?? [];
-  const fleetSize = fleet.suppliers?.totalCount ?? 0;
-  const empty = { claims: 0, relays: 0, claimedUpokt: '0', settledUpokt: '0' };
-  if (ids.length === 0) {
-    return { covered: 0, fleetSize, truncated: false, totals: empty, bySupplier: [], byService: [] };
-  }
-
-  const d = await gqlFetch<{
-    eventClaimSettleds: {
-      totalCount: number;
-      aggregates: { sum: { numRelays: string | null; claimedAmount: string | null; settledAmount: string | null } | null } | null;
-      bySupplier: GroupedRow[] | null;
-      byService: GroupedRow[] | null;
-    };
-  }>(network, FLEET_EARNINGS, { ids }, { revalidate: 60 });
-
-  const c = d.eventClaimSettleds;
+  ).then(async (fleet) => {
+    const ids = fleet.suppliers?.nodes?.map((n) => n.id) ?? [];
+    const last =
+      ids.length === 0
+        ? {}
+        : await gqlFetch<Record<string, { nodes: { blockId: string }[] } | null>>(
+            network,
+            lastSettledQuery(ids.length),
+            Object.fromEntries(ids.map((id, i) => [`s${i}`, id])),
+            { revalidate: 60 },
+          );
+    const lastBlock = new Map(ids.map((id, i) => [id, Number(last[`s${i}`]?.nodes?.[0]?.blockId ?? 0)]));
+    return { fleetSize: fleet.suppliers?.totalCount ?? 0, lastBlock };
+  });
+  const [fleet, total, perSupplier, perService] = await Promise.all([listedFleet, earnings(false, false), earnings(true, false), earnings(false, true)]);
+  const bySupplier = toEarnings(perSupplier.data, 'supplier_id')
+    .filter((s) => fleet.lastBlock.has(s.serviceId))
+    .map((s) => ({ ...s, lastBlock: fleet.lastBlock.get(s.serviceId)! }));
+  const t = total.data?.[0];
+  const range = total.range;
+  // A gap with no start: settlements before covered_from exist on chain but are not indexed yet.
+  const dataSince = range?.covered_from && range.gaps?.some((g) => g.from == null) ? range.covered_from : null;
   return {
-    covered: ids.length,
-    fleetSize,
-    truncated: fleetSize > ids.length,
+    fleetSize: fleet.fleetSize,
     totals: {
-      claims: c?.totalCount ?? 0,
-      relays: Number(c?.aggregates?.sum?.numRelays ?? 0),
-      claimedUpokt: c?.aggregates?.sum?.claimedAmount ?? '0',
-      settledUpokt: c?.aggregates?.sum?.settledAmount ?? '0',
+      claims: Number(t?.settled_claims ?? 0),
+      relays: Number(t?.relays ?? 0),
+      claimedUpokt: amount(t?.claimed_upokt),
+      settledUpokt: amount(t?.settled_upokt),
     },
-    // `bySupplier` reuses ServiceSettlement — its `serviceId` field carries the operator address.
-    bySupplier: toSettlements(c?.bySupplier).sort((a, b) => b.relays - a.relays),
-    byService: toSettlements(c?.byService).sort((a, b) => b.relays - a.relays),
+    bySupplier: bySupplier.sort((a, b) => b.relays - a.relays),
+    byService: toEarnings(perService.data, 'service_id').sort((a, b) => b.relays - a.relays),
+    dataSince,
   };
 }
 
