@@ -163,6 +163,13 @@ export const FLEET_EARNINGS = /* GraphQL */ `
   }
 `;
 
+// One supplier's lifetime earnings per service (the supplier Traffic tab).
+export const SUPPLIER_SERVICE_EARNINGS = /* GraphQL */ `
+  query supplierServiceEarnings($suppliers: [String]) {
+    getSupplierEarningsJson(suppliers: $suppliers, rangeStart: null, rangeEnd: null, bySupplier: false, byService: true)
+  }
+`;
+
 /** The block of each supplier's latest settled claim: one `first: 1` lookup per id on the (supplier_id, block_id) index,
  *  aliased s0…sN. A grouped max over the fleet's claims read every claim (~4.5 s for 43 suppliers). */
 export function lastSettledQuery(count: number): string {
