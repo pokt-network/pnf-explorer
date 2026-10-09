@@ -10,6 +10,7 @@ import {
   SUPPLIER_HISTORY,
   OWNER_FLEET_IDS,
   FLEET_EARNINGS,
+  SUPPLIER_SERVICE_EARNINGS,
   lastSettledQuery,
   APPLICATION_ROLE,
   GATEWAY_ROLE,
@@ -308,6 +309,21 @@ export async function getFleetEarnings(network: NetworkId, ownerId: string): Pro
     byService: byService.sort((a, b) => b.relays - a.relays),
     dataSince: perService.range && Number.isFinite(window.from) ? window.from : null,
     gaps: window.gaps,
+  };
+}
+
+/** One supplier's lifetime settlement per service from the settlement catalog, most relays first, and where the
+ *  catalog's data starts (null when it has every settlement). */
+export async function getSupplierServiceEarningsCovered(
+  network: NetworkId,
+  supplierId: string,
+): Promise<{ rows: FleetSettlement[]; dataSince: number | null }> {
+  const d = await gqlFetch<{ getSupplierEarningsJson: unknown }>(network, SUPPLIER_SERVICE_EARNINGS, { suppliers: [supplierId] }, { revalidate: 60 });
+  const { data, range } = unwrapRange<EarningsRow[]>(d.getSupplierEarningsJson);
+  const window = coveredWindow(range, -Infinity, Infinity);
+  return {
+    rows: toEarnings(data, 'service_id').sort((a, b) => b.relays - a.relays),
+    dataSince: range && window && Number.isFinite(window.from) ? window.from : null,
   };
 }
 

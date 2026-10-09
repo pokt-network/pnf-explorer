@@ -57,7 +57,7 @@ async function FleetEarningsPanel({ network, ownerId, currentHeight }: { network
           <div className="line">
             <div className="k">Fleet</div>
             <div className="v">
-              <b>{formatNumber(f.totals.relays)}</b> relays <span className="dim">· {formatPokt(f.totals.settledUpokt)} POKT settled{f.totals.overservicedUpokt !== '0' ? ` · ${formatPokt(f.totals.claimedUpokt)} claimed, ${formatPokt(f.totals.overservicedUpokt)} lost to overservicing` : ''}</span>
+              <b>{formatNumber(f.totals.relays)}</b> relays <span className="dim">· {formatPokt(f.totals.settledUpokt)} POKT settled{f.totals.overservicedUpokt !== '0' ? ` · ${formatPokt(f.totals.claimedUpokt)} POKT claimed, ${formatPokt(f.totals.overservicedUpokt)} POKT lost to overservicing` : ''}</span>
               {since ? (
                 <div className="muted" style={{ marginTop: 4 }}>
                   Settlements since {since}
@@ -91,12 +91,12 @@ async function FleetEarningsPanel({ network, ownerId, currentHeight }: { network
                 return (
                   <tr key={s.serviceId}>
                     <td>
-                      <Hash value={s.serviceId} href={`/account/${s.serviceId}?as=supplier`} />
+                      <Hash value={s.serviceId} href={`/account/${s.serviceId}?as=supplier&tab=traffic`} />
                     </td>
                     <td className="num mono">{formatNumber(s.relays)}</td>
-                    <td className="num mono">{formatPokt(s.claimedUpokt)}</td>
-                    <td className="num mono">{formatPokt(s.settledUpokt)}</td>
-                    <td className="num mono">{s.overservicedUpokt !== '0' ? formatPokt(s.overservicedUpokt) : <span className="dim">—</span>}</td>
+                    <td className="num mono">{formatPokt(s.claimedUpokt)} POKT</td>
+                    <td className="num mono">{formatPokt(s.settledUpokt)} POKT</td>
+                    <td className="num mono">{s.overservicedUpokt !== '0' ? <span className="out">{formatPokt(s.overservicedUpokt)} POKT</span> : <span className="dim">—</span>}</td>
                     <td>
                       {s.lastBlock > 0 ? <Link href={`/block/${s.lastBlock}`}>{formatNumber(s.lastBlock)}</Link> : <span className="dim">—</span>}
                       {agoBlocks != null ? <span className="dim"> · {agoFromBlocks(agoBlocks)}</span> : null}
@@ -133,9 +133,9 @@ async function FleetEarningsPanel({ network, ownerId, currentHeight }: { network
                     </Link>
                   </td>
                   <td className="num mono">{formatNumber(s.relays)}</td>
-                  <td className="num mono">{formatPokt(s.claimedUpokt)}</td>
-                  <td className="num mono">{formatPokt(s.settledUpokt)}</td>
-                  <td className="num mono">{s.overservicedUpokt !== '0' ? formatPokt(s.overservicedUpokt) : <span className="dim">—</span>}</td>
+                  <td className="num mono">{formatPokt(s.claimedUpokt)} POKT</td>
+                  <td className="num mono">{formatPokt(s.settledUpokt)} POKT</td>
+                  <td className="num mono">{s.overservicedUpokt !== '0' ? <span className="out">{formatPokt(s.overservicedUpokt)} POKT</span> : <span className="dim">—</span>}</td>
                 </tr>
               ))}
             </tbody>
