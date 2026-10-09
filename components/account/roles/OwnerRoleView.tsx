@@ -8,6 +8,7 @@ import { RoleStats, SummaryCard, DOT } from './RoleStats';
 import { CONNECTION_CAP, getFleetEarnings } from '@/lib/data/roles';
 import type { OwnerRole } from '@/lib/data/accounts';
 import type { NetworkId } from '@/lib/networks';
+import { NOT_COVERED } from '@/lib/data/range';
 import { formatNumber, formatPokt, formatPoktCompact, formatCompact } from '@/lib/format';
 import { absoluteUtc, agoFromBlocks } from '@/lib/time';
 import { parsePage } from '@/lib/paging';
@@ -30,13 +31,20 @@ async function FleetEarningsPanel({ network, ownerId, currentHeight }: { network
       </div>
     );
   }
+  if (f === NOT_COVERED) {
+    return (
+      <div className="card flush-top">
+        <EmptyState>No settlements indexed yet.</EmptyState>
+      </div>
+    );
+  }
+  const since = f.dataSince != null ? absoluteUtc(f.dataSince) : null;
+  const gaps = f.gaps.map((g) => `${absoluteUtc(g.from)} – ${absoluteUtc(g.to)}`).join(', ');
   if (f.totals.claims === 0) {
     return (
       <div className="card flush-top">
         <EmptyState>
-          {f.dataSince
-            ? `No settled claims across this owner’s operators since ${absoluteUtc(f.dataSince)}; older settlements are still being indexed.`
-            : 'No settled claims across this owner’s operators yet.'}
+          {since ? `No settled claims across this owner’s operators since ${since}.` : 'No settled claims across this owner’s operators yet.'}
         </EmptyState>
       </div>
     );
@@ -50,9 +58,10 @@ async function FleetEarningsPanel({ network, ownerId, currentHeight }: { network
             <div className="k">Fleet</div>
             <div className="v">
               <b>{formatNumber(f.totals.relays)}</b> relays <span className="dim">· {formatPokt(f.totals.settledUpokt)} POKT settled</span>
-              {f.dataSince ? (
+              {since ? (
                 <div className="muted" style={{ marginTop: 4 }}>
-                  Settlements since {absoluteUtc(f.dataSince)}; older ones are still being indexed.
+                  Settlements since {since}
+                  {gaps ? ` · not indexed: ${gaps}` : ''}
                 </div>
               ) : null}
               {f.fleetSize > CONNECTION_CAP ? (
@@ -77,7 +86,7 @@ async function FleetEarningsPanel({ network, ownerId, currentHeight }: { network
             </thead>
             <tbody>
               {f.bySupplier.map((s) => {
-                const agoBlocks = currentHeight != null ? currentHeight - s.lastBlock : null;
+                const agoBlocks = currentHeight != null && s.lastBlock > 0 ? currentHeight - s.lastBlock : null;
                 return (
                   <tr key={s.serviceId}>
                     <td>
@@ -87,7 +96,7 @@ async function FleetEarningsPanel({ network, ownerId, currentHeight }: { network
                     <td className="num mono">{formatPokt(s.claimedUpokt)}</td>
                     <td className="num mono">{formatPokt(s.settledUpokt)}</td>
                     <td>
-                      <Link href={`/block/${s.lastBlock}`}>{formatNumber(s.lastBlock)}</Link>
+                      {s.lastBlock > 0 ? <Link href={`/block/${s.lastBlock}`}>{formatNumber(s.lastBlock)}</Link> : <span className="dim">—</span>}
                       {agoBlocks != null ? <span className="dim"> · {agoFromBlocks(agoBlocks)}</span> : null}
                     </td>
                   </tr>
