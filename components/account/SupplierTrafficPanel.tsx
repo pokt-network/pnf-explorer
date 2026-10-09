@@ -48,7 +48,9 @@ export async function SupplierTrafficPanel({
     .map((serviceId) => {
       const traffic = routing.byService[serviceId] ?? null;
       const e = earned.get(serviceId) ?? null;
-      const relays = earnings ? (e?.relays ?? null) : (traffic?.relays ?? null);
+      // The catalog's relays when it has the service; the claim events' when it has none (read failed, or settlements
+      // newer than its coverage), so an active service never sorts or shows as idle.
+      const relays = e?.relays ?? traffic?.relays ?? null;
       return { serviceId, traffic, earned: e, relays };
     })
     .sort((a, b) => (b.relays ?? -1) - (a.relays ?? -1) || a.serviceId.localeCompare(b.serviceId));
