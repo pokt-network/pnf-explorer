@@ -255,8 +255,8 @@ function toEarnings(rows: EarningsRow[] | null, key: 'supplier_id' | 'service_id
 
 /**
  * Lifetime settlement of every supplier an owner wallet owns now, from the settlement catalog (`owners`), so a fleet
- * larger than the connection cap is counted whole. Claimed is what the claims asked for and Settled what was paid after
- * overservicing (the claim event's claimedAmount is already the settled amount). The operator table lists the
+ * larger than the connection cap is counted whole. Claimed is what the claims asked for, Settled what was paid after
+ * overservicing (the claim event's claimedAmount is already the settled amount) and Overserviced the difference. The operator table lists the
  * CONNECTION_CAP largest-staked operators, each with the block of its latest settled claim (0 when unknown).
  * NOT_COVERED when the catalog has nothing indexed.
  */
