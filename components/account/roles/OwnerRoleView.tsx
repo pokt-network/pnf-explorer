@@ -23,7 +23,7 @@ import { parsePage } from '@/lib/paging';
 async function FleetEarningsPanel({ network, ownerId, currentHeight }: { network: NetworkId; ownerId: string; currentHeight: number | null }) {
   let f: Awaited<ReturnType<typeof getFleetEarnings>>;
   try {
-    f = await getFleetEarnings(network, ownerId);
+    f = await getFleetEarnings(network, ownerId, currentHeight);
   } catch {
     return (
       <div className="card flush-top">
@@ -122,6 +122,7 @@ async function FleetEarningsPanel({ network, ownerId, currentHeight }: { network
                 <th className="num">Claimed</th>
                 <th className="num">Settled</th>
                 <th className="num">Overserviced</th>
+                <th>Last settled</th>
               </tr>
             </thead>
             <tbody>
@@ -136,6 +137,16 @@ async function FleetEarningsPanel({ network, ownerId, currentHeight }: { network
                   <td className="num mono">{formatPokt(s.claimedUpokt)} POKT</td>
                   <td className="num mono">{formatPokt(s.settledUpokt)} POKT</td>
                   <td className="num mono">{s.overservicedUpokt !== '0' ? <span className="out">{formatPokt(s.overservicedUpokt)} POKT</span> : <span className="dim">—</span>}</td>
+                  <td>
+                    {s.lastBlock > 0 ? (
+                      <>
+                        <Link href={`/block/${s.lastBlock}`}>{formatNumber(s.lastBlock)}</Link>
+                        {currentHeight != null ? <span className="dim"> · {agoFromBlocks(currentHeight - s.lastBlock)}</span> : null}
+                      </>
+                    ) : (
+                      <span className="dim">{f.lastByServiceRead ? 'over a day ago' : '—'}</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
