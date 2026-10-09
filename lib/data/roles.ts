@@ -213,12 +213,17 @@ export async function getSupplierHistory(network: NetworkId, id: string, limit: 
 }
 
 // ---- supplier owner (fleet) ----
+/** A fleet row: what the claims asked for, what was paid, and the difference lost to overservicing. */
+export interface FleetSettlement extends ServiceSettlement {
+  overservicedUpokt: string;
+}
+
 export interface FleetEarnings {
   fleetSize: number;
   /** Totals and `byService` cover the whole fleet; `bySupplier` lists the CONNECTION_CAP largest-staked operators. */
-  totals: { claims: number; relays: number; claimedUpokt: string; settledUpokt: string };
-  bySupplier: ServiceSettlement[];
-  byService: ServiceSettlement[];
+  totals: { claims: number; relays: number; claimedUpokt: string; settledUpokt: string; overservicedUpokt: string };
+  bySupplier: FleetSettlement[];
+  byService: FleetSettlement[];
   /** Where the settlement catalog's data starts, and the stretches inside it with nothing indexed (epoch ms). */
   dataSince: number | null;
   gaps: { from: number; to: number }[];
@@ -230,18 +235,20 @@ interface EarningsRow {
   relays: string | null;
   claimed_upokt: string | null;
   settled_upokt: string | null;
+  overservicing_loss_upokt: string | null;
   settled_claims: string | null;
 }
 
 // The catalog sends every number as a JSON string (amounts can pass 2^53); amounts stay strings, summed as BigInt.
 const amount = (v: string | null | undefined) => (v == null ? '0' : v);
 
-function toEarnings(rows: EarningsRow[] | null, key: 'supplier_id' | 'service_id'): ServiceSettlement[] {
+function toEarnings(rows: EarningsRow[] | null, key: 'supplier_id' | 'service_id'): FleetSettlement[] {
   return (rows ?? []).map((r) => ({
     serviceId: r[key],
     relays: Number(r.relays ?? 0),
     claimedUpokt: amount(r.claimed_upokt),
     settledUpokt: amount(r.settled_upokt),
+    overservicedUpokt: amount(r.overservicing_loss_upokt),
     lastBlock: 0,
   }));
 }
@@ -284,7 +291,7 @@ export async function getFleetEarnings(network: NetworkId, ownerId: string): Pro
   const window = coveredWindow(perService.range, -Infinity, Infinity);
   if (!window) return NOT_COVERED;
   const byService = toEarnings(perService.data, 'service_id');
-  const sum = (k: 'claimed_upokt' | 'settled_upokt') => (perService.data ?? []).reduce((t, r) => t + BigInt(amount(r[k])), 0n).toString();
+  const sum = (k: 'claimed_upokt' | 'settled_upokt' | 'overservicing_loss_upokt') => (perService.data ?? []).reduce((t, r) => t + BigInt(amount(r[k])), 0n).toString();
   const bySupplier = toEarnings(perSupplier.data, 'supplier_id')
     .filter((s) => fleet.lastBlock.has(s.serviceId))
     .map((s) => ({ ...s, lastBlock: fleet.lastBlock.get(s.serviceId)! }));
@@ -295,6 +302,7 @@ export async function getFleetEarnings(network: NetworkId, ownerId: string): Pro
       relays: byService.reduce((t, r) => t + r.relays, 0),
       claimedUpokt: sum('claimed_upokt'),
       settledUpokt: sum('settled_upokt'),
+      overservicedUpokt: sum('overservicing_loss_upokt'),
     },
     bySupplier: bySupplier.sort((a, b) => b.relays - a.relays),
     byService: byService.sort((a, b) => b.relays - a.relays),
