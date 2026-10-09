@@ -32,7 +32,7 @@ export async function SupplierTrafficPanel({
   }
 
   let routing: Awaited<ReturnType<typeof getSupplierRouting>>;
-  // A failed catalog read leaves its columns empty instead of failing the tab.
+  // A failed catalog read falls back to the claim events' relays and says the amounts are missing, instead of failing the tab.
   const earningsRead = getSupplierServiceEarningsCovered(network, supplier.id).catch(() => null);
   try {
     routing = await getSupplierRouting(network, supplier.id);
@@ -43,22 +43,27 @@ export async function SupplierTrafficPanel({
   const earnings = await earningsRead;
   const earned = new Map((earnings?.rows ?? []).map((e) => [e.serviceId, e]));
 
-  // Active services first (by relay volume), then idle (alphabetical).
+  // Active services first (by the relays shown), then idle (alphabetical).
   const rows = configured
-    .map((serviceId) => ({ serviceId, traffic: routing.byService[serviceId] ?? null, earned: earned.get(serviceId) ?? null }))
-    .sort(
-      (a, b) =>
-        (b.earned?.relays ?? b.traffic?.relays ?? -1) - (a.earned?.relays ?? a.traffic?.relays ?? -1) || a.serviceId.localeCompare(b.serviceId),
-    );
+    .map((serviceId) => {
+      const traffic = routing.byService[serviceId] ?? null;
+      const e = earned.get(serviceId) ?? null;
+      const relays = earnings ? (e?.relays ?? null) : (traffic?.relays ?? null);
+      return { serviceId, traffic, earned: e, relays };
+    })
+    .sort((a, b) => (b.relays ?? -1) - (a.relays ?? -1) || a.serviceId.localeCompare(b.serviceId));
   // Only the configured services count as receiving traffic: settled claims on a service no longer in the config
   // would otherwise push the count past the number configured.
   const activeCount = rows.filter((r) => r.traffic).length;
 
-  const homeMatches = routing.gateways.filter((g) => HOME_GATEWAYS.includes(g)).length;
+  // Gateways of the configured services only, like the service count.
+  const gateways = [...new Set(rows.flatMap((r) => r.traffic?.gateways ?? []))];
+  const homeMatches = gateways.filter((g) => HOME_GATEWAYS.includes(g)).length;
+  const gaps = (earnings?.gaps ?? []).map((g) => `${absoluteUtc(g.from)} – ${absoluteUtc(g.to)}`).join(', ');
   const summary =
     activeCount === 0
       ? `Staked but idle — 0 of ${configured.length} services have settled claims.`
-      : `${activeCount} of ${configured.length} services receiving traffic · routed via ${routing.gateways.length} gateway${routing.gateways.length === 1 ? '' : 's'}` +
+      : `${activeCount} of ${configured.length} services receiving traffic · routed via ${gateways.length} gateway${gateways.length === 1 ? '' : 's'}` +
         (HOME_GATEWAYS.length && homeMatches ? ` · ${homeMatches} via your gateway` : '');
 
   return (
@@ -68,9 +73,14 @@ export async function SupplierTrafficPanel({
           <div className="k">Traffic</div>
           <div className="v">
             {summary}
-            {earnings?.dataSince != null ? (
+            {earnings == null ? (
+              <div className="muted" style={{ marginTop: 4 }}>
+                Couldn’t load claimed, settled and overserviced amounts right now; relays are from the claim events.
+              </div>
+            ) : earnings.dataSince != null ? (
               <div className="muted" style={{ marginTop: 4 }}>
                 Relays and amounts: settlements since {absoluteUtc(earnings.dataSince)}
+                {gaps ? ` · not indexed: ${gaps}` : ''}
               </div>
             ) : null}
           </div>
@@ -91,7 +101,7 @@ export async function SupplierTrafficPanel({
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ serviceId, traffic, earned: e }) => {
+            {rows.map(({ serviceId, traffic, earned: e, relays }) => {
               const agoBlocks = traffic && currentHeight != null ? currentHeight - traffic.lastBlock : null;
               return (
                 <tr key={serviceId}>
@@ -105,7 +115,7 @@ export async function SupplierTrafficPanel({
                       <span className="muted">Idle</span>
                     )}
                   </td>
-                  <td className="num mono">{e ? formatNumber(e.relays) : <span className="dim">—</span>}</td>
+                  <td className="num mono">{relays != null ? formatNumber(relays) : <span className="dim">—</span>}</td>
                   <td className="num mono">{e ? `${formatPokt(e.claimedUpokt)} POKT` : <span className="dim">—</span>}</td>
                   <td className="num mono">{e ? `${formatPokt(e.settledUpokt)} POKT` : <span className="dim">—</span>}</td>
                   <td className="num mono">

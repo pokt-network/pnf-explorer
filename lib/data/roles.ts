@@ -10,6 +10,7 @@ import {
   SUPPLIER_HISTORY,
   OWNER_FLEET_IDS,
   FLEET_EARNINGS,
+  FLEET_LAST_SETTLED_BY_SERVICE,
   SUPPLIER_SERVICE_EARNINGS,
   lastSettledQuery,
   APPLICATION_ROLE,
@@ -219,12 +220,18 @@ export interface FleetSettlement extends ServiceSettlement {
   overservicedUpokt: string;
 }
 
+/** Blocks back from the current height that By service looks for each service's latest settlement: about a day at
+ *  60 s blocks (the site's agoFromBlocks default). A service with none in that window shows as older than that. */
+export const FLEET_LAST_SETTLED_WINDOW_BLOCKS = 1440;
+
 export interface FleetEarnings {
   fleetSize: number;
   /** Totals and `byService` cover the whole fleet; `bySupplier` lists the CONNECTION_CAP largest-staked operators. */
   totals: { claims: number; relays: number; claimedUpokt: string; settledUpokt: string; overservicedUpokt: string };
   bySupplier: FleetSettlement[];
   byService: FleetSettlement[];
+  /** False when By service's latest settled blocks could not be read (they are 0 then, not "over a day ago"). */
+  lastByServiceRead: boolean;
   /** Where the settlement catalog's data starts, and the stretches inside it with nothing indexed (epoch ms). */
   dataSince: number | null;
   gaps: { from: number; to: number }[];
@@ -258,10 +265,15 @@ function toEarnings(rows: EarningsRow[] | null, key: 'supplier_id' | 'service_id
  * Lifetime settlement of every supplier an owner wallet owns now, from the settlement catalog (`owners`), so a fleet
  * larger than the connection cap is counted whole. Claimed is what the claims asked for, Settled what was paid after
  * overservicing (the claim event's claimedAmount is already the settled amount) and Overserviced the difference. The operator table lists the
- * CONNECTION_CAP largest-staked operators, each with the block of its latest settled claim (0 when unknown).
- * NOT_COVERED when the catalog has nothing indexed.
+ * CONNECTION_CAP largest-staked operators, each with the block of its latest settled claim (0 when unknown); By service
+ * carries each service's latest settled block within the last FLEET_LAST_SETTLED_WINDOW_BLOCKS (0 when none there or
+ * the current height is unknown). NOT_COVERED when the catalog has nothing indexed.
  */
-export async function getFleetEarnings(network: NetworkId, ownerId: string): Promise<FleetEarnings | typeof NOT_COVERED> {
+export async function getFleetEarnings(
+  network: NetworkId,
+  ownerId: string,
+  currentHeight: number | null,
+): Promise<FleetEarnings | typeof NOT_COVERED> {
   const earnings = (bySupplier: boolean, byService: boolean) =>
     gqlFetch<{ getSupplierEarningsJson: unknown }>(network, FLEET_EARNINGS, { owners: [ownerId], bySupplier, byService }, { revalidate: 60 }).then(
       (d) => unwrapRange<EarningsRow[]>(d.getSupplierEarningsJson),
@@ -287,7 +299,24 @@ export async function getFleetEarnings(network: NetworkId, ownerId: string): Pro
     const lastBlock = new Map(ids.map((id, i) => [id, Number(last[`s${i}`]?.nodes?.[0]?.blockId ?? 0)]));
     return { fleetSize: fleet.suppliers?.totalCount ?? 0, lastBlock };
   });
-  const [fleet, perSupplier, perService] = await Promise.all([listedFleet, earnings(true, false), earnings(false, true)]);
+  type LastByService = { eventClaimSettleds: { groupedAggregates: { keys: string[] | null; max: { blockId: string | null } | null }[] | null } | null };
+  const serviceLast =
+    currentHeight == null
+      ? Promise.resolve(null)
+      : gqlFetch<LastByService>(
+          network,
+          FLEET_LAST_SETTLED_BY_SERVICE,
+          { owner: ownerId, minBlock: String(Math.max(0, currentHeight - FLEET_LAST_SETTLED_WINDOW_BLOCKS)) },
+          { revalidate: 60 },
+        )
+          .then((d) => new Map((d.eventClaimSettleds?.groupedAggregates ?? []).filter((g) => g.keys?.[0]).map((g) => [g.keys![0], Number(g.max?.blockId ?? 0)])))
+          .catch(() => null);
+  const [fleet, perSupplier, perService, lastByService] = await Promise.all([
+    listedFleet,
+    earnings(true, false),
+    earnings(false, true),
+    serviceLast,
+  ]);
   // The totals are the By service rows summed: one fewer lifetime read, and the headline always matches the table.
   const window = coveredWindow(perService.range, -Infinity, Infinity);
   if (!window) return NOT_COVERED;
@@ -306,24 +335,27 @@ export async function getFleetEarnings(network: NetworkId, ownerId: string): Pro
       overservicedUpokt: sum('overservicing_loss_upokt'),
     },
     bySupplier: bySupplier.sort((a, b) => b.relays - a.relays),
-    byService: byService.sort((a, b) => b.relays - a.relays),
+    byService: byService.map((s) => ({ ...s, lastBlock: lastByService?.get(s.serviceId) ?? 0 })).sort((a, b) => b.relays - a.relays),
+    lastByServiceRead: lastByService != null,
     dataSince: perService.range && Number.isFinite(window.from) ? window.from : null,
     gaps: window.gaps,
   };
 }
 
-/** One supplier's lifetime settlement per service from the settlement catalog, most relays first, and where the
- *  catalog's data starts (null when it has every settlement). */
+/** One supplier's lifetime settlement per service from the settlement catalog, most relays first, where the catalog's
+ *  data starts (epoch ms; null from an indexer without the range contract) and the stretches inside it with nothing
+ *  indexed. */
 export async function getSupplierServiceEarningsCovered(
   network: NetworkId,
   supplierId: string,
-): Promise<{ rows: FleetSettlement[]; dataSince: number | null }> {
+): Promise<{ rows: FleetSettlement[]; dataSince: number | null; gaps: { from: number; to: number }[] }> {
   const d = await gqlFetch<{ getSupplierEarningsJson: unknown }>(network, SUPPLIER_SERVICE_EARNINGS, { suppliers: [supplierId] }, { revalidate: 60 });
   const { data, range } = unwrapRange<EarningsRow[]>(d.getSupplierEarningsJson);
   const window = coveredWindow(range, -Infinity, Infinity);
   return {
     rows: toEarnings(data, 'service_id').sort((a, b) => b.relays - a.relays),
     dataSince: range && window && Number.isFinite(window.from) ? window.from : null,
+    gaps: window?.gaps ?? [],
   };
 }
 
