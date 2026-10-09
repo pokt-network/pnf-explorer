@@ -141,9 +141,9 @@ export const SUPPLIER_HISTORY = /* GraphQL */ `
 `;
 
 // ---- supplier owner (fleet) ----
-// Fleet ids first (capped at the connection limit), then the settlement rollup over that id set.
-// Rollups MUST go through supplierId — `supplierOwnerId` on claim events is a newer field present
-// on only ~25% of rows (1,315 of 5,296 for pokt1w8mta…), which silently under-reports by 20×.
+// The fleet's earnings come from the settlement catalog's `owners` (every supplier the owner owns now); the ids
+// (capped at the connection limit) only pick the operators listed. Never `supplierOwnerId` on claim events — a newer
+// field present on only ~25% of rows (1,315 of 5,296 for pokt1w8mta…), which silently under-reports by 20×.
 export const OWNER_FLEET_IDS = /* GraphQL */ `
   query ownerFleetIds($id: String!, $limit: Int!) {
     suppliers(filter: { ownerId: { equalTo: $id } }, first: $limit, orderBy: STAKE_AMOUNT_DESC) {
@@ -155,39 +155,24 @@ export const OWNER_FLEET_IDS = /* GraphQL */ `
   }
 `;
 
+// Lifetime earnings of every supplier the owner owns now, from the settlement catalog: one total, per supplier, or per
+// service (bySupplier: false, byService: true). Read as three requests so they run in parallel.
 export const FLEET_EARNINGS = /* GraphQL */ `
-  query fleetEarnings($ids: [String!]) {
-    eventClaimSettleds(filter: { supplierId: { in: $ids } }) {
-      totalCount
-      aggregates {
-        sum {
-          numRelays
-          claimedAmount
-          settledAmount
-        }
-      }
-      bySupplier: groupedAggregates(groupBy: [SUPPLIER_ID]) {
-        keys
-        sum {
-          numRelays
-          claimedAmount
-          settledAmount
-        }
-        max {
-          blockId
-        }
-      }
-      byService: groupedAggregates(groupBy: [SERVICE_ID]) {
-        keys
-        sum {
-          numRelays
-          claimedAmount
-          settledAmount
-        }
-      }
-    }
+  query fleetEarnings($owners: [String], $bySupplier: Boolean, $byService: Boolean) {
+    getSupplierEarningsJson(suppliers: null, rangeStart: null, rangeEnd: null, bySupplier: $bySupplier, byService: $byService, owners: $owners)
   }
 `;
+
+/** The block of each supplier's latest settled claim: one `first: 1` lookup per id on the (supplier_id, block_id) index,
+ *  aliased s0…sN. A grouped max over the fleet's claims read every claim (~4.5 s for 43 suppliers). */
+export function lastSettledQuery(count: number): string {
+  const vars = Array.from({ length: count }, (_, i) => `$s${i}: String!`).join(', ');
+  const fields = Array.from(
+    { length: count },
+    (_, i) => `s${i}: eventClaimSettleds(filter: { supplierId: { equalTo: $s${i} } }, orderBy: BLOCK_ID_DESC, first: 1) { nodes { blockId } }`,
+  ).join('\n    ');
+  return `query lastSettled(${vars}) {\n    ${fields}\n  }`;
+}
 
 // ---- application ----
 // Claim amounts on an application are SPEND (stake burned to pay suppliers), not income.
