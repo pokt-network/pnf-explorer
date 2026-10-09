@@ -163,21 +163,6 @@ export const FLEET_EARNINGS = /* GraphQL */ `
   }
 `;
 
-// The latest settled block per service among the owner's suppliers, over the blocks from $minBlock: a grouped max
-// over that window only (over the whole history a service the fleet stopped serving scans every claim and times out).
-export const FLEET_LAST_SETTLED_BY_SERVICE = /* GraphQL */ `
-  query fleetLastSettledByService($owner: String!, $minBlock: BigFloat!) {
-    eventClaimSettleds(filter: { blockId: { greaterThanOrEqualTo: $minBlock }, supplier: { ownerId: { equalTo: $owner } } }) {
-      groupedAggregates(groupBy: [SERVICE_ID]) {
-        keys
-        max {
-          blockId
-        }
-      }
-    }
-  }
-`;
-
 // One supplier's lifetime earnings per service (the supplier Traffic tab).
 export const SUPPLIER_SERVICE_EARNINGS = /* GraphQL */ `
   query supplierServiceEarnings($suppliers: [String]) {
