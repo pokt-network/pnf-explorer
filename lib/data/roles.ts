@@ -238,6 +238,8 @@ interface EarningsRow {
   settled_upokt: string | null;
   overservicing_loss_upokt: string | null;
   settled_claims: string | null;
+  /** The height of the group's latest settled claim; null while the catalog cannot vouch for it (bounds not filled). */
+  last_settled_height: string | null;
 }
 
 // The catalog sends every number as a JSON string (amounts can pass 2^53); amounts stay strings, summed as BigInt.
@@ -250,7 +252,7 @@ function toEarnings(rows: EarningsRow[] | null, key: 'supplier_id' | 'service_id
     claimedUpokt: amount(r.claimed_upokt),
     settledUpokt: amount(r.settled_upokt),
     overservicedUpokt: amount(r.overservicing_loss_upokt),
-    lastBlock: 0,
+    lastBlock: Number(r.last_settled_height ?? 0),
   }));
 }
 
@@ -258,8 +260,9 @@ function toEarnings(rows: EarningsRow[] | null, key: 'supplier_id' | 'service_id
  * Lifetime settlement of every supplier an owner wallet owns now, from the settlement catalog (`owners`), so a fleet
  * larger than the connection cap is counted whole. Claimed is what the claims asked for, Settled what was paid after
  * overservicing (the claim event's claimedAmount is already the settled amount) and Overserviced the difference. The operator table lists the
- * CONNECTION_CAP largest-staked operators, each with the block of its latest settled claim (0 when unknown).
- * NOT_COVERED when the catalog has nothing indexed.
+ * CONNECTION_CAP largest-staked operators, each with the block of its latest settled claim (0 when unknown); By service
+ * carries each service's last settled height from the catalog (0 when it cannot vouch for one). NOT_COVERED when the
+ * catalog has nothing indexed.
  */
 export async function getFleetEarnings(network: NetworkId, ownerId: string): Promise<FleetEarnings | typeof NOT_COVERED> {
   const earnings = (bySupplier: boolean, byService: boolean) =>
