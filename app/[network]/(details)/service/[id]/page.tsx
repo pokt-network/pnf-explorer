@@ -38,6 +38,17 @@ export default async function ServiceDetailPage({
   const diff = svc.latestDiff?.nodes?.[0] ?? null;
 
   const tabs = [
+    // Metadata card first when the service carries one (~half of mainnet services do). Same JSON
+    // viewer as the Raw tab; source is the on-chain card, not the indexer.
+    ...(summary.card
+      ? [
+          {
+            key: 'metadata',
+            label: 'Metadata',
+            panel: <RawJson title="Service Metadata Card" source={<>source: <b>on-chain metadata (LCD)</b></>} data={summary.card} />,
+          },
+        ]
+      : []),
     {
       key: 'suppliers',
       label: 'Suppliers',

@@ -14,8 +14,8 @@ import {
 // active-supplier counts use a long (12h) ISR window — adequate for a top-level overview.
 const SERVICES_TTL = 12 * 60 * 60;
 
-// Services data layer (indexer, plus one LCD read for the on-chain metadata-card description —
-// getServiceCardDescription). "Active" counts/lists filter to currently-Staked suppliers/apps —
+// Services data layer (indexer, plus one LCD read for the on-chain metadata card —
+// getServiceCard). "Active" counts/lists filter to currently-Staked suppliers/apps —
 // see lib/queries/services.ts for why a filtered totalCount is the distinct count.
 
 export interface ServiceDifficultyPoint {
@@ -40,8 +40,11 @@ export interface ServiceSummary {
   totalSuppliers: number | null;
   activeApps: number | null;
   /** Human description from the on-chain metadata card (`pocket-service-card/v1`), or null if the
-   *  service has no card / no description. See getServiceCardDescription. */
+   *  service has no card / no description. Derived from `card`. */
   description: string | null;
+  /** The full on-chain metadata card (`pocket-service-card/v1`), parsed, or null if the service has
+   *  no card / it can't be decoded. Rendered verbatim on the Metadata tab. See getServiceCard. */
+  card: unknown | null;
 }
 
 export interface ServiceListRow {
@@ -107,14 +110,14 @@ export async function getAllServicesWithCounts(network: NetworkId): Promise<Serv
 }
 
 /**
- * The service's human description, read from its on-chain metadata card. The indexer does not
+ * The service's on-chain metadata card (`pocket-service-card/v1`), parsed. The indexer does not
  * expose the card, so this is the one LCD read in the otherwise indexer-only services layer. The
  * card is stored as raw bytes and returned base64 by the LCD under `service.metadata.card`; ~half
  * of mainnet services carry one. Cards change rarely → 12h ISR. Any missing/malformed layer
- * (null metadata, absent card, undecodable base64, non-object JSON, blank description) → null, so
- * the caller simply renders nothing.
+ * (null metadata, absent card, undecodable base64, non-object JSON) → null, so the caller simply
+ * renders nothing.
  */
-export async function getServiceCardDescription(network: NetworkId, id: string): Promise<string | null> {
+export async function getServiceCard(network: NetworkId, id: string): Promise<Record<string, unknown> | null> {
   try {
     const data = await lcdFetch<{ service?: { metadata?: { card?: string | null } | null } | null }>(
       network,
@@ -124,25 +127,30 @@ export async function getServiceCardDescription(network: NetworkId, id: string):
     const b64 = data.service?.metadata?.card;
     if (!b64) return null;
     const card = JSON.parse(Buffer.from(b64, 'base64').toString('utf-8')) as unknown;
-    if (typeof card !== 'object' || card === null) return null;
-    const desc = (card as { description?: unknown }).description;
-    return typeof desc === 'string' && desc.trim() ? desc.trim() : null;
+    if (typeof card !== 'object' || card === null || Array.isArray(card)) return null;
+    return card as Record<string, unknown>;
   } catch {
     return null;
   }
 }
 
-/** Service header + active supplier/app counts + latest relay-mining difficulty + card description.
+/** The card's human description (trimmed), or null when absent/blank. */
+function cardDescription(card: Record<string, unknown> | null): string | null {
+  const desc = card?.description;
+  return typeof desc === 'string' && desc.trim() ? desc.trim() : null;
+}
+
+/** Service header + active supplier/app counts + latest relay-mining difficulty + metadata card.
  *  null → notFound. */
 export async function getService(network: NetworkId, id: string): Promise<ServiceSummary | null> {
-  const [data, description] = await Promise.all([
+  const [data, card] = await Promise.all([
     gqlFetch<{
       service: ServiceDetail | null;
       activeSuppliers: { totalCount: number } | null;
       totalSuppliers: { totalCount: number } | null;
       activeApps: { totalCount: number } | null;
     }>(network, SERVICE_BY_ID, { id }, { revalidate: 60 }),
-    getServiceCardDescription(network, id),
+    getServiceCard(network, id),
   ]);
   if (!data.service) return null;
   return {
@@ -150,7 +158,8 @@ export async function getService(network: NetworkId, id: string): Promise<Servic
     activeSuppliers: data.activeSuppliers?.totalCount ?? null,
     totalSuppliers: data.totalSuppliers?.totalCount ?? null,
     activeApps: data.activeApps?.totalCount ?? null,
-    description,
+    description: cardDescription(card),
+    card,
   };
 }
 
