@@ -10,6 +10,7 @@ export function SummaryCard({
   sub,
   title,
   children,
+  className,
 }: {
   label: string;
   dot: string;
@@ -18,9 +19,10 @@ export function SummaryCard({
   sub?: React.ReactNode;
   title?: string;
   children?: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="card sum" title={title}>
+    <div className={`card sum${className ? ` ${className}` : ''}`} title={title}>
       <div className="lbl">
         <span className="dot" style={{ background: dot }} />
         {label}
@@ -37,6 +39,7 @@ export function SummaryCard({
 
 export const DOT = {
   blue: 'var(--blue)',
+  blueSoft: 'var(--blue-soft)',
   gold: 'var(--gold)',
   mint: 'var(--mint)',
   coral: 'var(--coral)',

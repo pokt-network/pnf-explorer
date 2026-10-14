@@ -33,7 +33,24 @@ function percent(claimed: bigint, total: bigint): number | null {
 }
 
 /** A summary card for one claimed-of-total figure: claimed amount, its total, and a fill bar. */
-function ClaimCard({ label, dot, claimed, total }: { label: string; dot: string; claimed: bigint; total: bigint }) {
+/** One part of the total bar: that kind's claimed share of everything claimable, in its card's color. */
+type Slice = { label: string; color: string; claimed: bigint };
+
+function ClaimCard({
+  label,
+  dot,
+  claimed,
+  total,
+  slices,
+  className,
+}: {
+  label: string;
+  dot: string;
+  claimed: bigint;
+  total: bigint;
+  slices?: Slice[];
+  className?: string;
+}) {
   const pct = percent(claimed, total);
   return (
     <SummaryCard
@@ -43,11 +60,28 @@ function ClaimCard({ label, dot, claimed, total }: { label: string; dot: string;
       unit="POKT"
       sub={`of ${formatPoktCompact(total)} POKT`}
       title={`${formatPoktExact(claimed)} of ${formatPoktExact(total)} POKT claimed`}
+      className={className}
     >
       <div className="meter">
-        <span className="bar-mini">
-          <i style={{ width: `${pct ?? 0}%`, background: dot }} />
-        </span>
+        {slices ? (
+          <span className="bar-mini stack">
+            {slices.map((s) => (
+              <i
+                key={s.label}
+                style={{
+                  width: `${percent(s.claimed, total) ?? 0}%`,
+                  minWidth: s.claimed > BigInt(0) ? 4 : 0,
+                  background: s.color,
+                }}
+                title={`${s.label}: ${formatPoktExact(s.claimed)} POKT (${(percent(s.claimed, total) ?? 0).toFixed(2)}% of all)`}
+              />
+            ))}
+          </span>
+        ) : (
+          <span className="bar-mini">
+            <i style={{ width: `${pct ?? 0}%`, background: dot }} />
+          </span>
+        )}
         {pct == null ? '—' : `${pct.toFixed(2)}%`}
       </div>
     </SummaryCard>
@@ -63,12 +97,27 @@ function ClaimCards({ summary }: { summary: MorseClaimSummary }) {
   const supplierTotal = supplier + toBigInt(u.supplierStakeUpokt);
   const appTotal = app + toBigInt(u.applicationStakeUpokt);
   return (
-    <div className="sumrow">
-      <ClaimCard label="Total Claimed" dot={DOT.blue} claimed={liquid + supplier + app} total={liquidTotal + supplierTotal + appTotal} />
-      <ClaimCard label="Claimed Liquid Balance" dot={DOT.mint} claimed={liquid} total={liquidTotal} />
-      <ClaimCard label="Claimed Supplier Stake" dot={DOT.coral} claimed={supplier} total={supplierTotal} />
-      <ClaimCard label="Claimed App Stake" dot={DOT.gold} claimed={app} total={appTotal} />
-    </div>
+    <>
+      <div className="sumrow c1">
+        <ClaimCard
+          className="lead"
+          label="Total Claimed"
+          dot={DOT.mint}
+          claimed={liquid + supplier + app}
+          total={liquidTotal + supplierTotal + appTotal}
+          slices={[
+            { label: 'Liquid balance', color: DOT.blueSoft, claimed: liquid },
+            { label: 'Supplier stake', color: DOT.gold, claimed: supplier },
+            { label: 'App stake', color: DOT.lavender, claimed: app },
+          ]}
+        />
+      </div>
+      <div className="sumrow c3 parts">
+        <ClaimCard label="Claimed Liquid Balance" dot={DOT.blueSoft} claimed={liquid} total={liquidTotal} />
+        <ClaimCard label="Claimed Supplier Stake" dot={DOT.gold} claimed={supplier} total={supplierTotal} />
+        <ClaimCard label="Claimed App Stake" dot={DOT.lavender} claimed={app} total={appTotal} />
+      </div>
+    </>
   );
 }
 
