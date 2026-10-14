@@ -1,3 +1,4 @@
+import { unstable_cache } from 'next/cache';
 import { gqlFetch } from '@/lib/graphql';
 import type { NetworkId } from '@/lib/networks';
 import { toBigInt } from '@/lib/format';
@@ -58,33 +59,27 @@ export const isShannonAddress = (q: string) => /^pokt1/i.test(q);
 // most 2,162 accounts were claimed to one address.
 const WALK_PAGE = 1000;
 const WALK_PAGES = 10;
-// ids per `id in [...]` read: each is an index lookup
+// ids per `id in [...]` read (each an index lookup), and how many such reads run at once
 const ID_CHUNK = 200;
-
-/**
- * Morse node addresses (= the claimed accounts' ids) of every supplier claim whose supplier address or owner is
- * `shannon`. get_morse_claims returns at most rowLimit rows, so a short page is the last one.
- */
-async function getSupplierClaimAccountIds(network: NetworkId, shannon: string) {
-  const ids = new Set<string>();
-  let before: { height: string; id: string } | undefined;
-  for (let i = 0; i < WALK_PAGES; i++) {
-    const data = await gqlFetch<{ getMorseClaimsList: { height: string; id: string; morseNodeAddress: string }[] | null }>(
-      network,
-      MORSE_SUPPLIER_CLAIMS,
-      { shannon: [shannon], beforeHeight: before?.height, beforeId: before?.id },
-      { cache: 'no-store' },
-    );
-    const rows = data.getMorseClaimsList ?? [];
-    for (const r of rows) ids.add(r.morseNodeAddress.toLowerCase());
-    if (rows.length < WALK_PAGE) return { ids, truncated: false };
-    const last = rows[rows.length - 1];
-    before = { height: last.height, id: last.id };
-  }
-  return { ids, truncated: true };
-}
+const ID_CHUNK_CONCURRENCY = 4;
+// how long a Shannon search's matched set is reused while paging through it
+const SEARCH_TTL_SECONDS = 60;
 
 type AccountKey = Pick<MorseClaimableAccountRow, 'id' | 'claimed' | 'claimedAtId'>;
+
+/** `fn` over `items`, at most `limit` calls in flight; results in input order. */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
 
 /** Every account claimed to `dest` at `blockHeight`, walked by id (keyset), checked against each page's totalCount. */
 async function getDestinationAccountKeys(network: NetworkId, blockHeight: string, dest: string) {
@@ -108,22 +103,55 @@ async function getDestinationAccountKeys(network: NetworkId, blockHeight: string
   return { keys, truncated: true };
 }
 
-/** The accounts with these ids at `blockHeight`, in reads of ID_CHUNK ids. */
+/** The accounts with these ids at `blockHeight`, in reads of ID_CHUNK ids, ID_CHUNK_CONCURRENCY at a time. */
 async function getAccountKeysByIds(network: NetworkId, blockHeight: string, ids: string[]) {
   const chunks: string[][] = [];
   for (let i = 0; i < ids.length; i += ID_CHUNK) chunks.push(ids.slice(i, i + ID_CHUNK));
-  const pages = await Promise.all(
-    chunks.map((chunk) =>
-      gqlFetch<{ morseClaimableAccounts: { totalCount: number; nodes: AccountKey[] } }>(
-        network,
-        MORSE_CLAIMABLE_KEYS,
-        { blockHeight, limit: ID_CHUNK, filter: { id: { in: chunk } } },
-        { cache: 'no-store' },
-      ),
+  const pages = await mapLimit(chunks, ID_CHUNK_CONCURRENCY, (chunk) =>
+    gqlFetch<{ morseClaimableAccounts: { nodes: AccountKey[] } }>(
+      network,
+      MORSE_CLAIMABLE_KEYS,
+      { blockHeight, limit: ID_CHUNK, filter: { id: { in: chunk } } },
+      { cache: 'no-store' },
     ),
   );
   return pages.flatMap((p) => p.morseClaimableAccounts.nodes);
 }
+
+// ---- supplier-claims workaround ----
+// The indexer's destination is wrong for some supplier claims (owner or NULL instead of the supplier address); a
+// pocketdex patch is on its way. Until it lands, a Shannon search also finds the supplier claims the address holds as
+// supplier address or owner through get_morse_claims. Once the destinations are fixed, delete this section and its one
+// call in getShannonSearchSet.
+
+/**
+ * Morse node addresses (= the claimed accounts' ids) of every supplier claim whose supplier address or owner is
+ * `shannon`, and the newest claim height seen. get_morse_claims applies LIMIT rowLimit, so a page shorter than the
+ * rowLimit sent is the last one.
+ */
+async function getSupplierClaimAccountIds(network: NetworkId, shannon: string) {
+  const ids = new Set<string>();
+  let newestHeight = 0;
+  let before: { height: string; id: string } | undefined;
+  for (let i = 0; i < WALK_PAGES; i++) {
+    const data = await gqlFetch<{ getMorseClaimsList: { height: string; id: string; morseNodeAddress: string | null }[] | null }>(
+      network,
+      MORSE_SUPPLIER_CLAIMS,
+      { shannon: [shannon], rowLimit: WALK_PAGE, beforeHeight: before?.height, beforeId: before?.id },
+      { cache: 'no-store' },
+    );
+    const rows = data.getMorseClaimsList ?? [];
+    for (const r of rows) {
+      if (r.morseNodeAddress) ids.add(r.morseNodeAddress.toLowerCase());
+      newestHeight = Math.max(newestHeight, Number(r.height));
+    }
+    if (rows.length < WALK_PAGE) return { ids, newestHeight, truncated: false };
+    const last = rows[rows.length - 1];
+    before = { height: last.height, id: last.id };
+  }
+  return { ids, newestHeight, truncated: true };
+}
+// ---- end of the supplier-claims workaround ----
 
 /** The list's order: claimed first, newest claim first, then id. */
 function byClaim(a: AccountKey, b: AccountKey): number {
@@ -134,27 +162,47 @@ function byClaim(a: AccountKey, b: AccountKey): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
+interface ShannonSearchSet {
+  /** The height every account read was pinned to. */
+  blockHeight: string;
+  /** Every match, in the list's order. */
+  keys: AccountKey[];
+  truncated: boolean;
+}
+
 /**
- * A Shannon-address search: the accounts claimed to that address, plus the supplier claims it holds as supplier
- * address or owner (the indexer's destination is wrong for some supplier claims). Two sets from separate indexed
- * reads, merged and paged here rather than one OR over thousands of inline ids, which scans the whole table (1.5 s on
- * the database for the largest owner, 2026-10-14). Every entity read is pinned to one height so the parts agree.
+ * Everything a Shannon search matches, in order: the accounts claimed to the address, plus (workaround above) the
+ * supplier claims it holds as supplier address or owner. Two sets from indexed reads, merged here rather than one OR over
+ * thousands of inline ids, which scans the whole table (0.6–1.5 s on the database for the largest owner, 2026-10-14).
+ *
+ * Height: every account read is pinned to one blockHeight, the larger of _metadata.lastProcessedHeight and the newest
+ * supplier claim the walk saw, so no claim the walk returned is read before it happened. get_morse_claims itself cannot
+ * be pinned; a supplier claim indexed after its walk is missed until the cached set expires.
  */
-async function searchByShannonAddress(network: NetworkId, address: string, limit: number, offset: number): Promise<MorseClaimableAccountPage> {
-  // pokt1 addresses are lowercase on chain and stored as the message carried them
-  const shannon = address.toLowerCase();
-  // the supplier-claims walk and the destination walk (after one _metadata read) run side by side
-  const [supplier, { blockHeight, dest }] = await Promise.all([
-    getSupplierClaimAccountIds(network, shannon),
-    getMetadata(network).then(async (meta) => {
-      const height = String(meta.lastProcessedHeight);
-      return { blockHeight: height, dest: await getDestinationAccountKeys(network, height, shannon) };
-    }),
+async function getShannonSearchSet(network: NetworkId, shannon: string): Promise<ShannonSearchSet> {
+  const [meta, supplier] = await Promise.all([getMetadata(network), getSupplierClaimAccountIds(network, shannon)]);
+  const blockHeight = String(Math.max(meta.lastProcessedHeight, supplier.newestHeight));
+  const [dest, claimed] = await Promise.all([
+    getDestinationAccountKeys(network, blockHeight, shannon),
+    getAccountKeysByIds(network, blockHeight, [...supplier.ids]),
   ]);
-  const seen = new Set(dest.keys.map((k) => k.id));
-  const extra = await getAccountKeysByIds(network, blockHeight, [...supplier.ids].filter((id) => !seen.has(id)));
-  const all = [...dest.keys, ...extra].sort(byClaim);
-  const pageIds = all.slice(offset, offset + limit).map((k) => k.id);
+  const byId = new Map<string, AccountKey>();
+  for (const k of [...dest.keys, ...claimed]) byId.set(k.id, k);
+  return { blockHeight, keys: [...byId.values()].sort(byClaim), truncated: supplier.truncated || dest.truncated };
+}
+
+// Paging re-reads the same set: keep it for SEARCH_TTL_SECONDS per (network, address). The height is part of the value,
+// not the key — keying by it would need a _metadata read before every lookup, and it moves every block.
+const getCachedShannonSearchSet = unstable_cache(getShannonSearchSet, ['migration-shannon-search-set'], {
+  revalidate: SEARCH_TTL_SECONDS,
+});
+
+/** One page of a Shannon search: the cached set, sliced, then those rows read by id at the set's height. */
+async function searchByShannonAddress(network: NetworkId, address: string, limit: number, offset: number): Promise<MorseClaimableAccountPage> {
+  // Bech32 addresses are case-insensitive and written lowercase; the indexer stores them as the message carried them
+  // (lowercase in every row, mainnet 2026-10-14), so the input is lowercased and matched exactly.
+  const { blockHeight, keys, truncated } = await getCachedShannonSearchSet(network, address.toLowerCase());
+  const pageIds = keys.slice(offset, offset + limit).map((k) => k.id);
   let nodes: MorseClaimableAccountRow[] = [];
   if (pageIds.length) {
     const data = await gqlFetch<{ morseClaimableAccounts: { nodes: MorseClaimableAccountRow[] } }>(
@@ -166,16 +214,16 @@ async function searchByShannonAddress(network: NetworkId, address: string, limit
     const byId = new Map(data.morseClaimableAccounts.nodes.map((n) => [n.id, n]));
     nodes = pageIds.flatMap((id) => byId.get(id) ?? []);
   }
-  return { nodes, totalCount: all.length, truncated: supplier.truncated || dest.truncated };
+  return { nodes, totalCount: keys.length, truncated };
 }
 
 /**
- * Morse-address search (`?address=` that is not pokt1): the Morse address or its output (custodial) address, any case.
- * The indexer lowercases ids, so that one is an exact match on its index; the output address is stored as the message
- * carried it, so it compares case-insensitively.
+ * Morse-address search (`?address=` that is not pokt1): the Morse address or its output (custodial) address, any input
+ * case, matched exactly as stored — the indexer lowercases ids, and output addresses come from the Morse state export
+ * as uppercase hex (poktroll's import tool writes HexBytes.String(), i.e. strings.ToUpper(hex)).
  */
 function morseAddressFilter(q: string) {
-  return { or: [{ id: { equalTo: q.toLowerCase() } }, { morseOutputAddress: { equalToInsensitive: q } }] };
+  return { or: [{ id: { equalTo: q.toLowerCase() } }, { morseOutputAddress: { equalTo: q.toUpperCase() } }] };
 }
 
 // ---- list ----
