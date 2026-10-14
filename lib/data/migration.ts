@@ -7,12 +7,12 @@ export interface MorseClaimableAccountRow {
   /** Morse address (hex, lowercased by the indexer) — or a Morse module account name. */
   id: string;
   /**
-   * Shannon address the claim minted to, as the chain recorded it. For a supplier claim the chain's rule
-   * (poktroll x/migration/keeper/msg_server_claim_morse_supplier.go): the owner when the Morse unbonding has elapsed or
-   * the stake is below the minimum; otherwise the signing address, which is the owner for a NON_CUSTODIAL_SIGNED_BY_OWNER
-   * claim and the supplier address for the rest. So usually the supplier address, the owner for some claims. Every
-   * account matches the chain since pocketdex's destination patch (2026-10-14); supplier claims indexed later need the
-   * pocketdex release with the indexer fix (400e1c1) — low risk: the last one on mainnet was at height 761,698.
+   * Shannon address the claim minted to, as the chain recorded it. For a supplier claim it depends on the poktroll
+   * version at claim time (x/migration/keeper/msg_server_claim_morse_supplier.go): before v0.1.20 (mainnet height
+   * 135,297) always the supplier address; since then the owner when the Morse unbonding has elapsed or the stake is below
+   * the minimum, otherwise the signing address — the owner for a NON_CUSTODIAL_SIGNED_BY_OWNER claim, the supplier
+   * address for the rest. Every account matches the chain since pocketdex's destination patch (2026-10-14); supplier
+   * claims indexed later need the pocketdex release with the indexer fix (400e1c1).
    */
   shannonDestAddress: string | null;
   /** Claim height. */
@@ -56,7 +56,8 @@ const isShannonAddress = (q: string) => /^pokt1/i.test(q);
  * Any input case, matched exactly as stored: the indexer lowercases ids, and output addresses are uppercase hex —
  * poktroll's import tool writes them with cometbft's HexBytes.String() (strings.ToUpper(hex),
  * x/migration/module/cmd/types.go:207), the indexer stores them as imported, and all 11,552 on mainnet are uppercase
- * (2026-10-14). An index on the output address (pocketdex gap 32) then serves the exact match.
+ * (2026-10-14). The output address has no index yet (a seq scan, 15–17 ms on mainnet, 2026-10-14); pocketdex gap 32 is
+ * to add one, which the exact match will then use.
  */
 async function searchByMorseAddress(network: NetworkId, q: string, limit: number, offset: number): Promise<MorseClaimableAccountPage> {
   const data = await gqlFetch<{

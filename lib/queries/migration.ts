@@ -27,7 +27,8 @@ export const MORSE_CLAIMABLE_ACCOUNTS = /* GraphQL */ `
 
 // A Morse-address search: the account with that id, and (paged, counted) the accounts whose output (custodial) address
 // it is, in the list's order and without that id. Two aliases instead of one OR, so each filter can use its own index
-// (id has one; morse_output_address gets one from pocketdex). Each alias is its own statement, not one snapshot.
+// (id has one; pocketdex gap 32 is to add one on morse_output_address, a seq scan until then). Each alias is its own
+// statement, not one snapshot.
 export const MORSE_CLAIMABLE_BY_MORSE_ADDRESS = /* GraphQL */ `
   query morseClaimableByMorseAddress($id: String!, $output: String!, $limit: Int!, $offset: Int!) {
     byId: morseClaimableAccounts(first: 1, filter: { id: { equalTo: $id } }) {
