@@ -1,14 +1,17 @@
 import { gqlFetch } from '@/lib/graphql';
 import type { NetworkId } from '@/lib/networks';
-import { MORSE_CLAIMABLE_ACCOUNTS, MORSE_CLAIM_SUMMARY } from '@/lib/queries/migration';
+import { MORSE_CLAIMABLE_ACCOUNTS, MORSE_CLAIMABLE_BY_MORSE_ADDRESS, MORSE_CLAIM_SUMMARY } from '@/lib/queries/migration';
 
 // ---- shapes ----
 export interface MorseClaimableAccountRow {
   /** Morse address (hex, lowercased by the indexer) — or a Morse module account name. */
   id: string;
   /**
-   * Shannon address the claim minted to. For a supplier claim the chain records the supplier address
-   * (`shannon_operator_address` in the proto), and so does the indexer since pocketdex's destination patch (2026-10-14).
+   * Shannon address the claim minted to, as the chain recorded it. For a supplier claim the rule depends on the poktroll
+   * version at claim time (poktroll #1095, #1328, #1384, #1483); today it is the owner when the Morse supplier had
+   * already unbonded or its stake was below the minimum (auto-unstake), otherwise the Shannon address that signed the
+   * claim. Correct for every account since pocketdex's destination patch (2026-10-14); new supplier claims need the
+   * pocketdex release with the indexer fix (400e1c1).
    */
   shannonDestAddress: string | null;
   claimed: boolean;
@@ -29,39 +32,72 @@ export interface MorseClaimAmounts {
 }
 
 export interface MorseClaimSummary {
+  /** Every Morse claimable account (= the unfiltered list's totalCount). */
+  totalAccounts: number;
   claimedAccounts: string;
   claimed: MorseClaimAmounts;
   unclaimed: MorseClaimAmounts;
 }
 
+interface MorseClaimableAccountPage {
+  nodes: MorseClaimableAccountRow[];
+  totalCount: number;
+}
+
 const NOTHING: MorseClaimAmounts = { unstakedBalanceUpokt: '0', supplierStakeUpokt: '0', applicationStakeUpokt: '0' };
 
-export const isShannonAddress = (q: string) => /^pokt1/i.test(q);
+const isShannonAddress = (q: string) => /^pokt1/i.test(q);
 
 /**
- * `?address=` → list filter. Any input case is accepted (like poktscan's /migration) and matched exactly as stored:
- * - a `pokt1…` address matches the claim destination. Bech32 is case-insensitive and written lowercase; the indexer
- *   keeps the message's string (lowercase in every row on mainnet, 2026-10-14), so the input is lowercased. For a
- *   supplier claim the destination is the supplier address: searching by its owner finds only what was claimed to the
- *   owner itself, as on poktscan.
- * - anything else matches the Morse address or its output (custodial) address: the indexer lowercases ids, and output
- *   addresses come from the Morse state export as uppercase hex (poktroll's import tool writes HexBytes.String(), i.e.
- *   strings.ToUpper(hex)).
+ * A Morse-address search: the account itself first, then the accounts whose output (custodial) address it is, in the
+ * list's order. One request with two aliases (see MORSE_CLAIMABLE_BY_MORSE_ADDRESS); the output alias is paged by the
+ * server, its offset moved by one when the account itself takes the first slot.
+ *
+ * Any input case, matched exactly as stored: the indexer lowercases ids, and output addresses are uppercase hex —
+ * poktroll's import tool writes them with cometbft's HexBytes.String() (strings.ToUpper(hex),
+ * x/migration/module/cmd/types.go:207), the indexer stores them as imported, and all 11,552 on mainnet are uppercase
+ * (2026-10-14). An index on the output address (pocketdex gap 32) then serves the exact match.
  */
-export function morseAccountFilter(q: string) {
-  if (isShannonAddress(q)) return { shannonDestAddress: { equalTo: q.toLowerCase() } };
-  return { or: [{ id: { equalTo: q.toLowerCase() } }, { morseOutputAddress: { equalTo: q.toUpperCase() } }] };
+async function searchByMorseAddress(network: NetworkId, q: string, limit: number, offset: number): Promise<MorseClaimableAccountPage> {
+  const data = await gqlFetch<{
+    byId: { nodes: MorseClaimableAccountRow[] };
+    byOutput: { totalCount: number; nodes: MorseClaimableAccountRow[] };
+  }>(
+    network,
+    MORSE_CLAIMABLE_BY_MORSE_ADDRESS,
+    // one more output row than the page, from one slot earlier, covers both cases below
+    { id: q.toLowerCase(), output: q.toUpperCase(), limit: limit + 1, offset: Math.max(0, offset - 1) },
+    { cache: 'no-store' },
+  );
+  const self = data.byId.nodes[0];
+  const out = data.byOutput.nodes;
+  let nodes: MorseClaimableAccountRow[];
+  if (self) nodes = offset === 0 ? [self, ...out.slice(0, limit - 1)] : out.slice(0, limit);
+  else nodes = offset === 0 ? out.slice(0, limit) : out.slice(1, limit + 1);
+  return { nodes, totalCount: data.byOutput.totalCount + (self ? 1 : 0) };
 }
 
 // ---- list ----
-export async function getMorseClaimableAccounts(network: NetworkId, limit: number, offset: number, address?: string) {
-  const q = address?.trim();
-  const data = await gqlFetch<{ morseClaimableAccounts: { nodes: MorseClaimableAccountRow[]; totalCount: number } }>(
+/**
+ * One page of the claimable accounts, optionally filtered by `address` (already trimmed by the caller):
+ * - a `pokt1…` address (any case) matches the claim destination. Bech32 is case-insensitive and written lowercase; the
+ *   indexer keeps the message's string (lowercase in every row on mainnet, 2026-10-14), so the input is lowercased.
+ * - anything else is a Morse address: searchByMorseAddress.
+ */
+export async function getMorseClaimableAccounts(
+  network: NetworkId,
+  limit: number,
+  offset: number,
+  address?: string,
+): Promise<MorseClaimableAccountPage> {
+  if (address && !isShannonAddress(address)) return searchByMorseAddress(network, address, limit, offset);
+  const filter = address ? { shannonDestAddress: { equalTo: address.toLowerCase() } } : undefined;
+  const data = await gqlFetch<{ morseClaimableAccounts: MorseClaimableAccountPage }>(
     network,
     MORSE_CLAIMABLE_ACCOUNTS,
-    { limit, offset, filter: q ? morseAccountFilter(q) : undefined },
+    { limit, offset, filter },
     // a search is one person's lookup: never cache it; the unfiltered list is shared
-    q ? { cache: 'no-store' } : { revalidate: 30 },
+    address ? { cache: 'no-store' } : { revalidate: 30 },
   );
   return data.morseClaimableAccounts;
 }
@@ -82,5 +118,10 @@ export async function getMorseClaimSummary(network: NetworkId): Promise<MorseCla
     const { unstakedBalanceUpokt, supplierStakeUpokt, applicationStakeUpokt } = row;
     return { unstakedBalanceUpokt, supplierStakeUpokt, applicationStakeUpokt };
   };
-  return { claimedAccounts: claimed?.accounts ?? '0', claimed: amounts(claimed), unclaimed: amounts(unclaimed) };
+  return {
+    totalAccounts: Number(claimed?.accounts ?? 0) + Number(unclaimed?.accounts ?? 0),
+    claimedAccounts: claimed?.accounts ?? '0',
+    claimed: amounts(claimed),
+    unclaimed: amounts(unclaimed),
+  };
 }

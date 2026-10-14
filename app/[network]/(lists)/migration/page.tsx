@@ -11,7 +11,8 @@ import { ErrorCard } from '@/components/ui/ErrorCard';
 import { MorseSearch } from '@/components/migration/MorseSearch';
 import { getMorseClaimableAccounts, getMorseClaimSummary, type MorseClaimSummary } from '@/lib/data/migration';
 import { netHref, type NetworkId } from '@/lib/networks';
-import { formatNumber, formatPokt, formatPoktCompact, formatPoktExact, toBigInt } from '@/lib/format';
+import { formatNumber, formatPokt, formatPoktCompact, formatPoktExact, isZero, toBigInt } from '@/lib/format';
+import { parsePage } from '@/lib/paging';
 
 export const metadata: Metadata = {
   title: 'Morse Migration',
@@ -19,8 +20,6 @@ export const metadata: Metadata = {
 };
 
 const PAGE_SIZE = 25;
-// the last page whose offset still fits GraphQL's Int
-const MAX_PAGE = Math.floor(2147483647 / PAGE_SIZE);
 
 /**
  * claimed / total as a percentage, rounded to 2 decimals like poktscan's — but never 0% once something is claimed nor
@@ -73,8 +72,6 @@ function ClaimCards({ summary }: { summary: MorseClaimSummary }) {
   );
 }
 
-const isZero = (upokt: string) => toBigInt(upokt) === BigInt(0);
-
 
 export default async function MigrationPage({
   params,
@@ -92,18 +89,26 @@ export default async function MigrationPage({
     console.error(`[migration] getMorseClaimSummary failed on ${network}:`, e);
     return null;
   });
-  // Clamped to GraphQL's Int; a page past the end redirects to the last one.
-  const page = Math.min(Math.max(1, Math.floor(Number(pageParam)) || 1), MAX_PAGE);
-  const offset = (page - 1) * PAGE_SIZE;
-  const { nodes, totalCount } = await getMorseClaimableAccounts(network, PAGE_SIZE, offset, address);
-  const lastPage = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
-  if (page > lastPage) {
+  const page = parsePage(pageParam, PAGE_SIZE);
+  // A page past the end redirects to the last one.
+  const toLastPage = (total: number) => {
+    const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    if (page <= lastPage) return;
     const qs = new URLSearchParams();
     if (address) qs.set('address', address);
     if (lastPage > 1) qs.set('page', String(lastPage));
     const search = qs.toString();
     redirect(netHref(network, search ? `/migration?${search}` : '/migration'));
+  };
+  // Unfiltered, the summary's account count (cached 30 s, and already in flight) is the list's totalCount: check the
+  // page against it before asking for a large offset. A search's set is small, so its own totalCount does.
+  if (!address && page > 1) {
+    const cached = await summaryRead;
+    if (cached) toLastPage(cached.totalAccounts);
   }
+  const offset = (page - 1) * PAGE_SIZE;
+  const { nodes, totalCount } = await getMorseClaimableAccounts(network, PAGE_SIZE, offset, address);
+  toLastPage(totalCount);
   const summary = await summaryRead;
   const from = nodes.length === 0 ? 0 : offset + 1;
   const to = offset + nodes.length;
