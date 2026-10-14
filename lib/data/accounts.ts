@@ -1,5 +1,6 @@
 import { gqlFetch } from '@/lib/graphql';
 import { getDelegations } from '@/lib/data/delegations';
+import { firstPerId } from '@/lib/data/range';
 import type { NetworkId } from '@/lib/networks';
 import {
   ACCOUNT_LIST,
@@ -309,7 +310,7 @@ export async function getOwnedOperators(network: NetworkId, id: string, limit: n
   }>(network, OWNED_OPERATORS, { id, ids: [id], limit, offset }, { revalidate: 30 });
   return {
     totalCount: data.suppliers.totalCount,
-    nodes: (data.getSupplierFleetList ?? []).map(
+    nodes: firstPerId(data.getSupplierFleetList ?? [], (s) => s.supplierId).map(
       (s): OwnedOperatorRow => ({ id: s.supplierId, stakeStatus: s.stakeStatus, stakeAmount: s.stakeUpokt, serviceConfigs: { totalCount: Number(s.serviceCount ?? 0) } }),
     ),
   };

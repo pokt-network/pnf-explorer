@@ -1,6 +1,7 @@
 import { gqlFetch } from '@/lib/graphql';
 import type { NetworkId } from '@/lib/networks';
 import { APPLICATIONS_LIST } from '@/lib/queries/applications';
+import { firstPerId } from '@/lib/data/range';
 
 export interface ApplicationRow {
   id: string;
@@ -17,7 +18,7 @@ export async function getApplicationList(network: NetworkId, limit: number, offs
   }>(network, APPLICATIONS_LIST, { limit, offset }, { revalidate: 30 });
   return {
     totalCount: data.applications.totalCount,
-    nodes: (data.getApplicationFleetList ?? []).map(
+    nodes: firstPerId(data.getApplicationFleetList ?? [], (a) => a.applicationId).map(
       (a): ApplicationRow => ({
         id: a.applicationId,
         stakeAmount: a.stakeUpokt,

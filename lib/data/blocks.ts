@@ -38,7 +38,7 @@ export interface BlockDetail extends BlockRow {
 export interface BlockTx {
   id: string;
   code: number;
-  // Null transiently for a tip tx indexed before its block lands.
+  // Null transiently for a tip tx whose block row is not committed yet (see getBlockTimes).
   block: { timestamp: string; height: string } | null;
   gasUsed: string | null;
   gasWanted: string | null;
@@ -52,8 +52,10 @@ export interface BlockTx {
 export type TxNode = Omit<BlockTx, 'block'> & { blockId: string };
 
 /**
- * The timestamp of each height asked for, keyed by height. A height whose block is not indexed yet is
- * absent. Lists carry the height alone; this is the second read that puts the time next to it.
+ * The timestamp of each height asked for, keyed by height. A height whose block row is not visible yet is
+ * absent: the indexer commits a block's transactions, transfers and balances before its blocks row (~30-40 s
+ * on settlement blocks), so a fresh row can carry a height with no block yet. Callers render that as pending.
+ * Lists carry the height alone; this is the second read that puts the time next to it.
  */
 export async function getBlockTimes(network: NetworkId, heights: (string | number)[], revalidate: number | false = 15): Promise<Map<string, string>> {
   const ids = [...new Set(heights.map(String))];

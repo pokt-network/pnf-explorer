@@ -1,7 +1,7 @@
 import { gqlFetch } from '@/lib/graphql';
 import type { NetworkId } from '@/lib/networks';
 import { SERVED_APP_GATEWAYS, SUPPLIERS_LIST, SUPPLIER_ROUTING } from '@/lib/queries/suppliers';
-import { lifetimeCoverage, unwrapRange, type Coverage } from '@/lib/data/range';
+import { firstPerId, lifetimeCoverage, unwrapRange, type Coverage } from '@/lib/data/range';
 import { METADATA_QUERY } from '@/lib/queries/shared';
 import type { MetadataResult } from '@/lib/types';
 
@@ -21,7 +21,7 @@ export async function getSupplierList(network: NetworkId, limit: number, offset:
   }>(network, SUPPLIERS_LIST, { limit, offset }, { revalidate: 30 });
   return {
     totalCount: data.suppliers.totalCount,
-    nodes: (data.getSupplierFleetList ?? []).map(
+    nodes: firstPerId(data.getSupplierFleetList ?? [], (s) => s.supplierId).map(
       (s): SupplierRow => ({
         id: s.supplierId,
         ownerId: s.ownerId,
@@ -66,8 +66,10 @@ const GATEWAY_PAGE_CAP = 50;
 const GATEWAY_CHUNKS_AT_ONCE = 4;
 
 /**
- * The gateways each application delegates to now. One consistent read: every page at the same indexed
- * height, by keyset (id order), stepping by the rows returned. A walk that hits its page cap or ends
+ * The gateways each application delegates to now. One consistent read: every page pinned to the same indexed
+ * height (lastProcessedHeight advances only after a block commits whole, so rows of a block still being
+ * written are not visible at it; one request alone is not a snapshot), by keyset (id order), stepping by the
+ * rows returned. A walk that hits its page cap or ends
  * with fewer rows than the first page counted throws instead of returning a partial map.
  */
 async function getAppGateways(network: NetworkId, appIds: string[], pinHeight: number | null): Promise<Map<string, string[]>> {

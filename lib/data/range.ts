@@ -141,3 +141,13 @@ export function coverageNote(range: CoveredRange | null): string | null {
   if (w.gaps.length > 0) parts.push(`gaps: ${w.gaps.map((g) => `${absoluteUtc(g.from)} – ${absoluteUtc(g.to)}`).join(', ')}`);
   return parts.length > 0 ? parts.join(' · ') : null;
 }
+
+/**
+ * One row per id, the first kept. A GraphQL request is not one snapshot: while the indexer commits a block in pieces
+ * (~30-40 s on settlement blocks), an actor restaked in it has two live versions, and an unpinned list or fleet
+ * function can return it twice.
+ */
+export function firstPerId<T>(rows: T[], id: (r: T) => string): T[] {
+  const seen = new Set<string>();
+  return rows.filter((r) => (seen.has(id(r)) ? false : (seen.add(id(r)), true)));
+}

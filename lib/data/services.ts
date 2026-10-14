@@ -1,5 +1,6 @@
 import { gqlFetch } from '@/lib/graphql';
 import { lcdFetch } from '@/lib/lcd';
+import { firstPerId } from '@/lib/data/range';
 import type { NetworkId } from '@/lib/networks';
 import {
   SERVICES_LIST,
@@ -195,7 +196,7 @@ export async function getServiceSuppliers(network: NetworkId, id: string, limit:
     getSupplierFleetList: { supplierId: string; stakeUpokt: string | null; stakeStatus: string | null }[] | null;
     summary: { stakedSuppliers: string | null }[] | null;
   }>(network, SERVICE_SUPPLIERS, { id, limit, offset }, { revalidate: 60 });
-  const fleet = data.getSupplierFleetList ?? [];
+  const fleet = firstPerId(data.getSupplierFleetList ?? [], (s) => s.supplierId);
   const configs =
     fleet.length === 0
       ? []
@@ -234,7 +235,7 @@ export async function getServiceApplications(network: NetworkId, id: string, lim
   }>(network, SERVICE_APPLICATIONS, { id, limit, offset }, { revalidate: 60 });
   return {
     totalCount: Number(data.summary?.[0]?.stakedApplications ?? 0),
-    nodes: (data.getApplicationFleetList ?? []).map(
+    nodes: firstPerId(data.getApplicationFleetList ?? [], (a) => a.applicationId).map(
       (a): ServiceApplicationRow => ({ applicationId: a.applicationId, application: { stakeAmount: a.stakeUpokt, stakeStatus: a.stakeStatus } }),
     ),
   };
