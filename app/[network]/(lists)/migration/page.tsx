@@ -95,7 +95,7 @@ export default async function MigrationPage({
   // Clamped to GraphQL's Int; a page past the end redirects to the last one.
   const page = Math.min(Math.max(1, Math.floor(Number(pageParam)) || 1), MAX_PAGE);
   const offset = (page - 1) * PAGE_SIZE;
-  const { nodes, totalCount, truncated } = await getMorseClaimableAccounts(network, PAGE_SIZE, offset, address);
+  const { nodes, totalCount } = await getMorseClaimableAccounts(network, PAGE_SIZE, offset, address);
   const lastPage = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   if (page > lastPage) {
     const qs = new URLSearchParams();
@@ -129,11 +129,6 @@ export default async function MigrationPage({
       )}
 
       <MorseSearch key={address ?? ''} active={address} />
-      {truncated ? (
-        <p className="dim" style={{ margin: '-6px 0 14px', fontSize: 13 }}>
-          This address has more claims than the search reads; some of them may be missing below.
-        </p>
-      ) : null}
 
       <div className="card">
         <div className="tbl-scroll">
