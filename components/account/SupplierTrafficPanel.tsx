@@ -88,7 +88,7 @@ export async function SupplierTrafficPanel({
             ) : null}
             {earnings == null ? (
               <div className="muted" style={{ marginTop: 4 }}>
-                Couldn’t load claimed, settled and overserviced amounts right now; relays are from the claim events.
+                Couldn’t load claimed, settled and overserviced amounts right now; relays are from the settlement catalog’s per-application rows.
               </div>
             ) : earnings.dataSince != null ? (
               <div className="muted" style={{ marginTop: 4 }}>

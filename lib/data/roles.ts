@@ -141,12 +141,13 @@ export async function getSupplierRole(network: NetworkId, id: string): Promise<S
 export interface PayoutRow {
   address: string;
   amountUpokt: string;
+  /** The catalog's transfer_count: payout transfers to the address, but for the stakers row ('all') the settled
+   *  claims that paid them. Not summable across rows. */
   transfers: number;
 }
 export interface SupplierPayouts extends Coverage {
   rows: PayoutRow[];
   totalUpokt: string;
-  totalTransfers: number;
 }
 
 /**
@@ -171,7 +172,6 @@ export async function getSupplierPayouts(network: NetworkId, id: string): Promis
   return {
     rows,
     totalUpokt: sumAmount(rows, (r) => r.amountUpokt),
-    totalTransfers: rows.reduce((t, r) => t + r.transfers, 0),
     ...coverage(range),
   };
 }
@@ -424,54 +424,61 @@ export interface GatewayRoleView {
   stakeStatus: string | null;
   unstakingEndHeight: string | null;
   appCount: number;
-  delegationMsgs: number;
-  undelegationMsgs: number;
-  /** True when the counts stopped at DELEGATION_EVENT_CAP rows: they are then lower bounds. */
-  delegationCountsCapped: boolean;
 }
 
-/** Delegate/undelegate rows read per call, and at most this many calls. */
+/** Delegate/undelegate rows asked per call, and at most this many calls. */
 const DELEGATION_EVENT_PAGE = 1000;
-const DELEGATION_EVENT_CAP = 10 * DELEGATION_EVENT_PAGE;
+const DELEGATION_EVENT_CALLS = 10;
 
-/** The gateway's delegate and undelegate messages counted, paging the lifecycle function by its last row. */
-async function countDelegationEvents(network: NetworkId, id: string) {
+export interface GatewayDelegationCounts {
+  delegate: number;
+  undelegate: number;
+  /** True when the walk stopped at its call cap: the counts are then lower bounds. */
+  capped: boolean;
+}
+
+/**
+ * The gateway's delegate and undelegate messages counted, paging the lifecycle function by its last
+ * row until a page comes back empty (never by the server's row limit), at most DELEGATION_EVENT_CALLS
+ * calls. Null when a read fails: the counts are then unknown, not 0.
+ */
+export async function getGatewayDelegationCounts(network: NetworkId, id: string): Promise<GatewayDelegationCounts | null> {
   let delegate = 0;
   let undelegate = 0;
   let before: { beforeHeight: string | null; beforeId: string | null } = { beforeHeight: null, beforeId: null };
-  for (let read = 0; read < DELEGATION_EVENT_CAP; read += DELEGATION_EVENT_PAGE) {
-    const d: { getActorLifecycleList: { height: string; id: string; event: string }[] | null } = await gqlFetch(
-      network,
-      GATEWAY_DELEGATION_EVENTS,
-      { ids: [id], rowLimit: DELEGATION_EVENT_PAGE, ...before },
-      { revalidate: 30 },
-    );
-    const rows = d.getActorLifecycleList ?? [];
-    for (const r of rows) {
-      if (r.event === 'delegate') delegate++;
-      else if (r.event === 'undelegate') undelegate++;
+  try {
+    for (let call = 0; call < DELEGATION_EVENT_CALLS; call++) {
+      const d: { getActorLifecycleList: { height: string; id: string; event: string }[] | null } = await gqlFetch(
+        network,
+        GATEWAY_DELEGATION_EVENTS,
+        { ids: [id], rowLimit: DELEGATION_EVENT_PAGE, ...before },
+        { revalidate: 30 },
+      );
+      const rows = d.getActorLifecycleList ?? [];
+      if (rows.length === 0) return { delegate, undelegate, capped: false };
+      for (const r of rows) {
+        if (r.event === 'delegate') delegate++;
+        else if (r.event === 'undelegate') undelegate++;
+      }
+      const last = rows[rows.length - 1];
+      before = { beforeHeight: String(last.height), beforeId: last.id };
     }
-    if (rows.length < DELEGATION_EVENT_PAGE) return { delegate, undelegate, capped: false };
-    const last = rows[rows.length - 1];
-    before = { beforeHeight: String(last.height), beforeId: last.id };
+  } catch {
+    return null;
   }
   return { delegate, undelegate, capped: true };
 }
 
 export async function getGatewayRole(network: NetworkId, id: string): Promise<GatewayRoleView | null> {
-  const [d, events] = await Promise.all([
-    gqlFetch<{
-      gateway: {
-        id: string;
-        stakeAmount: string | null;
-        stakeStatus: string | null;
-        unstakingEndHeight: string | null;
-      } | null;
-      applicationGateways: { totalCount: number } | null;
-    }>(network, GATEWAY_ROLE, { id }, { revalidate: 30 }),
-    // A failed count leaves the two cards at 0 rather than failing the role.
-    countDelegationEvents(network, id).catch(() => ({ delegate: 0, undelegate: 0, capped: false })),
-  ]);
+  const d = await gqlFetch<{
+    gateway: {
+      id: string;
+      stakeAmount: string | null;
+      stakeStatus: string | null;
+      unstakingEndHeight: string | null;
+    } | null;
+    applicationGateways: { totalCount: number } | null;
+  }>(network, GATEWAY_ROLE, { id }, { revalidate: 30 });
   const g = d.gateway;
   if (!g) return null;
   return {
@@ -480,9 +487,6 @@ export async function getGatewayRole(network: NetworkId, id: string): Promise<Ga
     stakeStatus: g.stakeStatus,
     unstakingEndHeight: g.unstakingEndHeight,
     appCount: d.applicationGateways?.totalCount ?? 0,
-    delegationMsgs: events.delegate,
-    undelegationMsgs: events.undelegate,
-    delegationCountsCapped: events.capped,
   };
 }
 

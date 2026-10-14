@@ -260,13 +260,14 @@ export async function getValidator(network: NetworkId, id: string): Promise<Vali
   );
   const v = data.validator;
   if (!v) return null;
-  // The signer account's balances are a second read (no nested relation); a failure leaves them empty.
+  // The signer account's balances are a second read (no nested relation). A failed read leaves them
+  // unknown (null: the page shows a dash), never an empty list that would read as no balance.
   const account = v.signerPoktPrefixId;
   if (!account) return { ...v, signerPoktPrefix: null };
   const balances = await gqlFetch<{ balances: { nodes: ValidatorBalance[] } }>(network, SIGNER_BALANCES, { account }, { revalidate: 30 })
     .then((b) => b.balances.nodes)
-    .catch(() => []);
-  return { ...v, signerPoktPrefix: { id: account, balances: { nodes: balances } } };
+    .catch(() => null);
+  return { ...v, signerPoktPrefix: balances ? { id: account, balances: { nodes: balances } } : null };
 }
 
 /** Read the validator's hex consensus address (`ed25519Id`) — needed to key the uptime query. */

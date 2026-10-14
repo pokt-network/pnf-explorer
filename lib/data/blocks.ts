@@ -145,11 +145,17 @@ export async function resolveBlock(network: NetworkId, idParam: string, fallback
     return getBlockFromRpc(network, idParam);
   }
 
+  // The metadata record and supply rows are extras: a failed read renders the block without them, and a
+  // height past the indexed tip has none to read.
+  const tip = fallback.metadata?.lastProcessedHeight ?? null;
+  const extrasOf = (height: string, revalidate: number | false) =>
+    tip != null && Number(height) > tip ? Promise.resolve(null) : getBlockExtras(network, height, revalidate).catch(() => null);
+
   if (isHeight) {
     const revalidate = revalidateForHeight(Number(idParam), target);
     const [data, extras] = await Promise.all([
       gqlFetch<{ block: BlockDetail | null }>(network, BLOCK_BY_HEIGHT, { height: idParam }, { revalidate }),
-      getBlockExtras(network, idParam, revalidate),
+      extrasOf(idParam, revalidate),
     ]);
     return data.block ? { ...data.block, ...extras, source: 'indexer' } : null;
   }
@@ -157,7 +163,7 @@ export async function resolveBlock(network: NetworkId, idParam: string, fallback
   if (HEX64.test(idParam)) {
     const data = await gqlFetch<{ blocks: { nodes: BlockDetail[] } }>(network, BLOCK_BY_HASH, { hash: idParam }, { revalidate: 15 });
     const node = data.blocks.nodes[0];
-    return node ? { ...node, ...(await getBlockExtras(network, node.height, 15)), source: 'indexer' } : null;
+    return node ? { ...node, ...(await extrasOf(node.height, 15)), source: 'indexer' } : null;
   }
 
   return null;

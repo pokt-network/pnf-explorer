@@ -3,11 +3,12 @@ import { Tabs } from '@/components/ui/Tabs';
 import type { TabDef } from '@/components/ui/Tabs';
 import { RawJson } from '@/components/ui/RawJson';
 import { LcdSourceStrip } from '@/components/ui/LcdSourceStrip';
-import { EmptyState } from '@/components/ui/states';
+import { EmptyState, Skeleton } from '@/components/ui/states';
 import { StakeStatusPill } from '@/components/ui/StatusPill';
 import { DelegationsPanel } from '@/components/account/DelegationsPanel';
 import { RoleStats, SummaryCard, DOT, UnbondBanner } from './RoleStats';
-import { getGatewayTraffic, getActorRaw } from '@/lib/data/roles';
+import { Suspense } from 'react';
+import { getGatewayTraffic, getGatewayDelegationCounts, getActorRaw } from '@/lib/data/roles';
 import type { GatewayRoleView as GatewayView } from '@/lib/data/roles';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, formatPoktCompact, formatCompact } from '@/lib/format';
@@ -93,6 +94,19 @@ async function TrafficPanel({ network, view, currentHeight }: { network: Network
   );
 }
 
+/** The delegation and undelegation counts: a walk over the gateway's lifecycle, streamed so the page does not wait for it. */
+async function DelegationCards({ network, id }: { network: NetworkId; id: string }) {
+  const c = await getGatewayDelegationCounts(network, id);
+  // A failed read shows a dash, never 0; a walk stopped at its cap says "+".
+  const show = (n: number | undefined) => (c == null || n == null ? '—' : `${formatCompact(n)}${c.capped ? '+' : ''}`);
+  return (
+    <>
+      <SummaryCard label="Delegations" dot={DOT.mint} value={show(c?.delegate)} />
+      <SummaryCard label="Undelegations" dot={DOT.coral} value={show(c?.undelegate)} />
+    </>
+  );
+}
+
 async function RawPanel({ network, id }: { network: NetworkId; id: string }) {
   const raw = await getActorRaw(network, 'gateway', id);
   if (raw == null) {
@@ -138,8 +152,16 @@ export function GatewayRoleView({
       <RoleStats>
         <SummaryCard label="Stake" dot={DOT.lavender} value={formatPokt(view.stakeAmount)} unit="POKT" />
         <SummaryCard label="Delegating Apps" dot={DOT.blue} value={formatNumber(view.appCount)} />
-        <SummaryCard label="Delegations" dot={DOT.mint} value={`${formatCompact(view.delegationMsgs)}${view.delegationCountsCapped ? '+' : ''}`} />
-        <SummaryCard label="Undelegations" dot={DOT.coral} value={`${formatCompact(view.undelegationMsgs)}${view.delegationCountsCapped ? '+' : ''}`} />
+        <Suspense
+          fallback={
+            <>
+              <SummaryCard label="Delegations" dot={DOT.mint} value={<Skeleton width={48} height={20} />} />
+              <SummaryCard label="Undelegations" dot={DOT.coral} value={<Skeleton width={48} height={20} />} />
+            </>
+          }
+        >
+          <DelegationCards network={network} id={view.id} />
+        </Suspense>
       </RoleStats>
 
       {view.stakeStatus === 'Unstaking' ? <UnbondBanner endHeight={view.unstakingEndHeight} currentHeight={currentHeight} /> : null}

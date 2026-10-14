@@ -172,7 +172,8 @@ export async function getAccountList(network: NetworkId, limit: number, offset: 
 }
 
 export async function getAccountSummary(network: NetworkId): Promise<AccountSummary> {
-  const now = new Date();
+  // Rounded down to the minute, so the request (and with it the fetch-cache key) stays the same for that long.
+  const now = new Date(Math.floor(Date.now() / 60_000) * 60_000);
   // Start of today (UTC), -30d, -90d — ISO Datetime strings for the indexer filters.
   const todayDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
   const monthDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();

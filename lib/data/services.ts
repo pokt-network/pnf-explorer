@@ -280,7 +280,11 @@ export async function getServiceDifficulty(network: NetworkId, id: string, limit
   }
   const within = offset % DIFFICULTY_CHUNK;
   const rows = await read(cursor, limit + 1, within);
-  // The row after a page that ends a chunk lies in the next chunk: there a full page is all we can tell.
-  const hasNext = rows.length > limit || (rows.length === limit && within + limit >= DIFFICULTY_CHUNK);
+  let hasNext = rows.length > limit;
+  // The row after a page that ends a chunk lies in the next chunk: probe it from the page's last row.
+  if (!hasNext && rows.length === limit && within + limit >= DIFFICULTY_CHUNK) {
+    const last = rows[rows.length - 1];
+    hasNext = (await read({ beforeHeight: String(last.height), beforeServiceId: last.serviceId ?? id }, 1, 0)).length > 0;
+  }
   return { hasNext, nodes: rows.slice(0, limit).map(toDifficultyPoint) };
 }

@@ -226,8 +226,8 @@ async function EarningsPanel({ network, view, page }: { network: NetworkId; view
           <div className="v">
             <b>{formatPokt(payouts.totalUpokt)} POKT</b>{' '}
             <span className="dim">
-              across {formatNumber(payouts.rows.length)} recipient{payouts.rows.length === 1 ? '' : 's'} ·{' '}
-              {formatNumber(payouts.totalTransfers)} settlement transfers
+              across {formatNumber(payouts.rows.length)} recipient{payouts.rows.length === 1 ? '' : 's'}
+              {view.notCovered ? null : ` · from ${formatNumber(view.totals.claims)} settled claims`}
             </span>
             <div className="muted" style={{ marginTop: 4 }}>
               Realised amounts from settled claims. Addresses not on the current rev-share config were paid under an earlier one; the
@@ -272,7 +272,11 @@ async function EarningsPanel({ network, view, page }: { network: NetworkId; view
                   </td>
                   <td className="num mono">{formatPokt(r.amountUpokt)}</td>
                   <td className="num mono">{share}%</td>
-                  <td className="num mono">{formatNumber(r.transfers)}</td>
+                  <td className="num mono">
+                    {/* For the stakers row the catalog counts the settled claims that paid them, not transfers. */}
+                    {formatNumber(r.transfers)}
+                    {stakers ? <span className="dim"> claims</span> : null}
+                  </td>
                 </tr>
               );
             })}
