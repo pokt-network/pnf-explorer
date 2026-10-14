@@ -12,7 +12,7 @@ import { getActorRaw } from '@/lib/data/roles';
 import type { ApplicationRoleView as AppView } from '@/lib/data/roles';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, formatPoktCompact, formatCompact } from '@/lib/format';
-import { agoFromBlocks } from '@/lib/time';
+import { absoluteUtc, agoFromBlocks } from '@/lib/time';
 import { parsePage } from '@/lib/paging';
 
 /**
@@ -39,6 +39,12 @@ function UsagePanel({ view, currentHeight }: { view: AppView; currentHeight: num
             <div className="muted" style={{ marginTop: 4 }}>
               Amounts on an application are what it paid suppliers, not what it earned.
             </div>
+            {view.dataSince != null ? (
+              <div className="muted" style={{ marginTop: 4 }}>
+                Settlements since {absoluteUtc(view.dataSince)}
+                {view.gaps.length > 0 ? ` · not indexed: ${view.gaps.map((g) => `${absoluteUtc(g.from)} – ${absoluteUtc(g.to)}`).join(', ')}` : ''}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -55,7 +61,7 @@ function UsagePanel({ view, currentHeight }: { view: AppView; currentHeight: num
           </thead>
           <tbody>
             {view.byService.map((s) => {
-              const agoBlocks = currentHeight != null ? currentHeight - s.lastBlock : null;
+              const agoBlocks = currentHeight != null && s.lastBlock > 0 ? currentHeight - s.lastBlock : null;
               return (
                 <tr key={s.serviceId}>
                   <td>
@@ -67,7 +73,7 @@ function UsagePanel({ view, currentHeight }: { view: AppView; currentHeight: num
                   <td className="num mono">{formatNumber(s.relays)}</td>
                   <td className="num mono">{formatPokt(s.claimedUpokt)}</td>
                   <td>
-                    <Link href={`/block/${s.lastBlock}`}>{formatNumber(s.lastBlock)}</Link>
+                    {s.lastBlock > 0 ? <Link href={`/block/${s.lastBlock}`}>{formatNumber(s.lastBlock)}</Link> : <span className="dim">—</span>}
                     {agoBlocks != null ? <span className="dim"> · {agoFromBlocks(agoBlocks)}</span> : null}
                   </td>
                 </tr>
@@ -223,11 +229,11 @@ export function ApplicationRoleView({
             </div>
           </div>
         ) : null}
-        {view.overservicedCount > 0 ? (
+        {view.overservicedUpokt !== '0' ? (
           <div className="line">
             <div className="k">Overserviced</div>
             <div className="v">
-              {formatNumber(view.overservicedCount)} <span className="dim">event(s) — suppliers served beyond what this app could pay</span>
+              {formatPokt(view.overservicedUpokt)} POKT <span className="dim">unpaid — suppliers served beyond what this app could pay</span>
             </div>
           </div>
         ) : null}

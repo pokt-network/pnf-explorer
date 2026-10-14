@@ -4,7 +4,7 @@ import { lcdFetch } from '@/lib/lcd';
 import type { NetworkId } from '@/lib/networks';
 import { UPOKT_PER_POKT } from '@/lib/config';
 import { toBigInt } from '@/lib/format';
-import { DELEGATION_FIRST_HOUR, DELEGATION_SETTLEMENTS, DELEGATION_WINDOW, WINDOW_START_BLOCK } from '@/lib/queries/delegations';
+import { DELEGATION_FIRST_HOUR, DELEGATION_WINDOW, WINDOW_START_BLOCK } from '@/lib/queries/delegations';
 import { MIN_SPAN_DAYS, trailingRange } from '@/lib/data/window';
 import { NOT_COVERED, coveredMs, coveredWindow, unwrapRange, type CoveredRange } from '@/lib/data/range';
 
@@ -14,8 +14,7 @@ import { NOT_COVERED, coveredMs, coveredWindow, unwrapRange, type CoveredRange }
 // separately-claimable LCD balance is the Cosmos minimum-inflation pool and is NOT that income.
 //
 //   - LCD → the delegations, and the claimable minimum-inflation balance.
-//   - GQL → eventValidatorRewardDistributions for the per-settlement list (derived share), and the
-//     money catalog for the window's exact income.
+//   - GQL → the money catalog for the window's exact income, per day and validator.
 
 /** Trailing window for earned/daily-average/APR. Long enough to smooth per-session variance. */
 export const EARNINGS_WINDOW_DAYS = 30;
@@ -160,79 +159,42 @@ async function delegatedAt(network: NetworkId, address: string, atMs: number): P
   }
 }
 
-/** Pro-rata slice of a pool. Returns 0 rather than NaN when the pool's stake is missing/zero. */
-function slice(poolUpokt: number, myStakeUpokt: number, totalStakeUpokt: number): number {
-  if (!(totalStakeUpokt > 0)) return 0;
-  return poolUpokt * (myStakeUpokt / totalStakeUpokt);
-}
-
-/** One settlement, with this address's derived share of it. */
+/** What one validator's settlements paid the address over one UTC day. */
 export interface SettlementRow {
   id: string;
-  blockHeight: string;
-  sessionEndHeight: string;
+  /** Start of the UTC day (ISO). */
+  day: string;
+  /** '' for income the catalog could not attribute to one validator (replayed heights only). */
   validatorAddress: string;
-  timestamp: string | null;
-  /** The whole delegator pool's cut of this settlement, upokt. */
-  poolUpokt: string;
-  /** Stake the pool was divided over at this block, upokt. */
-  totalStakeUpokt: string;
-  numDelegators: number;
-  /** This address's derived slice, upokt. */
+  /** What this address received, upokt. */
   myShareUpokt: number;
 }
 
 /**
- * One page of settlements across every delegated validator, newest first, each carrying this
- * address's derived slice.
- *
- * The slice uses the address's CURRENT bonded stake against the pool's historical
- * `totalDelegatedStakeAmount`. Cosmos staking messages are not indexed, so there is no way to
- * recover what this address had bonded at an arbitrary past block — rows from before a delegation
- * changed size are therefore approximate, and the view says so.
+ * One page of the address's income per UTC day and validator over the earnings window, newest first:
+ * the exact amounts the chain paid it (the money catalog's day rows, the same read as
+ * getDelegationEarnings, so the fetch cache serves both), from every validator it was paid by,
+ * including ones it has since left. Days it was not paid are left out.
  */
 export async function getDelegationSettlements(
   network: NetworkId,
-  set: DelegationSet,
+  address: string,
   limit: number,
   offset: number,
 ): Promise<{ totalCount: number; rows: SettlementRow[] }> {
-  const validators = set.rows.map((r) => r.validatorAddress);
-  const stakeBy = new Map(set.rows.map((r) => [r.validatorAddress, Number(toBigInt(r.amountUpokt))]));
-
-  const d = await gqlFetch<{
-    eventValidatorRewardDistributions: {
-      totalCount: number;
-      nodes: {
-        id: string;
-        blockId: string;
-        sessionEndBlockHeight: string;
-        validatorOperatorAddress: string;
-        delegatorsRewardAmount: string;
-        totalDelegatedStakeAmount: string;
-        numDelegators: number;
-        block: { id: string; timestamp: string } | null;
-      }[];
-    } | null;
-  }>(network, DELEGATION_SETTLEMENTS, { validators, limit, offset }, { revalidate: 60 });
-
-  const c = d.eventValidatorRewardDistributions;
+  const range = trailingRange(EARNINGS_WINDOW_DAYS, 60);
+  const d = await gqlFetch<{ income: unknown }>(network, DELEGATION_WINDOW, { delegators: [address], ...range }, { revalidate: 60 });
+  const income = unwrapRange<{ bucket_start: string; validator_operator: string; amount_upokt: string | null }[]>(d.income).data ?? [];
+  const rows = income
+    .filter((r) => Number(r.amount_upokt ?? 0) > 0)
+    .sort((a, b) => Date.parse(b.bucket_start) - Date.parse(a.bucket_start) || a.validator_operator.localeCompare(b.validator_operator));
   return {
-    totalCount: c?.totalCount ?? 0,
-    rows: (c?.nodes ?? []).map((n) => ({
-      id: n.id,
-      blockHeight: n.block?.id ?? n.blockId,
-      sessionEndHeight: n.sessionEndBlockHeight,
-      validatorAddress: n.validatorOperatorAddress,
-      timestamp: n.block?.timestamp ?? null,
-      poolUpokt: n.delegatorsRewardAmount,
-      totalStakeUpokt: n.totalDelegatedStakeAmount,
-      numDelegators: n.numDelegators,
-      myShareUpokt: slice(
-        Number(toBigInt(n.delegatorsRewardAmount)),
-        stakeBy.get(n.validatorOperatorAddress) ?? 0,
-        Number(toBigInt(n.totalDelegatedStakeAmount)),
-      ),
+    totalCount: rows.length,
+    rows: rows.slice(offset, offset + limit).map((r) => ({
+      id: `${r.bucket_start}-${r.validator_operator}`,
+      day: r.bucket_start,
+      validatorAddress: r.validator_operator,
+      myShareUpokt: Number(r.amount_upokt ?? 0),
     })),
   };
 }

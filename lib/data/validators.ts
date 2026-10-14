@@ -7,6 +7,7 @@ import { validatorMoniker } from '@/lib/validator';
 import {
   VALIDATORS_LIST,
   VALIDATOR_BY_ID,
+  SIGNER_BALANCES,
   VALIDATOR_UPTIME,
   VALIDATOR_REWARDS,
 } from '@/lib/queries/validators';
@@ -42,7 +43,6 @@ export interface ValidatorRow {
   stakeDenom: string | null;
   stakeAmount: string | null;
   stakeStatus: string | null;
-  signer?: { id: string } | null;
 }
 
 export interface ValidatorBalance {
@@ -252,13 +252,21 @@ export async function getValidatorList(network: NetworkId, limit: number, offset
 // ---- detail ----
 /** Resolve a validator by its valoper id. Returns null (→ notFound) when absent. */
 export async function getValidator(network: NetworkId, id: string): Promise<ValidatorDetail | null> {
-  const data = await gqlFetch<{ validator: ValidatorDetail | null }>(
+  const data = await gqlFetch<{ validator: Omit<ValidatorDetail, 'signerPoktPrefix'> | null }>(
     network,
     VALIDATOR_BY_ID,
     { id },
     { revalidate: 30 },
   );
-  return data.validator ?? null;
+  const v = data.validator;
+  if (!v) return null;
+  // The signer account's balances are a second read (no nested relation); a failure leaves them empty.
+  const account = v.signerPoktPrefixId;
+  if (!account) return { ...v, signerPoktPrefix: null };
+  const balances = await gqlFetch<{ balances: { nodes: ValidatorBalance[] } }>(network, SIGNER_BALANCES, { account }, { revalidate: 30 })
+    .then((b) => b.balances.nodes)
+    .catch(() => []);
+  return { ...v, signerPoktPrefix: { id: account, balances: { nodes: balances } } };
 }
 
 /** Read the validator's hex consensus address (`ed25519Id`) — needed to key the uptime query. */

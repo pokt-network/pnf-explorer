@@ -1,4 +1,4 @@
-// Params query — verbatim from assets/api-index/params.md. distinct [NAMESPACE, KEY] so each
+// Params query — from assets/api-index/params.md (the block's height as the row's own `blockId`). distinct [NAMESPACE, KEY] so each
 // param is its latest value; grouped by namespace in the UI.
 export const PARAMS = /* GraphQL */ `
   query params {
@@ -8,9 +8,7 @@ export const PARAMS = /* GraphQL */ `
         id
         key
         value
-        block {
-          height: id
-        }
+        blockId
       }
     }
   }

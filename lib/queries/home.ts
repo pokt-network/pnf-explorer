@@ -3,8 +3,8 @@
 //
 // Total supply is the indexer's `getTotalSupplyByDay.total_supply` = minted Shannon supply PLUS
 // claimable-but-unminted balances (valid Morse claims that can be minted on Shannon at any time).
-// This is the figure exchanges/traders expect (matches PoktScan/pokt.money). `lastBlock.supplies`
-// is kept only as a fallback (the already-minted `shannon_supply` slice).
+// This is the figure exchanges/traders expect (matches PoktScan/pokt.money). The last block's supply
+// rows are read only as a fallback (the already-minted `shannon_supply` slice; lib/data/home.ts).
 export const HOME_SUMMARY = /* GraphQL */ `
   query homeSummary($last24HourDate: Datetime!, $currentDate: Datetime!, $supplyStartDate: Datetime!, $supplyEndDate: Datetime!) {
     supply: getTotalSupplyByDay(startDate: $supplyStartDate, endDate: $supplyEndDate)
@@ -18,25 +18,11 @@ export const HOME_SUMMARY = /* GraphQL */ `
         stakedApps
         stakedGateways
         stakedSuppliers
-        supplies {
-          nodes {
-            supply {
-              denom
-              amount
-            }
-          }
-        }
       }
     }
-    window: blocks(filter: { timestamp: { greaterThanOrEqualTo: $last24HourDate, lessThanOrEqualTo: $currentDate } }) {
-      aggregates {
-        sum {
-          # Aliased to the ESTIMATED (relay-mining difficulty-scaled) totals so the 24h cards match
-          # the ecosystem-standard throughput shown by PoktScan; on-chain "claimed" totals are ~2.5x lower.
-          totalRelays: totalEstimatedRelays
-          totalComputedUnits: totalEstimatedComputedUnits
-        }
-      }
-    }
+    # 24h sums from the block statistics function. lib/data/home.ts reads its ESTIMATED (relay-mining
+    # difficulty-scaled) totals so the 24h cards match the ecosystem-standard throughput shown by
+    # PoktScan; on-chain "claimed" totals are ~2.5x lower.
+    window: getBlockStatsJson(rangeStart: $last24HourDate, rangeEnd: $currentDate)
   }
 `;

@@ -1,4 +1,5 @@
-// Account queries — verbatim from assets/api-index/{list-accounts,detail-account}.md.
+// Account queries — from assets/api-index/{list-accounts,detail-account}.md, on the indexer's closed schema: each row's
+// own `lastUpdatedBlockId` instead of the nested block, flat roots instead of relations, and the fleet function for sums.
 
 export const ACCOUNT_LIST = /* GraphQL */ `
   query accountList($limit: Int!, $offset: Int!) {
@@ -8,46 +9,46 @@ export const ACCOUNT_LIST = /* GraphQL */ `
         amount
         denom
         accountId
-        lastUpdatedBlock {
-          height: id
-          timestamp
-        }
+        lastUpdatedBlockId
+      }
+    }
+  }
+`;
+
+// The newest block before each date: a balance changed since the date when its last-updated height is past it.
+export const ACCOUNT_SUMMARY_HEIGHTS = /* GraphQL */ `
+  query accountSummaryHeights($todayDate: Datetime!, $monthDate: Datetime!, $last90Date: Datetime!) {
+    today: blocks(first: 1, orderBy: ID_DESC, filter: { timestamp: { lessThan: $todayDate } }) {
+      nodes {
+        id
+      }
+    }
+    month: blocks(first: 1, orderBy: ID_DESC, filter: { timestamp: { lessThan: $monthDate } }) {
+      nodes {
+        id
+      }
+    }
+    last90: blocks(first: 1, orderBy: ID_DESC, filter: { timestamp: { lessThan: $last90Date } }) {
+      nodes {
+        id
       }
     }
   }
 `;
 
 export const ACCOUNT_SUMMARY = /* GraphQL */ `
-  query accountSummary($todayDate: Datetime!, $monthDate: Datetime!, $last90Date: Datetime!) {
+  query accountSummary($todayHeight: BigFloat!, $monthHeight: BigFloat!, $last90Height: BigFloat!) {
     accountsWithBalance: balances(filter: { amount: { greaterThan: "0" } }) {
       totalCount
     }
-    todayAccounts: balances(filter: { lastUpdatedBlock: { timestamp: { greaterThanOrEqualTo: $todayDate } }, denom: { equalTo: "upokt" } }) {
+    todayAccounts: balances(filter: { lastUpdatedBlockId: { greaterThan: $todayHeight }, denom: { equalTo: "upokt" } }) {
       totalCount
     }
-    monthAccounts: balances(filter: { lastUpdatedBlock: { timestamp: { greaterThanOrEqualTo: $monthDate } }, denom: { equalTo: "upokt" } }) {
+    monthAccounts: balances(filter: { lastUpdatedBlockId: { greaterThan: $monthHeight }, denom: { equalTo: "upokt" } }) {
       totalCount
     }
-    last90DaysAccounts: balances(filter: { lastUpdatedBlock: { timestamp: { greaterThanOrEqualTo: $last90Date } }, denom: { equalTo: "upokt" } }) {
+    last90DaysAccounts: balances(filter: { lastUpdatedBlockId: { greaterThan: $last90Height }, denom: { equalTo: "upokt" } }) {
       totalCount
-    }
-  }
-`;
-
-export const ACCOUNT_BY_ID = /* GraphQL */ `
-  query accountById($id: String!) {
-    account(id: $id) {
-      id
-      balances {
-        nodes {
-          amount
-          denom
-          lastUpdatedBlock {
-            height: id
-            timestamp
-          }
-        }
-      }
     }
   }
 `;
@@ -59,22 +60,21 @@ export const ACCOUNT_BY_ID = /* GraphQL */ `
 //     the pro node-runner norm). The OWNER view is the reverse lookup `ownedOperators`.
 //   • validator must be matched by `signerPoktPrefixId` (the pokt1 operator), NOT validator(id)
 //     (that id is the poktvaloper…). first:1 — an operator backs one validator.
-//   • serviceConfigs.nodes carry per-service `revShare` + `endpoints` (JSON scalars).
+//   • the supplier's service configs carry per-service `revShare` + `endpoints` (JSON scalars).
+//   • every relation of the old profile is its own flat root here (the closed schema has none), and
+//     the owned operators' count and stake sum come from the fleet function.
 //   • unstaking* fields populate only while stakeStatus == Unstaking; `unstakingEndHeight` is the
 //     exact unbond block (→ ETA against current height).
 export const ACCOUNT_ROLES = /* GraphQL */ `
-  query accountRoles($id: String!, $rsMatch: JSON) {
+  query accountRoles($id: String!, $ids: [String], $rsMatch: JSON) {
     account(id: $id) {
       id
-      balances {
-        nodes {
-          amount
-          denom
-          lastUpdatedBlock {
-            height: id
-            timestamp
-          }
-        }
+    }
+    balances(filter: { accountId: { equalTo: $id } }) {
+      nodes {
+        amount
+        denom
+        lastUpdatedBlockId
       }
     }
     supplier(id: $id) {
@@ -86,22 +86,18 @@ export const ACCOUNT_ROLES = /* GraphQL */ `
       unstakingReason
       unstakingBeginBlockId
       unstakingEndHeight
-      serviceConfigs {
-        totalCount
-        nodes {
-          serviceId
-          revShare
-          endpoints
-        }
+    }
+    serviceConfigs: supplierServiceConfigs(filter: { supplierId: { equalTo: $id } }) {
+      totalCount
+      nodes {
+        serviceId
+        revShare
+        endpoints
       }
     }
-    ownedOperators: suppliers(filter: { ownerId: { equalTo: $id } }) {
-      totalCount
-      aggregates {
-        sum {
-          stakeAmount
-        }
-      }
+    ownedOperators: getSupplierFleetList(owners: $ids, bySupplier: false) {
+      supplierCount
+      stakeUpokt
     }
     asValidator: validators(filter: { signerPoktPrefixId: { equalTo: $id } }, first: 1) {
       nodes {
@@ -120,21 +116,21 @@ export const ACCOUNT_ROLES = /* GraphQL */ `
       stakeStatus
       unstakingReason
       unstakingEndHeight
-      applicationServices {
-        totalCount
-      }
-      applicationGateways {
-        totalCount
-      }
+    }
+    appServices: applicationServices(filter: { applicationId: { equalTo: $id } }) {
+      totalCount
+    }
+    appGateways: applicationGateways(filter: { applicationId: { equalTo: $id } }) {
+      totalCount
     }
     asGateway: gateway(id: $id) {
       id
       stakeAmount
       stakeStatus
       unstakingEndHeight
-      applicationGateways {
-        totalCount
-      }
+    }
+    gatewayApps: applicationGateways(filter: { gatewayId: { equalTo: $id } }) {
+      totalCount
     }
     # Only a preview of the ids is needed here (the rail/summary show a count); the full list is
     # paginated by the Service Owner role view.
@@ -194,7 +190,8 @@ export const REVSHARE_RECIPIENT_CONFIGS = /* GraphQL */ `
 `;
 
 // Owner → operators, paginated. Powers the "Operators" tab for an owner wallet (98 operators in the
-// wild). Active-or-not: NOT filtered to Staked — an owner wants to see unstaking nodes too.
+// wild). Active-or-not: NOT filtered to Staked — an owner wants to see unstaking nodes too. Each
+// operator's service count is SUPPLIER_SERVICE_COUNTS (lib/queries/suppliers.ts) over the page's ids.
 export const OWNED_OPERATORS = /* GraphQL */ `
   query ownedOperators($id: String!, $limit: Int!, $offset: Int!) {
     suppliers(filter: { ownerId: { equalTo: $id } }, first: $limit, offset: $offset, orderBy: STAKE_AMOUNT_DESC) {
@@ -203,9 +200,6 @@ export const OWNED_OPERATORS = /* GraphQL */ `
         id
         stakeStatus
         stakeAmount
-        serviceConfigs {
-          totalCount
-        }
       }
     }
   }

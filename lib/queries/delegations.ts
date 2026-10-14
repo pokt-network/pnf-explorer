@@ -9,7 +9,8 @@
 // pokt199ckyvz3d80u0qn58e8hxx9n5cxg5zudmhsjv8, 1,000,000 POKT bonded to two validators):
 //
 // Shannon pays the validator pool's share of relay settlement DIRECTLY to delegator wallets at each
-// session end. `eventValidatorRewardDistributions` is the record: one row per validator per session
+// session end. The indexer's validator reward distributions are the record (not listed by the closed
+// GraphQL schema; the money catalog below sums them): one row per validator per session
 // carrying `delegatorsRewardAmount` (the whole pool's cut) and `totalDelegatedStakeAmount` (the
 // stake it is divided over). A delegator's income is its pro-rata slice:
 //
@@ -24,36 +25,6 @@
 // actual delegator income (~2%), and the entire stream stops network-wide at block 892853 while
 // balances keep growing. The separately-claimable LCD balance is the Cosmos distribution pool fed by
 // the protocol's minimum inflation (which cannot be set to zero), not deferred delegation rewards.
-
-/** One page of settlements across every validator the address delegates to, newest first. */
-export const DELEGATION_SETTLEMENTS = /* GraphQL */ `
-  query delegationSettlements($validators: [String!], $limit: Int!, $offset: Int!) {
-    eventValidatorRewardDistributions(
-      first: $limit
-      offset: $offset
-      orderBy: BLOCK_ID_DESC
-      filter: { validatorOperatorAddress: { in: $validators } }
-    ) {
-      totalCount
-      nodes {
-        id
-        blockId
-        sessionEndBlockHeight
-        validatorOperatorAddress
-        commissionRate
-        poolShareAmount
-        commissionAmount
-        delegatorsRewardAmount
-        totalDelegatedStakeAmount
-        numDelegators
-        block {
-          id
-          timestamp
-        }
-      }
-    }
-  }
-`;
 
 /**
  * What the address received over a time window, per validator, in ONE round trip — from the money

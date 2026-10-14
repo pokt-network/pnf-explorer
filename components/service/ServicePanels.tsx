@@ -126,7 +126,7 @@ export async function ServiceDifficultyPanel({ network, id, page }: { network: N
         </table>
       </div>
       {data.nodes.length === 0 ? <EmptyState>No relay-mining difficulty updates recorded.</EmptyState> : null}
-      {data.totalCount > TAB_LIMIT ? <Pager page={page} pageSize={TAB_LIMIT} totalCount={data.totalCount} param="mining" /> : null}
+      {page > 1 || data.hasNext ? <Pager page={page} pageSize={TAB_LIMIT} totalCount={null} hasNext={data.hasNext} param="mining" /> : null}
     </div>
   );
 }

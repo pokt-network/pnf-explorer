@@ -1,4 +1,5 @@
-// Validator queries — verbatim from assets/api-index/{list-validators,detail-validator}.md.
+// Validator queries — from assets/api-index/{list-validators,detail-validator}.md, without nested relations (the
+// indexer's closed schema has none): `signerId` is the row's own column, the signer's balances a second query.
 // NOTE: stakeStatus is the StakeStatus enum (Staked/Unstaking/Unstaked), NOT Bonded/Unbonding.
 // commission + description are JSON OBJECTS — parse via lib/validator.ts.
 
@@ -15,17 +16,14 @@ export const VALIDATORS_LIST = /* GraphQL */ `
         stakeDenom
         stakeAmount
         stakeStatus
-        signer {
-          id
-        }
       }
     }
   }
 `;
 
-// Note: signerId is the VALOPER (poktvaloper…) and signer.balances is empty. The pokt1 operator
-// account is signerPoktPrefixId / signerPoktPrefix (verified live) — use THAT for the signer link,
-// signer balance, and the address tx/transfer tab filters.
+// Note: signerId is the VALOPER (poktvaloper…) and its balances are empty. The pokt1 operator
+// account is signerPoktPrefixId (verified live) — use THAT for the signer link, signer balance
+// (SIGNER_BALANCES), and the address tx/transfer tab filters.
 export const VALIDATOR_BY_ID = /* GraphQL */ `
   query validatorById($id: String!) {
     validator(id: $id) {
@@ -38,14 +36,16 @@ export const VALIDATOR_BY_ID = /* GraphQL */ `
       stakeDenom
       stakeAmount
       stakeStatus
-      signerPoktPrefix {
-        id
-        balances {
-          nodes {
-            amount
-            denom
-          }
-        }
+    }
+  }
+`;
+
+export const SIGNER_BALANCES = /* GraphQL */ `
+  query signerBalances($account: String!) {
+    balances(filter: { accountId: { equalTo: $account } }) {
+      nodes {
+        amount
+        denom
       }
     }
   }

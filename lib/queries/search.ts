@@ -1,41 +1,5 @@
 // Global-search queries — verbatim from assets/api-index/_shared.md.
 
-export const SEARCH_BY_ADDRESS = /* GraphQL */ `
-  query searchByAddress($address: String!) {
-    account(id: $address) {
-      id
-      balances {
-        nodes {
-          amount
-          denom
-          lastUpdatedBlock {
-            height: id
-            timestamp
-          }
-        }
-      }
-    }
-    supplier(id: $address) {
-      id
-      stakeStatus
-      stakeAmount
-      stakeDenom
-    }
-    application(id: $address) {
-      id
-      stakeStatus
-      stakeAmount
-      stakeDenom
-    }
-    gateway(id: $address) {
-      id
-      stakeStatus
-      stakeAmount
-      stakeDenom
-    }
-  }
-`;
-
 export const SEARCH_VALIDATOR_BY_ADDRESS = /* GraphQL */ `
   query searchValidatorByAddress($address: String!) {
     validator(id: $address) {

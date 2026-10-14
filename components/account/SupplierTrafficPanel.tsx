@@ -15,7 +15,7 @@ import { HOME_GATEWAYS } from '@/lib/config';
  * (reconstructed from claims→app→delegation; the signing gateway isn't on-chain, so this is the
  * authorized-routing inference). Idle services (staked, zero claims) render as a first-class state.
  * Relays, claimed, settled and overserviced come from the settlement catalog (the same figures as the owner fleet
- * table); status, last settled and routing from the claim events.
+ * table); status, last settled and routing from its per-application rows (getSupplierRouting).
  */
 export async function SupplierTrafficPanel({
   network,
@@ -104,7 +104,7 @@ export async function SupplierTrafficPanel({
           </thead>
           <tbody>
             {rows.map(({ serviceId, traffic, earned: e, relays }) => {
-              const agoBlocks = traffic && currentHeight != null ? currentHeight - traffic.lastBlock : null;
+              const agoBlocks = traffic && traffic.lastBlock > 0 && currentHeight != null ? currentHeight - traffic.lastBlock : null;
               return (
                 <tr key={serviceId}>
                   <td>
@@ -124,7 +124,7 @@ export async function SupplierTrafficPanel({
                     {e && e.overservicedUpokt !== '0' ? <span className="out">{formatPokt(e.overservicedUpokt)} POKT</span> : <span className="dim">—</span>}
                   </td>
                   <td>
-                    {traffic ? (
+                    {traffic && traffic.lastBlock > 0 ? (
                       <>
                         <Link href={`/block/${traffic.lastBlock}`}>{formatNumber(traffic.lastBlock)}</Link>
                         {agoBlocks != null ? <span className="dim"> · {agoFromBlocks(agoBlocks)}</span> : null}

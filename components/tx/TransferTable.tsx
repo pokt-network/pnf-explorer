@@ -29,7 +29,7 @@ export function TransferTable({ transfers, address, empty = 'No transfers for th
             return (
               <tr key={t.id}>
                 <td>
-                  <Hash value={t.transaction.id} href={`/tx/${t.transaction.id}`} />
+                  <Hash value={t.transactionId} href={`/tx/${t.transactionId}`} />
                 </td>
                 <td>
                   <span className={`dirtag ${out ? 'dir-out' : 'dir-in'}`}>{out ? 'OUT' : 'IN'}</span>

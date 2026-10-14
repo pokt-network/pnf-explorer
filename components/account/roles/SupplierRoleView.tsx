@@ -11,16 +11,33 @@ import { StakeStatusPill } from '@/components/ui/StatusPill';
 import { SupplierTrafficPanel } from '@/components/account/SupplierTrafficPanel';
 import { RoleStats, SummaryCard, DOT, UnbondBanner } from './RoleStats';
 import { getSupplierPayouts, getSupplierHistory, getActorRaw } from '@/lib/data/roles';
-import type { SupplierRoleView as SupplierView, SupplierServiceRow } from '@/lib/data/roles';
+import type { SupplierRoleView as SupplierView, SupplierServiceRow, HistoryList, Coverage } from '@/lib/data/roles';
 import type { SupplierRole } from '@/lib/data/accounts';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, formatPoktCompact, formatCompact, toBigInt } from '@/lib/format';
-import { agoFromBlocks } from '@/lib/time';
+import { absoluteUtc, agoFromBlocks } from '@/lib/time';
 import { rpcTypeLabel } from '@/lib/service';
 import { parsePage } from '@/lib/paging';
 
 const EARN_LIMIT = 25;
 const HISTORY_LIMIT = 25;
+
+/** "Settlements since …" under a lifetime figure from the settlement catalog, with any stretch it has not indexed. */
+function SinceNote({ c }: { c: Coverage }) {
+  if (c.dataSince == null) return null;
+  const gaps = c.gaps.map((g) => `${absoluteUtc(g.from)} – ${absoluteUtc(g.to)}`).join(', ');
+  return (
+    <div className="muted" style={{ marginTop: 4 }}>
+      Settlements since {absoluteUtc(c.dataSince)}
+      {gaps ? ` · not indexed: ${gaps}` : ''}
+    </div>
+  );
+}
+
+/** A history list's count: the rows shown, and "+" when older ones exist past the limit. */
+function listCount(l: HistoryList<unknown>): string {
+  return `${formatNumber(l.nodes.length)}${l.more ? '+' : ''}`;
+}
 
 /** Annotate a rev-share address with its role relative to this supplier. */
 function shareTag(address: string, operatorId: string, ownerId: string): string | null {
@@ -45,7 +62,7 @@ function ServicesPanel({ view, currentHeight }: { view: SupplierView; currentHei
 
   const row = (s: SupplierServiceRow) => {
     const st = s.settlement;
-    const agoBlocks = st && currentHeight != null ? currentHeight - st.lastBlock : null;
+    const agoBlocks = st && st.lastBlock > 0 && currentHeight != null ? currentHeight - st.lastBlock : null;
     return (
       <tr key={s.serviceId}>
         <td>
@@ -85,7 +102,7 @@ function ServicesPanel({ view, currentHeight }: { view: SupplierView; currentHei
         <td>
           {st ? (
             <>
-              <Link href={`/block/${st.lastBlock}`}>{formatNumber(st.lastBlock)}</Link>
+              {st.lastBlock > 0 ? <Link href={`/block/${st.lastBlock}`}>{formatNumber(st.lastBlock)}</Link> : <span className="dim">—</span>}
               {agoBlocks != null ? <span className="dim"> · {agoFromBlocks(agoBlocks)}</span> : null}
             </>
           ) : (
@@ -115,6 +132,7 @@ function ServicesPanel({ view, currentHeight }: { view: SupplierView; currentHei
             <tbody>{view.services.map(row)}</tbody>
           </table>
         </div>
+        <SinceNote c={view} />
       </div>
 
       {view.formerServices.length > 0 ? (
@@ -154,7 +172,7 @@ function ServicesPanel({ view, currentHeight }: { view: SupplierView; currentHei
                     <td className="num mono">{formatPokt(f.claimedUpokt)}</td>
                     <td className="num mono">{formatPokt(f.settledUpokt)}</td>
                     <td>
-                      <Link href={`/block/${f.lastBlock}`}>{formatNumber(f.lastBlock)}</Link>
+                      {f.lastBlock > 0 ? <Link href={`/block/${f.lastBlock}`}>{formatNumber(f.lastBlock)}</Link> : <span className="dim">—</span>}
                     </td>
                   </tr>
                 ))}
@@ -217,8 +235,10 @@ async function EarningsPanel({ network, view, page }: { network: NetworkId; view
               {formatNumber(payouts.totalTransfers)} settlement transfers
             </span>
             <div className="muted" style={{ marginTop: 4 }}>
-              Realised amounts from settled claims. Addresses not on the current rev-share config were paid under an earlier one.
+              Realised amounts from settled claims. Addresses not on the current rev-share config were paid under an earlier one; the
+              validators and delegators (stakers) are one row.
             </div>
+            <SinceNote c={payouts} />
           </div>
         </div>
       </div>
@@ -237,15 +257,19 @@ async function EarningsPanel({ network, view, page }: { network: NetworkId; view
             {slice.map((r) => {
               const pcts = configured.get(r.address);
               const tag = shareTag(r.address, view.operatorId, view.ownerId);
+              // The stakers' share comes as one row, not an address.
+              const stakers = r.address === 'all';
               const share = total > BigInt(0) ? (Number((toBigInt(r.amountUpokt) * BigInt(10000)) / total) / 100).toFixed(2) : '0.00';
               return (
                 <tr key={r.address}>
                   <td>
-                    <Hash value={r.address} href={`/account/${r.address}`} />
+                    {stakers ? <span>Stakers</span> : <Hash value={r.address} href={`/account/${r.address}`} />}
                     {tag ? <span className="dim"> ({tag})</span> : null}
                   </td>
                   <td>
-                    {pcts ? (
+                    {stakers ? (
+                      <span className="dim">—</span>
+                    ) : pcts ? (
                       <span className="pill-soft">{[...pcts].join('% / ')}%</span>
                     ) : (
                       <span className="muted">not on current config</span>
@@ -291,7 +315,7 @@ async function HistoryPanel({ network, id }: { network: NetworkId; id: string })
     <>
       <div className="card flush-top">
         <div className="kv" style={{ paddingTop: 0 }}>
-          <div className="ttl">Stake changes · {formatNumber(h.stakeMsgs.totalCount)}</div>
+          <div className="ttl">Stake changes · {listCount(h.stakeMsgs)}</div>
         </div>
         <div className="tbl-scroll">
           <table className="tbl">
@@ -323,10 +347,10 @@ async function HistoryPanel({ network, id }: { network: NetworkId; id: string })
         </div>
       </div>
 
-      {h.unstakeMsgs.totalCount > 0 ? (
+      {h.unstakeMsgs.nodes.length > 0 ? (
         <div className="card" style={{ marginTop: 16 }}>
           <div className="kv" style={{ paddingTop: 0 }}>
-            <div className="ttl">Unstake messages · {formatNumber(h.unstakeMsgs.totalCount)}</div>
+            <div className="ttl">Unstake messages · {listCount(h.unstakeMsgs)}</div>
           </div>
           <div className="tbl-scroll">
             <table className="tbl">
@@ -351,7 +375,7 @@ async function HistoryPanel({ network, id }: { network: NetworkId; id: string })
 
       <div className="card" style={{ marginTop: 16 }}>
         <div className="kv" style={{ paddingTop: 0 }}>
-          <div className="ttl">Slashes · {formatNumber(h.slashes.totalCount)}</div>
+          <div className="ttl">Slashes · {listCount(h.slashes)}</div>
         </div>
         <div className="tbl-scroll">
           <table className="tbl">

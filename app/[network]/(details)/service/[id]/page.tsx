@@ -116,7 +116,7 @@ export default async function ServiceDetailPage({
           <div className="line">
             <div className="k">Owner</div>
             <div className="v">
-              {svc.owner ? <Hash value={svc.owner.id} href={`/account/${svc.owner.id}`} /> : <span className="muted">—</span>}
+              {svc.ownerId ? <Hash value={svc.ownerId} href={`/account/${svc.ownerId}`} /> : <span className="muted">—</span>}
             </div>
           </div>
           <div className="line">

@@ -24,22 +24,20 @@ export const SERVICES_LIST = /* GraphQL */ `
   }
 `;
 
-// Active-supplier count of every service in one statement: `distinctCount { id }` counts the
-// group's distinct config ids. It equals the per-service filtered `totalCount` except where the
-// indexer duplicated a config id (see above): there it counts the supplier once, totalCount twice.
+// Active-supplier count of every service, from the service summary function (the closed schema has no
+// aggregates or filters through a relation): `stakedSuppliers` counts each Staked supplier once,
+// whatever duplicated config ids the indexer holds (see above). Paged by the query limit (1000).
 export const SERVICE_ACTIVE_SUPPLIER_COUNTS = /* GraphQL */ `
-  query serviceSupplierCounts {
-    supplierServiceConfigs(filter: { supplier: { stakeStatus: { equalTo: Staked } } }) {
-      groupedAggregates(groupBy: SERVICE_ID) {
-        keys
-        distinctCount {
-          id
-        }
-      }
+  query serviceSupplierCounts($limit: Int!, $offset: Int!) {
+    getServiceSummaryList(services: null, first: $limit, offset: $offset) {
+      serviceId
+      stakedSuppliers
     }
   }
 `;
 
+// The service, its supplier/application counts (service summary function) and its current relay-mining difficulty
+// (the newest update).
 export const SERVICE_BY_ID = /* GraphQL */ `
   query serviceById($id: String!) {
     service(id: $id) {
@@ -47,85 +45,78 @@ export const SERVICE_BY_ID = /* GraphQL */ `
       name
       computeUnitsPerRelay
       ownerId
-      owner {
-        id
-      }
-      latestDiff: relayMiningDifficultyUpdatedEvents(orderBy: BLOCK_ID_DESC, first: 1) {
-        nodes {
-          newNumRelaysEma
-          newTargetHashHexEncoded
-          blockId
-        }
-      }
     }
-    activeSuppliers: supplierServiceConfigs(
-      filter: { serviceId: { equalTo: $id }, supplier: { stakeStatus: { equalTo: Staked } } }
-    ) {
-      totalCount
+    summary: getServiceSummaryList(services: [$id]) {
+      stakedSuppliers
+      suppliers
+      stakedApplications
     }
-    totalSuppliers: supplierServiceConfigs(filter: { serviceId: { equalTo: $id } }) {
-      totalCount
-    }
-    activeApps: applicationServices(
-      filter: { serviceId: { equalTo: $id }, application: { stakeStatus: { equalTo: Staked } } }
-    ) {
-      totalCount
+    latestDiff: getRelayMiningDifficultyList(services: [$id], rowLimit: 1) {
+      height
+      newNumRelaysEma
+      newTargetHashHex
     }
   }
 `;
 
+// Staked suppliers serving the service, largest stake first (fleet function); the pager's total is the summary's
+// staked count. Their endpoints come from SERVICE_SUPPLIER_CONFIGS over the page's ids.
 export const SERVICE_SUPPLIERS = /* GraphQL */ `
   query serviceSuppliers($id: String!, $limit: Int!, $offset: Int!) {
-    supplierServiceConfigs(
-      filter: { serviceId: { equalTo: $id }, supplier: { stakeStatus: { equalTo: Staked } } }
-      first: $limit
-      offset: $offset
-    ) {
-      totalCount
+    getSupplierFleetList(services: [$id], stakeStatuses: ["Staked"], first: $limit, offset: $offset) {
+      supplierId
+      stakeUpokt
+      stakeStatus
+    }
+    summary: getServiceSummaryList(services: [$id]) {
+      stakedSuppliers
+    }
+  }
+`;
+
+export const SERVICE_SUPPLIER_CONFIGS = /* GraphQL */ `
+  query serviceSupplierConfigs($id: String!, $ids: [String!]) {
+    supplierServiceConfigs(filter: { serviceId: { equalTo: $id }, supplierId: { in: $ids } }) {
       nodes {
         supplierId
         domains
         endpoints
-        supplier {
-          stakeAmount
-          stakeStatus
-        }
       }
     }
   }
 `;
 
+// Staked applications of the service, largest stake first (fleet function); the pager's total is the summary's.
 export const SERVICE_APPLICATIONS = /* GraphQL */ `
   query serviceApplications($id: String!, $limit: Int!, $offset: Int!) {
-    applicationServices(
-      filter: { serviceId: { equalTo: $id }, application: { stakeStatus: { equalTo: Staked } } }
+    getApplicationFleetList(services: [$id], stakeStatuses: ["Staked"], first: $limit, offset: $offset) {
+      applicationId
+      stakeUpokt
+      stakeStatus
+    }
+    summary: getServiceSummaryList(services: [$id]) {
+      stakedApplications
+    }
+  }
+`;
+
+// Relay-mining difficulty history, newest first: the function lists at most `rowLimit` (1000) rows per call, from the
+// row before `beforeHeight`/`beforeServiceId` on; `first`/`offset` page inside them.
+export const SERVICE_DIFFICULTY = /* GraphQL */ `
+  query serviceDifficulty($id: String!, $rowLimit: Int!, $beforeHeight: BigInt, $beforeServiceId: String, $limit: Int!, $offset: Int!) {
+    getRelayMiningDifficultyList(
+      services: [$id]
+      rowLimit: $rowLimit
+      beforeHeight: $beforeHeight
+      beforeServiceId: $beforeServiceId
       first: $limit
       offset: $offset
     ) {
-      totalCount
-      nodes {
-        applicationId
-        application {
-          stakeAmount
-          stakeStatus
-        }
-      }
-    }
-  }
-`;
-
-export const SERVICE_DIFFICULTY = /* GraphQL */ `
-  query serviceDifficulty($id: String!, $limit: Int!, $offset: Int!) {
-    service(id: $id) {
-      relayMiningDifficultyUpdatedEvents(orderBy: BLOCK_ID_DESC, first: $limit, offset: $offset) {
-        totalCount
-        nodes {
-          blockId
-          prevNumRelaysEma
-          newNumRelaysEma
-          newTargetHashHexEncoded
-        }
-      }
+      height
+      serviceId
+      prevNumRelaysEma
+      newNumRelaysEma
+      newTargetHashHex
     }
   }
 `;

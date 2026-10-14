@@ -2,7 +2,8 @@ import { gqlFetch } from '@/lib/graphql';
 import type { NetworkId } from '@/lib/networks';
 import { HOME_SUMMARY } from '@/lib/queries/home';
 import { sumUpokt } from '@/lib/tx';
-import type { SupplyNode } from '@/lib/data/blocks';
+import { getBlockSupplies } from '@/lib/data/blocks';
+import { unwrapRange } from '@/lib/data/range';
 
 export interface HomeSummary {
   /** Economic total supply in upokt (minted + claimable-but-unminted). Number is fine for display. */
@@ -15,8 +16,8 @@ export interface HomeSummary {
 
 /**
  * Network summary cards (§6 home): supply + 24h relays/CU + staked-actor count. ISR 15s.
- * NOTE: relays24h/cu24h are the ESTIMATED (relay-mining difficulty-scaled) totals — the query
- * aliases totalEstimatedRelays/totalEstimatedComputedUnits onto these keys so the figures match the
+ * NOTE: relays24h/cu24h are the ESTIMATED (relay-mining difficulty-scaled) totals — the block
+ * statistics' estimated_relays/estimated_compute_units — so the figures match the
  * ecosystem-standard throughput shown by PoktScan (on-chain "claimed" totals are ~2.5x lower).
  */
 export async function getHomeSummary(network: NetworkId): Promise<HomeSummary> {
@@ -33,10 +34,9 @@ export async function getHomeSummary(network: NetworkId): Promise<HomeSummary> {
         stakedApps: number;
         stakedGateways: number;
         stakedSuppliers: number;
-        supplies?: { nodes: SupplyNode[] };
       }[];
     };
-    window: { aggregates: { sum: { totalRelays: string | null; totalComputedUnits: string | null } } };
+    window: unknown;
   }>(
     network,
     HOME_SUMMARY,
@@ -52,18 +52,20 @@ export async function getHomeSummary(network: NetworkId): Promise<HomeSummary> {
   const lb = data.lastBlock.nodes[0];
 
   // Economic total supply (minted + claimable-but-unminted Morse claims). Fall back to the
-  // already-minted on-chain supply (lastBlock.supplies) if getTotalSupplyByDay is unavailable.
+  // already-minted on-chain supply (the last block's supply rows) if getTotalSupplyByDay is unavailable.
   const supplyRows = data.supply ?? [];
   const latestSupply = supplyRows.length ? supplyRows[supplyRows.length - 1]?.total_supply : null;
-  const fallback = lb?.supplies?.nodes?.length ? Number(sumUpokt(lb.supplies.nodes.map((n) => n.supply))) : null;
+  const lbSupplies = latestSupply == null && lb ? await getBlockSupplies(network, lb.height).catch(() => []) : [];
+  const fallback = lbSupplies.length ? Number(sumUpokt(lbSupplies.map((n) => n.supply))) : null;
   const supplyUpokt = latestSupply != null ? Number(latestSupply) : fallback;
+  const window = unwrapRange<{ estimated_relays: string | null; estimated_compute_units: string | null }[]>(data.window).data?.[0];
 
   const stakedActors = lb ? Number(lb.stakedSuppliers) + Number(lb.stakedApps) + Number(lb.stakedGateways) : null;
 
   return {
     supplyUpokt,
-    relays24h: data.window.aggregates?.sum?.totalRelays ?? null,
-    cu24h: data.window.aggregates?.sum?.totalComputedUnits ?? null,
+    relays24h: window?.estimated_relays ?? null,
+    cu24h: window?.estimated_compute_units ?? null,
     stakedActors,
     latestHeight: lb?.height ?? null,
   };

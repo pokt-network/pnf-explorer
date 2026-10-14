@@ -11,6 +11,7 @@ import { getRevShareIncome } from '@/lib/data/roles';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt } from '@/lib/format';
 import { parsePage } from '@/lib/paging';
+import { absoluteUtc } from '@/lib/time';
 
 const LIMIT = 25;
 
@@ -47,7 +48,7 @@ function ReceivedSkeleton() {
 
 /**
  * Lifetime rev-share income. Streamed separately from the configs table because it is the one
- * genuinely expensive read on this page — see getRevShareIncome for the measurements.
+ * genuinely expensive read on this page — see getRevShareIncome.
  */
 async function ReceivedLine({ network, address }: { network: NetworkId; address: string }) {
   const income = await getRevShareIncome(network, address).catch(() => null);
@@ -69,6 +70,12 @@ async function ReceivedLine({ network, address }: { network: NetworkId; address:
                   {REASON[r.reason] ?? r.reason}: {formatPokt(r.amountUpokt)}
                 </span>
               ))}
+            </div>
+          ) : null}
+          {income.dataSince != null ? (
+            <div className="muted" style={{ marginTop: 4 }}>
+              Settlements since {absoluteUtc(income.dataSince)}
+              {income.gaps.length > 0 ? ` · not indexed: ${income.gaps.map((g) => `${absoluteUtc(g.from)} – ${absoluteUtc(g.to)}`).join(', ')}` : ''}
             </div>
           ) : null}
         </div>
@@ -98,7 +105,7 @@ async function IncomePanel({ network, address, page }: { network: NetworkId; add
 
   return (
     <div className="card flush-top">
-      {/* The lifetime figure is ~5s of indexer aggregate against the configs table's ~0.6s. Behind
+      {/* The lifetime figure was ~5s of indexer aggregate against the configs table's ~0.6s. Behind
           its own boundary it streams in after the table has already painted, instead of holding the
           whole panel hostage to the slowest number on it. */}
       <Suspense fallback={<ReceivedSkeleton />}>

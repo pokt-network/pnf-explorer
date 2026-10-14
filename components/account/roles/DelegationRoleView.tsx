@@ -188,27 +188,27 @@ async function ValidatorsPanel({
 }
 
 /**
- * Settlements tab — the blocks where the delegated validators earned, and this address's cut.
+ * Settlements tab — what the validators' settlements paid this address, per UTC day and validator.
  *
- * Each row is one validator's session-end settlement. Shannon pays the delegator pool's share
- * straight to delegator wallets, so a row is income landing, not an accrual waiting to be claimed.
+ * Shannon pays the delegator pool's share straight to delegator wallets at each session-end
+ * settlement, so a row is income landing, not an accrual waiting to be claimed.
  */
 async function SettlementsPanel({
   network,
-  set,
+  address,
   earnings,
   notCovered,
   page,
 }: {
   network: NetworkId;
-  set: DelegationSet;
+  address: string;
   earnings: DelegationEarnings | null;
   notCovered: boolean;
   page: number;
 }) {
   let data: Awaited<ReturnType<typeof getDelegationSettlements>>;
   try {
-    data = await getDelegationSettlements(network, set, LIMIT, (page - 1) * LIMIT);
+    data = await getDelegationSettlements(network, address, LIMIT, (page - 1) * LIMIT);
   } catch {
     return (
       <div className="card flush-top">
@@ -219,7 +219,7 @@ async function SettlementsPanel({
   if (data.rows.length === 0 && page === 1) {
     return (
       <div className="card flush-top">
-        <EmptyState>These validators have not settled a reward yet.</EmptyState>
+        <EmptyState>No settlement has paid this address in the last {EARNINGS_WINDOW_DAYS} days.</EmptyState>
       </div>
     );
   }
@@ -251,9 +251,9 @@ async function SettlementsPanel({
               </span>
             )}
             <div className="muted" style={{ marginTop: 4 }}>
-              Each row is one validator’s session-end settlement. Shannon pays the delegator pool’s share directly to delegator
-              wallets, so this is money that landed — there is nothing to claim. <b>My share</b> is this address’s pro-rata slice
-              of the pool: pool × (bonded stake ÷ total delegated stake).
+              Each row is what one validator’s session-end settlements paid this address over one UTC day. Shannon pays the
+              delegator pool’s share directly to delegator wallets, so this is money that landed — there is nothing to claim. The
+              amounts are exact, from the delegations the address held at each settlement.
             </div>
           </div>
         </div>
@@ -262,32 +262,25 @@ async function SettlementsPanel({
         <table className="tbl">
           <thead>
             <tr>
-              <th>Block</th>
+              <th>Day (UTC)</th>
               <th>Age</th>
               <th>Validator</th>
-              <th className="num">Delegator pool</th>
-              <th className="num">Pool stake</th>
-              <th className="num">My share</th>
+              <th className="num">Received</th>
             </tr>
           </thead>
           <tbody>
             {data.rows.map((r) => (
               <tr key={r.id}>
+                <td className="mono">{r.day.slice(0, 10)}</td>
+                <td title={absoluteUtc(r.day)}>{relativeTime(r.day)}</td>
                 <td>
-                  <Link href={`/block/${r.blockHeight}`}>{formatNumber(r.blockHeight)}</Link>
-                </td>
-                <td title={r.timestamp ? absoluteUtc(r.timestamp) : undefined}>
-                  {r.timestamp ? relativeTime(r.timestamp) : <span className="dim">—</span>}
-                </td>
-                <td>
-                  <Link href={`/validator/${r.validatorAddress}`}>
-                    {meta.get(r.validatorAddress)?.moniker ?? truncate(r.validatorAddress, 10, 5)}
-                  </Link>
-                </td>
-                <td className="num mono">{formatPokt(r.poolUpokt, 4)}</td>
-                <td className="num mono">
-                  {formatPoktCompact(r.totalStakeUpokt)}
-                  <span className="dim"> · {formatNumber(r.numDelegators)}</span>
+                  {r.validatorAddress ? (
+                    <Link href={`/validator/${r.validatorAddress}`}>
+                      {meta.get(r.validatorAddress)?.moniker ?? truncate(r.validatorAddress, 10, 5)}
+                    </Link>
+                  ) : (
+                    <span className="dim">Not attributed</span>
+                  )}
                 </td>
                 <td className="num mono">{formatPokt(Math.round(r.myShareUpokt), 4)}</td>
               </tr>
@@ -430,7 +423,7 @@ export function DelegationRoleView({
     {
       key: 'settlements',
       label: 'Settlements',
-      panel: <SettlementsPanel network={network} set={set} earnings={earnings} notCovered={notCovered} page={parsePage(settlementsPage)} />,
+      panel: <SettlementsPanel network={network} address={address} earnings={earnings} notCovered={notCovered} page={parsePage(settlementsPage)} />,
     },
     { key: 'rate', label: 'Rate', panel: <RatePanel set={set} earnings={earnings} notCovered={notCovered} /> },
     {

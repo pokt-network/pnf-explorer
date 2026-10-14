@@ -1,9 +1,12 @@
 import { gqlFetch } from '@/lib/graphql';
 import { getDelegations } from '@/lib/data/delegations';
+import { getBlockTimes } from '@/lib/data/blocks';
+import { getSupplierServiceCounts } from '@/lib/data/suppliers';
 import type { NetworkId } from '@/lib/networks';
 import {
   ACCOUNT_LIST,
   ACCOUNT_SUMMARY,
+  ACCOUNT_SUMMARY_HEIGHTS,
   ACCOUNT_ROLES,
   OWNED_OPERATORS,
   APP_DELEGATED_GATEWAYS,
@@ -144,15 +147,28 @@ export interface AccountSummary {
   last90DaysAccounts: number | null;
 }
 
+/** Balance rows with `lastUpdatedBlock` filled from their heights (null while the block is not indexed). */
+async function withLastUpdated<T extends { lastUpdatedBlockId: string }>(
+  network: NetworkId,
+  rows: T[],
+  revalidate: number,
+): Promise<(Omit<T, 'lastUpdatedBlockId'> & { lastUpdatedBlock: { height: string; timestamp: string } | null })[]> {
+  const times = await getBlockTimes(network, rows.map((r) => r.lastUpdatedBlockId), revalidate);
+  return rows.map(({ lastUpdatedBlockId, ...r }) => {
+    const timestamp = times.get(String(lastUpdatedBlockId));
+    return { ...r, lastUpdatedBlock: timestamp ? { height: String(lastUpdatedBlockId), timestamp } : null };
+  });
+}
+
 // ---- list ----
 export async function getAccountList(network: NetworkId, limit: number, offset: number) {
-  const data = await gqlFetch<{ balances: { nodes: AccountListRow[]; totalCount: number } }>(
+  const data = await gqlFetch<{ balances: { nodes: (Omit<AccountListRow, 'lastUpdatedBlock'> & { lastUpdatedBlockId: string })[]; totalCount: number } }>(
     network,
     ACCOUNT_LIST,
     { limit, offset },
     { revalidate: 15 },
   );
-  return data.balances;
+  return { totalCount: data.balances.totalCount, nodes: await withLastUpdated(network, data.balances.nodes, 15) };
 }
 
 export async function getAccountSummary(network: NetworkId): Promise<AccountSummary> {
@@ -161,12 +177,27 @@ export async function getAccountSummary(network: NetworkId): Promise<AccountSumm
   const todayDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
   const monthDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const last90Date = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  // A balance updated since a date is one whose last-updated height is past the newest block before it (-1: the chain
+  // is younger than the date, so every balance counts).
+  type Newest = { nodes: { id: string }[] };
+  const h = await gqlFetch<{ today: Newest; month: Newest; last90: Newest }>(
+    network,
+    ACCOUNT_SUMMARY_HEIGHTS,
+    { todayDate, monthDate, last90Date },
+    { revalidate: 15 },
+  );
+  const height = (b: Newest) => b.nodes[0]?.id ?? '-1';
   const data = await gqlFetch<{
     accountsWithBalance: { totalCount: number };
     todayAccounts: { totalCount: number };
     monthAccounts: { totalCount: number };
     last90DaysAccounts: { totalCount: number };
-  }>(network, ACCOUNT_SUMMARY, { todayDate, monthDate, last90Date }, { revalidate: 15 });
+  }>(
+    network,
+    ACCOUNT_SUMMARY,
+    { todayHeight: height(h.today), monthHeight: height(h.month), last90Height: height(h.last90) },
+    { revalidate: 15 },
+  );
   return {
     accountsWithBalance: data.accountsWithBalance?.totalCount ?? null,
     todayAccounts: data.todayAccounts?.totalCount ?? null,
@@ -198,9 +229,11 @@ export async function getTotalSupplyUpokt(network: NetworkId): Promise<number | 
 // ---- detail ----
 // Raw shape of the ACCOUNT_ROLES response (pre-normalization).
 interface AccountRolesResult {
-  account: Account | null;
-  supplier: SupplierRole | null;
-  ownedOperators: { totalCount: number; aggregates: { sum: { stakeAmount: string | null } | null } | null };
+  account: { id: string } | null;
+  balances: { nodes: (Omit<AccountBalance, 'lastUpdatedBlock'> & { lastUpdatedBlockId: string })[] };
+  supplier: Omit<SupplierRole, 'serviceConfigs'> | null;
+  serviceConfigs: SupplierRole['serviceConfigs'];
+  ownedOperators: { supplierCount: string | null; stakeUpokt: string | null }[] | null;
   asValidator: { nodes: ValidatorRoleLite[] };
   asApp: {
     id: string;
@@ -208,16 +241,16 @@ interface AccountRolesResult {
     stakeStatus: string | null;
     unstakingReason: string | null;
     unstakingEndHeight: string | null;
-    applicationServices: { totalCount: number };
-    applicationGateways: { totalCount: number };
   } | null;
+  appServices: { totalCount: number };
+  appGateways: { totalCount: number };
   asGateway: {
     id: string;
     stakeAmount: string | null;
     stakeStatus: string | null;
     unstakingEndHeight: string | null;
-    applicationGateways: { totalCount: number };
   } | null;
+  gatewayApps: { totalCount: number };
   ownedServices: { totalCount: number; nodes: OwnedService[] };
   revShareRecipient: { totalCount: number };
 }
@@ -231,16 +264,17 @@ export async function getAccountProfile(network: NetworkId, id: string): Promise
   // The staking delegation probe is LCD-only and independent of the roles query, so run it
   // alongside rather than after. A dead LCD costs us the delegation role, never the whole page.
   const [d, delegations] = await Promise.all([
-    gqlFetch<AccountRolesResult>(network, ACCOUNT_ROLES, { id, rsMatch: [{ address: id }] }, { revalidate: 30 }),
+    gqlFetch<AccountRolesResult>(network, ACCOUNT_ROLES, { id, ids: [id], rsMatch: [{ address: id }] }, { revalidate: 30 }),
     getDelegations(network, id).catch(() => null),
   ]);
+  // The fleet function's whole-fleet row: every supplier the address owns now, any status, and their stake summed.
+  const fleet = d.ownedOperators?.[0];
   const owner =
-    d.ownedOperators?.totalCount > 0
-      ? { operatorCount: d.ownedOperators.totalCount, totalStakeUpokt: d.ownedOperators.aggregates?.sum?.stakeAmount ?? '0' }
-      : null;
+    Number(fleet?.supplierCount ?? 0) > 0 ? { operatorCount: Number(fleet!.supplierCount), totalStakeUpokt: fleet!.stakeUpokt ?? '0' } : null;
+  const account = d.account ? { id: d.account.id, balances: { nodes: await withLastUpdated(network, d.balances?.nodes ?? [], 30) } } : null;
   return {
-    account: d.account ?? null,
-    supplier: d.supplier ?? null,
+    account,
+    supplier: d.supplier ? { ...d.supplier, serviceConfigs: d.serviceConfigs ?? { totalCount: 0, nodes: [] } } : null,
     owner,
     validator: d.asValidator?.nodes?.[0] ?? null,
     application: d.asApp
@@ -250,8 +284,8 @@ export async function getAccountProfile(network: NetworkId, id: string): Promise
           stakeStatus: d.asApp.stakeStatus,
           unstakingReason: d.asApp.unstakingReason,
           unstakingEndHeight: d.asApp.unstakingEndHeight,
-          serviceCount: d.asApp.applicationServices?.totalCount ?? 0,
-          delegatedGatewayCount: d.asApp.applicationGateways?.totalCount ?? 0,
+          serviceCount: d.appServices?.totalCount ?? 0,
+          delegatedGatewayCount: d.appGateways?.totalCount ?? 0,
         }
       : null,
     gateway: d.asGateway
@@ -260,7 +294,7 @@ export async function getAccountProfile(network: NetworkId, id: string): Promise
           stakeAmount: d.asGateway.stakeAmount,
           stakeStatus: d.asGateway.stakeStatus,
           unstakingEndHeight: d.asGateway.unstakingEndHeight,
-          delegatingAppCount: d.asGateway.applicationGateways?.totalCount ?? 0,
+          delegatingAppCount: d.gatewayApps?.totalCount ?? 0,
         }
       : null,
     ownedServices: d.ownedServices?.nodes ?? [],
@@ -273,13 +307,17 @@ export async function getAccountProfile(network: NetworkId, id: string): Promise
 
 /** Owner → operator nodes, paginated (newest-staked first). Powers the account "Operators" tab. */
 export async function getOwnedOperators(network: NetworkId, id: string, limit: number, offset: number) {
-  const data = await gqlFetch<{ suppliers: { totalCount: number; nodes: OwnedOperatorRow[] } }>(
+  const data = await gqlFetch<{ suppliers: { totalCount: number; nodes: Omit<OwnedOperatorRow, 'serviceConfigs'>[] } }>(
     network,
     OWNED_OPERATORS,
     { id, limit, offset },
     { revalidate: 30 },
   );
-  return data.suppliers;
+  const counts = await getSupplierServiceCounts(network, data.suppliers.nodes.map((n) => n.id));
+  return {
+    totalCount: data.suppliers.totalCount,
+    nodes: data.suppliers.nodes.map((n): OwnedOperatorRow => ({ ...n, serviceConfigs: { totalCount: counts.get(n.id) ?? 0 } })),
+  };
 }
 
 /** Application → gateways it delegates to (paginated). Powers the account "Delegated Gateways" tab. */

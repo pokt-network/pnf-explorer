@@ -4,7 +4,8 @@ import { INDEXER_LAG_THRESHOLD } from '@/lib/config';
 import type { NetworkId } from '@/lib/networks';
 import { DataError } from '@/lib/errors';
 import { TRANSACTIONS_LIST, TRANSACTIONS_SUMMARY, TRANSACTION_DETAIL } from '@/lib/queries/transactions';
-import type { BlockTx } from '@/lib/data/blocks';
+import { getBlockTimes, withBlocks, type TxNode } from '@/lib/data/blocks';
+import { unwrapRange } from '@/lib/data/range';
 
 const HEX64 = /^[0-9a-fA-F]{64}$/;
 
@@ -16,13 +17,16 @@ export type TxFilterKey = 'all' | 'success' | 'failed' | 'msgsend' | 'msgclaim' 
 // (block_id DESC) partial index on live rows, without which a chip sorts all ~43M transactions
 // (Success 6.9 s → 0.6 s on mainnet, 2026-10-08).
 const LIVE = { id: { isNull: false } };
+// A message chip matches the transactions whose own per-type message count lists that type (JSON
+// containment): the closed schema has no filter through the message tables.
+const hasMessage = (type: string) => ({ amountOfMessages: { contains: [{ type }] } });
 const FILTERS: Record<TxFilterKey, Record<string, unknown>> = {
   all: LIVE,
   success: { ...LIVE, code: { equalTo: 0 } },
   failed: { ...LIVE, code: { notEqualTo: 0 } },
-  msgsend: { ...LIVE, nativeTransfersExist: true },
-  msgclaim: { ...LIVE, msgCreateClaimsExist: true },
-  msgproof: { ...LIVE, msgSubmitProofsExist: true },
+  msgsend: { ...LIVE, ...hasMessage('/cosmos.bank.v1beta1.MsgSend') },
+  msgclaim: { ...LIVE, ...hasMessage('/pocket.proof.MsgCreateClaim') },
+  msgproof: { ...LIVE, ...hasMessage('/pocket.proof.MsgSubmitProof') },
 };
 
 export function txFilterKey(raw: string | undefined): TxFilterKey {
@@ -51,23 +55,23 @@ export interface TxDetail {
 // ---- list ----
 /** `withCount: false` skips the total (a count over every matching transaction) for callers that don't show it. */
 export async function getTransactionsList(network: NetworkId, limit: number, offset: number, filter: TxFilterKey, withCount = true) {
-  const data = await gqlFetch<{ transactions: { nodes: BlockTx[]; totalCount?: number } }>(
+  const data = await gqlFetch<{ transactions: { nodes: TxNode[]; totalCount?: number } }>(
     network,
     TRANSACTIONS_LIST,
     { limit, offset, filter: FILTERS[filter], withCount },
     { revalidate: 15 },
   );
-  return data.transactions;
+  return { totalCount: data.transactions.totalCount, nodes: await withBlocks(network, data.transactions.nodes) };
 }
 
 interface TxSums {
-  totalTxs?: string | null;
-  successfulTxs: string | null;
-  failedTxs: string | null;
+  total_txs: string | null;
+  successful_txs: string | null;
+  failed_txs: string | null;
 }
 
 /** The all-time total behind a chip, where the per-block counters have it (all/success/failed). */
-const CHAIN_TOTAL: Partial<Record<TxFilterKey, keyof TxSums>> = { all: 'totalTxs', success: 'successfulTxs', failed: 'failedTxs' };
+const CHAIN_TOTAL: Partial<Record<TxFilterKey, keyof TxSums>> = { all: 'total_txs', success: 'successful_txs', failed: 'failed_txs' };
 
 /** True when `getTransactionsSummary` returns this chip's total; the other chips show none (counting them is too costly). */
 export function hasChainTotal(filter: TxFilterKey): boolean {
@@ -84,21 +88,21 @@ export async function getTransactionsSummary(network: NetworkId, filter: TxFilte
   const chainKey = CHAIN_TOTAL[filter];
   const data = await gqlFetch<{
     blocks: { nodes: { totalTxs: number }[] };
-    day: { aggregates: { sum: TxSums | null } | null };
-    chain?: { aggregates: { sum: TxSums | null } | null };
+    day: unknown;
+    chain?: unknown;
   }>(
     network,
     TRANSACTIONS_SUMMARY,
     { startDate: start.toISOString(), endDate: end.toISOString(), withChain: chainKey != null },
     { revalidate: 15 },
   );
-  // GraphQL aggregate sums serialize as strings — coerce to number.
-  const day = data.day.aggregates?.sum;
-  const chain = chainKey ? data.chain?.aggregates?.sum?.[chainKey] : null;
+  // The statistics function sends every number as a JSON string — coerce to number.
+  const day = unwrapRange<TxSums[]>(data.day).data?.[0];
+  const chain = chainKey ? unwrapRange<TxSums[]>(data.chain).data?.[0]?.[chainKey] : null;
   return {
     latestBlockTxs: data.blocks.nodes[0]?.totalTxs ?? null,
-    successful24h: Number(day?.successfulTxs ?? 0),
-    failed24h: Number(day?.failedTxs ?? 0),
+    successful24h: Number(day?.successful_txs ?? 0),
+    failed24h: Number(day?.failed_txs ?? 0),
     chainTotal: chain != null ? Number(chain) : null,
   };
 }
@@ -116,20 +120,22 @@ function revalidateForHeight(height: number | null, targetHeight: number | null)
  */
 export async function getTransaction(network: NetworkId, id: string, targetHeight: number | null): Promise<TxDetail | null> {
   const hash = HEX64.test(id) ? id.toUpperCase() : id;
+  type TxRow = Omit<TxDetail, 'block'> & { blockId: string };
   // First fetch with a short TTL; if it lands far below head we could cache harder, but a
   // single round-trip keeps it simple — bury-immutability is applied on the next render.
-  const data = await gqlFetch<{ transaction: TxDetail | null }>(network, TRANSACTION_DETAIL, { id: hash }, { revalidate: 15 });
-  const tx = data.transaction;
-  if (!tx) return null;
-  // A tip tx may be indexed before its block relation lands (block null) → keep the short TTL.
-  if (!tx.block) return tx;
+  const data = await gqlFetch<{ transaction: TxRow | null }>(network, TRANSACTION_DETAIL, { id: hash }, { revalidate: 15 });
+  let row = data.transaction;
+  if (!row) return null;
   // Re-key cache by burial once we know the height (cheap; same query, immutable revalidate).
-  const rev = revalidateForHeight(Number(tx.block.height), targetHeight);
+  const rev = revalidateForHeight(Number(row.blockId), targetHeight);
   if (rev === false) {
-    const fixed = await gqlFetch<{ transaction: TxDetail | null }>(network, TRANSACTION_DETAIL, { id: hash }, { revalidate: false });
-    return fixed.transaction ?? tx;
+    const fixed = await gqlFetch<{ transaction: TxRow | null }>(network, TRANSACTION_DETAIL, { id: hash }, { revalidate: false });
+    row = fixed.transaction ?? row;
   }
-  return tx;
+  // The block's time is a second read; a tip tx may be indexed before its block lands (block null).
+  const { blockId, ...tx } = row;
+  const timestamp = (await getBlockTimes(network, [blockId], rev)).get(String(blockId));
+  return { ...tx, block: timestamp ? { timestamp, height: String(blockId) } : null };
 }
 
 // ---- ALWAYS-LCD: Messages / Events / Raw (§2, §8.6.1) ----
