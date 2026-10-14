@@ -9,7 +9,7 @@ import { EmptyState } from '@/components/ui/states';
 import { MorseSearch } from '@/components/migration/MorseSearch';
 import { getMorseClaimableAccounts, getMorseClaimSummary, type MorseClaimableAccountRow } from '@/lib/data/migration';
 import type { NetworkId } from '@/lib/networks';
-import { formatNumber, formatPokt, formatPoktCompact, toBigInt } from '@/lib/format';
+import { formatNumber, formatPokt, formatPoktCompact, formatPoktExact, toBigInt } from '@/lib/format';
 
 export const metadata: Metadata = {
   title: 'Morse Migration',
@@ -29,7 +29,7 @@ function percent(claimed: bigint, total: bigint): number | null {
 function ClaimCard({ label, dot, claimed, total }: { label: string; dot: string; claimed: bigint; total: bigint }) {
   const pct = percent(claimed, total);
   return (
-    <div className="card sum" title={`${formatPokt(claimed)} of ${formatPokt(total)} POKT claimed`}>
+    <div className="card sum" title={`${formatPoktExact(claimed)} of ${formatPoktExact(total)} POKT claimed`}>
       <div className="lbl">
         <span className="dot" style={{ background: dot }} />
         {label}
