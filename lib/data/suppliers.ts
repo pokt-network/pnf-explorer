@@ -132,6 +132,7 @@ export async function getSupplierRouting(network: NetworkId, id: string, pinHeig
 
   // Per service: the (service, application) rows summed. Amounts are JSON strings (they can pass 2^53): BigInt.
   const byService: Record<string, ServiceTraffic> = {};
+  const unknownLast = new Set<string>();
   const add = (a: string, b: string | null) => (BigInt(a) + BigInt(b ?? '0')).toString();
   for (const r of rows) {
     const serviceId = r.service_id;
@@ -141,12 +142,15 @@ export async function getSupplierRouting(network: NetworkId, id: string, pinHeig
     entry.claimedUpokt = add(entry.claimedUpokt, r.claimed_upokt);
     entry.settledUpokt = add(entry.settledUpokt, r.settled_upokt);
     entry.overservicedUpokt = add(entry.overservicedUpokt, r.overservicing_loss_upokt);
-    if (r.last_settled_height != null) entry.lastBlock = Math.max(entry.lastBlock ?? 0, Number(r.last_settled_height));
+    // One row the catalog cannot vouch for makes the service's latest height unknown, not the max of the others.
+    if (r.last_settled_height == null) unknownLast.add(serviceId);
+    else entry.lastBlock = Math.max(entry.lastBlock ?? 0, Number(r.last_settled_height));
     for (const gw of appGateways?.get(r.application_id) ?? []) {
       if (!entry.gateways.includes(gw)) entry.gateways.push(gw);
     }
   }
 
+  for (const serviceId of unknownLast) byService[serviceId].lastBlock = null;
   const gateways = [...new Set(Object.values(byService).flatMap((e) => e.gateways))];
   return { byService, activeCount: Object.keys(byService).length, gateways, coverage: lifetimeCoverage(answer.range), gatewaysUnavailable: appGateways == null };
 }

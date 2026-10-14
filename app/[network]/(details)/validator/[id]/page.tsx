@@ -14,7 +14,7 @@ import { UptimeGrid } from '@/components/validator/UptimeGrid';
 import { DelegatorsPanel } from '@/components/validator/DelegatorsPanel';
 import { DelegatorAprCard, DelegatorAprSkeleton } from '@/components/validator/DelegatorAprCard';
 import { getUseRpcData } from '@/lib/metadata';
-import { getValidator, getValidatorUptime, getDelegators, getValidatorChainStates, getValidatorUnbonding } from '@/lib/data/validators';
+import { getValidator, getValidatorUptime, getDelegators, getValidatorChainStates, getValidatorUnbonding, getSignerBalances } from '@/lib/data/validators';
 import type { NetworkId } from '@/lib/networks';
 import { formatPokt, formatPoktCompact, formatUpokt, formatNumber, truncate } from '@/lib/format';
 import { parsePage } from '@/lib/paging';
@@ -50,13 +50,9 @@ export default async function ValidatorDetailPage({
   // The operator account is the pokt1-prefixed address, NOT signerId (which is the valoper).
   const operator = validator.signerPoktPrefixId ?? validator.signerId;
 
-  // Signer balance (upokt) lives on signerPoktPrefix (signer.balances is empty).
-  const signerBalances = validator.signerPoktPrefix?.balances?.nodes ?? [];
-  const signerBalance = signerBalances.find((b) => b.denom === 'upokt') ?? signerBalances[0] ?? null;
-
   // Parallelize the tab data that the page needs to seed badges + the always-LCD/uptime panels.
   // Unbonding is Cosmos-side (LCD) and only relevant while the validator is Unstaking.
-  const [counts, uptime, delegators, chain, unbonding] = await Promise.all([
+  const [counts, uptime, delegators, chain, unbonding, signerBalances] = await Promise.all([
     addressTabCounts(network, operator),
     getValidatorUptime(network, validator.id),
     getDelegators(network, validator.id),
@@ -64,7 +60,10 @@ export default async function ValidatorDetailPage({
     // which cannot separate a below-the-cutoff candidate from a validator jailed for downtime.
     getValidatorChainStates(network),
     validator.stakeStatus === 'Unstaking' ? getValidatorUnbonding(network, validator.id) : Promise.resolve(null),
+    // Signer balance (upokt) lives on the pokt1 account (the valoper's balances are empty).
+    getSignerBalances(network, validator.signerPoktPrefixId),
   ]);
+  const signerBalance = signerBalances?.find((b) => b.denom === 'upokt') ?? signerBalances?.[0] ?? null;
 
   const chainEntry = chain.byValoper.get(validator.id);
   const state = deriveValidatorState(chainEntry, chain.ok);

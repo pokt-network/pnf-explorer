@@ -94,7 +94,8 @@ export const OWNER_FLEET_IDS = /* GraphQL */ `
 `;
 
 // Lifetime earnings of every supplier the owner owns now, from the settlement catalog: one total, per supplier, or per
-// service (bySupplier: false, byService: true). Read as three requests so they run in parallel.
+// service (bySupplier: false, byService: true). Read as two requests (per supplier, per service) so they run in parallel;
+// the totals are the per-service rows summed.
 export const FLEET_EARNINGS = /* GraphQL */ `
   query fleetEarnings($owners: [String], $bySupplier: Boolean, $byService: Boolean) {
     getSupplierEarningsJson(suppliers: null, rangeStart: null, rangeEnd: null, bySupplier: $bySupplier, byService: $byService, owners: $owners)

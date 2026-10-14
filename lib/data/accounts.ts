@@ -301,7 +301,7 @@ export async function getAccountProfile(network: NetworkId, id: string): Promise
   };
 }
 
-/** Owner → operator nodes, paginated (newest-staked first). Powers the account "Operators" tab. */
+/** Owner → operator nodes, paginated (largest stake first, then id). Powers the account "Operators" tab. */
 export async function getOwnedOperators(network: NetworkId, id: string, limit: number, offset: number) {
   const data = await gqlFetch<{
     getSupplierFleetList: { supplierId: string; stakeStatus: string | null; stakeUpokt: string | null; serviceCount: string | null }[] | null;

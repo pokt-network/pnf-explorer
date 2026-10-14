@@ -55,7 +55,8 @@ export interface ServiceListRow {
 }
 
 export interface ServiceListRowWithCount extends ServiceListRow {
-  activeSuppliers: number;
+  /** Null when the counts could not be read (failed, or the walk hit its cap): unknown, not 0. */
+  activeSuppliers: number | null;
 }
 
 // The indexer caps connection page size at 1000 (verified 2026-10-06: `services(first: 1000)` returns all 263 mainnet services).
@@ -73,10 +74,10 @@ export async function getServiceList(network: NetworkId, limit: number, offset: 
 }
 
 /**
- * Active (Staked) supplier count per service id, every service in one grouped query. 12h ISR —
- * these move slowly. Map keyed by id; missing ids → 0.
+ * Active (Staked) supplier count per service id, every service from the service summary function. 12h ISR —
+ * these move slowly. Map keyed by id; missing ids → 0. Null when the read failed or hit its page cap.
  */
-export async function getServiceActiveSupplierCounts(network: NetworkId): Promise<Map<string, number>> {
+export async function getServiceActiveSupplierCounts(network: NetworkId): Promise<Map<string, number> | null> {
   const map = new Map<string, number>();
   try {
     // Keyset by service id, stepping by the rows returned until a page comes back empty; past the cap the counts
@@ -97,8 +98,8 @@ export async function getServiceActiveSupplierCounts(network: NetworkId): Promis
       after = rows.reduce((m, r) => (r.serviceId > m ? r.serviceId : m), after);
     }
   } catch {
-    map.clear();
-    /* counts unset → rows render 0 */
+    // Unknown, not 0: the list shows a dash.
+    return null;
   }
   return map;
 }
@@ -117,7 +118,8 @@ export async function getAllServicesWithCounts(network: NetworkId): Promise<Serv
     if (nodes.length === 0 || all.length >= totalCount) break;
   }
   const counts = await countsP;
-  return all.map((n) => ({ ...n, activeSuppliers: counts.get(n.id) ?? 0 }));
+  // A service missing from a complete read has no Staked supplier (0); with no read at all the count is unknown.
+  return all.map((n) => ({ ...n, activeSuppliers: counts ? (counts.get(n.id) ?? 0) : null }));
 }
 
 /**
