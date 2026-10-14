@@ -72,7 +72,6 @@ function ClaimCards({ summary }: { summary: MorseClaimSummary }) {
   );
 }
 
-
 export default async function MigrationPage({
   params,
   searchParams,
@@ -155,9 +154,15 @@ export default async function MigrationPage({
                   <td>
                     <Hash value={a.id} head={8} tail={6} copy />
                   </td>
-                  <td className={`num mono${isZero(a.unstakedBalanceAmount) ? ' dim' : ''}`}>{formatPokt(a.unstakedBalanceAmount)} POKT</td>
-                  <td className={`num mono${isZero(a.supplierStakeAmount) ? ' dim' : ''}`}>{formatPokt(a.supplierStakeAmount)} POKT</td>
-                  <td className={`num mono${isZero(a.applicationStakeAmount) ? ' dim' : ''}`}>{formatPokt(a.applicationStakeAmount)} POKT</td>
+                  <td className={`num mono${isZero(a.unstakedBalanceAmount) ? ' dim' : ''}`} title={`${formatPoktExact(a.unstakedBalanceAmount)} POKT`}>
+                    {formatPokt(a.unstakedBalanceAmount)} POKT
+                  </td>
+                  <td className={`num mono${isZero(a.supplierStakeAmount) ? ' dim' : ''}`} title={`${formatPoktExact(a.supplierStakeAmount)} POKT`}>
+                    {formatPokt(a.supplierStakeAmount)} POKT
+                  </td>
+                  <td className={`num mono${isZero(a.applicationStakeAmount) ? ' dim' : ''}`} title={`${formatPoktExact(a.applicationStakeAmount)} POKT`}>
+                    {formatPokt(a.applicationStakeAmount)} POKT
+                  </td>
                   <td>
                     {a.shannonDestAddress ? (
                       <Hash value={a.shannonDestAddress} href={`/account/${a.shannonDestAddress}`} head={10} tail={6} />

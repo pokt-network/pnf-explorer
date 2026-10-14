@@ -15,7 +15,6 @@ export const MORSE_CLAIMABLE_ACCOUNTS = /* GraphQL */ `
       nodes {
         id
         shannonDestAddress
-        claimed
         claimedAtId
         transactionId
         unstakedBalanceAmount
@@ -35,7 +34,6 @@ export const MORSE_CLAIMABLE_BY_MORSE_ADDRESS = /* GraphQL */ `
       nodes {
         id
         shannonDestAddress
-        claimed
         claimedAtId
         transactionId
         unstakedBalanceAmount
@@ -53,7 +51,6 @@ export const MORSE_CLAIMABLE_BY_MORSE_ADDRESS = /* GraphQL */ `
       nodes {
         id
         shannonDestAddress
-        claimed
         claimedAtId
         transactionId
         unstakedBalanceAmount

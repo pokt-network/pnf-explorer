@@ -7,14 +7,14 @@ export interface MorseClaimableAccountRow {
   /** Morse address (hex, lowercased by the indexer) — or a Morse module account name. */
   id: string;
   /**
-   * Shannon address the claim minted to, as the chain recorded it. For a supplier claim the rule depends on the poktroll
-   * version at claim time (poktroll #1095, #1328, #1384, #1483); today it is the owner when the Morse supplier had
-   * already unbonded or its stake was below the minimum (auto-unstake), otherwise the Shannon address that signed the
-   * claim. Correct for every account since pocketdex's destination patch (2026-10-14); new supplier claims need the
-   * pocketdex release with the indexer fix (400e1c1).
+   * Shannon address the claim minted to, as the chain recorded it. For a supplier claim the chain's rule
+   * (poktroll x/migration/keeper/msg_server_claim_morse_supplier.go): the owner when the Morse unbonding has elapsed or
+   * the stake is below the minimum; otherwise the signing address, which is the owner for a NON_CUSTODIAL_SIGNED_BY_OWNER
+   * claim and the supplier address for the rest. So usually the supplier address, the owner for some claims. Every
+   * account matches the chain since pocketdex's destination patch (2026-10-14); supplier claims indexed later need the
+   * pocketdex release with the indexer fix (400e1c1) — low risk: the last one on mainnet was at height 761,698.
    */
   shannonDestAddress: string | null;
-  claimed: boolean;
   /** Claim height. */
   claimedAtId: string | null;
   /** Claim tx hash. */
