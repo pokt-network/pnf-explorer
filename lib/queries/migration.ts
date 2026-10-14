@@ -37,3 +37,16 @@ export const MORSE_CLAIM_SUMMARY = /* GraphQL */ `
     }
   }
 `;
+
+// Supplier claims whose supplier address or owner is one of $shannon, newest first, 1000 per call; the next page passes
+// the last row's height and id as $beforeHeight / $beforeId (keyset). Only the Morse address is read: the list above
+// then matches it, since morseClaimableAccounts' destination is not reliable for supplier claims yet.
+export const MORSE_SUPPLIER_CLAIMS = /* GraphQL */ `
+  query morseSupplierClaims($shannon: [String], $beforeHeight: BigInt, $beforeId: String) {
+    getMorseClaimsList(shannonAddresses: $shannon, kinds: ["supplier"], rowLimit: 1000, beforeHeight: $beforeHeight, beforeId: $beforeId) {
+      height
+      id
+      morseSrcAddress
+    }
+  }
+`;

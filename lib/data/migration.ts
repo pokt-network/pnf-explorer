@@ -1,14 +1,15 @@
 import { gqlFetch } from '@/lib/graphql';
 import type { NetworkId } from '@/lib/networks';
-import { MORSE_CLAIMABLE_ACCOUNTS, MORSE_CLAIM_SUMMARY } from '@/lib/queries/migration';
+import { MORSE_CLAIMABLE_ACCOUNTS, MORSE_CLAIM_SUMMARY, MORSE_SUPPLIER_CLAIMS } from '@/lib/queries/migration';
 
 // ---- shapes ----
 export interface MorseClaimableAccountRow {
   /** Morse address (hex, lowercased by the indexer) — or a Morse module account name. */
   id: string;
   /**
-   * Shannon address the claim minted to. For a supplier claim the chain records the operator; the indexer has it for
-   * most of them but NULL in 59 rows and the owner in 18 (mainnet, 2026-10-14; being fixed in pocketdex).
+   * Shannon address the claim minted to. For a supplier claim the chain records the supplier address
+   * (`shannon_operator_address` in the proto); the indexer currently has the owner or NULL in some of those rows (a
+   * pocketdex bug being patched).
    */
   shannonDestAddress: string | null;
   claimed: boolean;
@@ -34,31 +35,76 @@ export interface MorseClaimSummary {
   unclaimed: MorseClaimAmounts;
 }
 
+export interface MorseClaimableAccountPage {
+  nodes: MorseClaimableAccountRow[];
+  totalCount: number;
+  /** A pokt1 search whose supplier claims ran past the walk's cap: the matches may be incomplete. */
+  truncated: boolean;
+}
+
 const NOTHING: MorseClaimAmounts = { unstakedBalanceUpokt: '0', supplierStakeUpokt: '0', applicationStakeUpokt: '0' };
 
+// The supplier-claims walk: up to 10 keyset pages of 1000 (the most supplier claims one address holds on mainnet is
+// 1,187, 2026-10-14). It stops on an empty page, never on a short one, so a server cap below 1000 loses nothing.
+const SUPPLIER_CLAIM_PAGES = 10;
+
 /**
- * `?address=` → list filter. A `pokt1…` address matches the claim destination; anything else matches the Morse
- * address or its output (custodial) address. Any input case is accepted, like poktscan's /migration, but matched
- * exactly against how each column is stored — ids and destinations lowercase, output addresses uppercase (mainnet,
- * 2026-10-14) — instead of lower() on every row. Still a scan of the 57,762 rows (the output address and the
- * destination have no index): ~15–20 ms on the database.
+ * Morse addresses of every supplier claim whose supplier address or owner is `shannon`. The catalog matches the address
+ * exactly; pokt1 addresses are lowercase on chain, so the input is lowercased.
  */
-export function morseAccountFilter(address: string | undefined) {
+async function getSupplierClaimMorseAddresses(network: NetworkId, shannon: string) {
+  const ids = new Set<string>();
+  let before: { height: string; id: string } | undefined;
+  for (let i = 0; i < SUPPLIER_CLAIM_PAGES; i++) {
+    const data = await gqlFetch<{ getMorseClaimsList: { height: string; id: string; morseSrcAddress: string }[] | null }>(
+      network,
+      MORSE_SUPPLIER_CLAIMS,
+      { shannon: [shannon.toLowerCase()], beforeHeight: before?.height, beforeId: before?.id },
+      { cache: 'no-store' },
+    );
+    const rows = data.getMorseClaimsList ?? [];
+    if (rows.length === 0) return { ids: [...ids], truncated: false };
+    for (const r of rows) ids.add(r.morseSrcAddress.toLowerCase());
+    const last = rows[rows.length - 1];
+    before = { height: last.height, id: last.id };
+  }
+  return { ids: [...ids], truncated: true };
+}
+
+/**
+ * `?address=` → list filter, any input case (like poktscan's /migration). A `pokt1…` address matches the claim
+ * destination, and the supplier claims it holds as supplier or owner by their Morse address (`supplierIds`), since the
+ * destination is not reliable for supplier claims yet. Anything else matches the Morse address or its output
+ * (custodial) address. The indexer lowercases ids, so that one is an exact match on its index; the output address and
+ * the destination are stored as the message carried them, so those compare case-insensitively.
+ */
+export function morseAccountFilter(address: string | undefined, supplierIds: string[] = []) {
   const q = address?.trim();
   if (!q) return undefined;
-  if (/^pokt1/i.test(q)) return { shannonDestAddress: { equalTo: q.toLowerCase() } };
-  return { or: [{ id: { equalTo: q.toLowerCase() } }, { morseOutputAddress: { equalTo: q.toUpperCase() } }] };
+  if (/^pokt1/i.test(q)) {
+    const dest = { shannonDestAddress: { equalToInsensitive: q } };
+    return supplierIds.length ? { or: [dest, { id: { in: supplierIds } }] } : dest;
+  }
+  return { or: [{ id: { equalTo: q.toLowerCase() } }, { morseOutputAddress: { equalToInsensitive: q } }] };
 }
 
 // ---- list ----
-export async function getMorseClaimableAccounts(network: NetworkId, limit: number, offset: number, address?: string) {
+export async function getMorseClaimableAccounts(
+  network: NetworkId,
+  limit: number,
+  offset: number,
+  address?: string,
+): Promise<MorseClaimableAccountPage> {
+  const q = address?.trim();
+  const supplier = q && /^pokt1/i.test(q) ? await getSupplierClaimMorseAddresses(network, q) : { ids: [], truncated: false };
   const data = await gqlFetch<{ morseClaimableAccounts: { nodes: MorseClaimableAccountRow[]; totalCount: number } }>(
     network,
     MORSE_CLAIMABLE_ACCOUNTS,
-    { limit, offset, filter: morseAccountFilter(address) },
-    { revalidate: 30 },
+    { limit, offset, filter: morseAccountFilter(q, supplier.ids) },
+    // a search is one person's lookup: never cache it; the unfiltered list is shared
+    q ? { cache: 'no-store' } : { revalidate: 30 },
   );
-  return data.morseClaimableAccounts;
+  return { ...data.morseClaimableAccounts, truncated: supplier.truncated };
 }
 
 // ---- summary ----

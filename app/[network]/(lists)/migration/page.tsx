@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { redirect } from 'next/navigation';
 import { NetLink as Link } from '@/components/shell/NetLink';
 import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { Tic } from '@/components/ui/Icons';
@@ -8,8 +9,8 @@ import { Hash } from '@/components/ui/Hash';
 import { EmptyState } from '@/components/ui/states';
 import { ErrorCard } from '@/components/ui/ErrorCard';
 import { MorseSearch } from '@/components/migration/MorseSearch';
-import { getMorseClaimableAccounts, getMorseClaimSummary, type MorseClaimableAccountRow, type MorseClaimSummary } from '@/lib/data/migration';
-import type { NetworkId } from '@/lib/networks';
+import { getMorseClaimableAccounts, getMorseClaimSummary, type MorseClaimSummary } from '@/lib/data/migration';
+import { netHref, type NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, formatPoktCompact, formatPoktExact, toBigInt } from '@/lib/format';
 
 export const metadata: Metadata = {
@@ -45,7 +46,7 @@ function ClaimCard({ label, dot, claimed, total }: { label: string; dot: string;
       title={`${formatPoktExact(claimed)} of ${formatPoktExact(total)} POKT claimed`}
     >
       <div className="meter">
-        <span className="track">
+        <span className="bar-mini">
           <i style={{ width: `${pct ?? 0}%`, background: dot }} />
         </span>
         {pct == null ? '—' : `${pct.toFixed(2)}%`}
@@ -74,15 +75,6 @@ function ClaimCards({ summary }: { summary: MorseClaimSummary }) {
 
 const isZero = (upokt: string) => toBigInt(upokt) === BigInt(0);
 
-/**
- * Where the claim landed. An application stake made the destination an application, so it opens at that role. A
- * supplier claim's destination is not certain to be the supplier (the indexer has the owner for some, see
- * MorseClaimableAccountRow), so it opens as a plain account and the address page picks its roles.
- */
-function destinationHref(dest: string, a: MorseClaimableAccountRow): string {
-  if (toBigInt(a.applicationStakeAmount) > BigInt(0)) return `/account/${dest}?as=application`;
-  return `/account/${dest}`;
-}
 
 export default async function MigrationPage({
   params,
@@ -95,19 +87,25 @@ export default async function MigrationPage({
   const { page: pageParam, address: addressParam } = await searchParams;
   const address = (Array.isArray(addressParam) ? addressParam[0] : addressParam)?.trim() || undefined;
 
-  // The totals are independent of the list: a failed summary costs the cards, never the table.
-  const summaryRead = getMorseClaimSummary(network).catch(() => null);
-  // A page past the end (or past GraphQL's Int) shows the last page instead of an empty table.
-  let page = Math.min(Math.max(1, Math.floor(Number(pageParam)) || 1), MAX_PAGE);
-  let list = await getMorseClaimableAccounts(network, PAGE_SIZE, (page - 1) * PAGE_SIZE, address);
-  const lastPage = Math.max(1, Math.ceil(list.totalCount / PAGE_SIZE));
+  // The totals are independent of the list: a failed summary costs the cards, never the table (the error is logged).
+  const summaryRead = getMorseClaimSummary(network).catch((e: unknown) => {
+    console.error(`[migration] getMorseClaimSummary failed on ${network}:`, e);
+    return null;
+  });
+  // Clamped to GraphQL's Int; a page past the end redirects to the last one.
+  const page = Math.min(Math.max(1, Math.floor(Number(pageParam)) || 1), MAX_PAGE);
+  const offset = (page - 1) * PAGE_SIZE;
+  const { nodes, totalCount, truncated } = await getMorseClaimableAccounts(network, PAGE_SIZE, offset, address);
+  const lastPage = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   if (page > lastPage) {
-    page = lastPage;
-    list = await getMorseClaimableAccounts(network, PAGE_SIZE, (page - 1) * PAGE_SIZE, address);
+    const qs = new URLSearchParams();
+    if (address) qs.set('address', address);
+    if (lastPage > 1) qs.set('page', String(lastPage));
+    const search = qs.toString();
+    redirect(netHref(network, search ? `/migration?${search}` : '/migration'));
   }
   const summary = await summaryRead;
-  const offset = (page - 1) * PAGE_SIZE;
-  const { nodes, totalCount } = list;
+  const isShannon = address != null && /^pokt1/i.test(address);
   const from = nodes.length === 0 ? 0 : offset + 1;
   const to = offset + nodes.length;
 
@@ -132,6 +130,11 @@ export default async function MigrationPage({
       )}
 
       <MorseSearch key={address ?? ''} active={address} />
+      {truncated ? (
+        <p className="dim" style={{ margin: '-6px 0 14px', fontSize: 13 }}>
+          This address holds more supplier claims than the search reads; some of them may be missing below.
+        </p>
+      ) : null}
 
       <div className="card">
         <div className="tbl-scroll">
@@ -158,7 +161,7 @@ export default async function MigrationPage({
                   <td className={`num mono${isZero(a.applicationStakeAmount) ? ' dim' : ''}`}>{formatPokt(a.applicationStakeAmount)} POKT</td>
                   <td>
                     {a.shannonDestAddress ? (
-                      <Hash value={a.shannonDestAddress} href={destinationHref(a.shannonDestAddress, a)} head={10} tail={6} />
+                      <Hash value={a.shannonDestAddress} href={`/account/${a.shannonDestAddress}`} head={10} tail={6} />
                     ) : (
                       <span className="dim">—</span>
                     )}
@@ -173,9 +176,13 @@ export default async function MigrationPage({
           </table>
         </div>
         {nodes.length === 0 ? (
-          <EmptyState>{address ? `No Morse claimable account matches ${address}.` : 'No Morse claimable accounts on this network.'}</EmptyState>
-        ) : null}
-        {nodes.length > 0 || page > 1 ? <Pager page={page} pageSize={PAGE_SIZE} totalCount={totalCount} /> : null}
+          <EmptyState>
+            {address ? `No Morse claimable account matches ${address}.` : 'No Morse claimable accounts on this network.'}
+            {isShannon ? ' Supplier-claim destinations are being corrected in the indexer, so a supplier claim may not show up here yet.' : null}
+          </EmptyState>
+        ) : (
+          <Pager page={page} pageSize={PAGE_SIZE} totalCount={totalCount} />
+        )}
       </div>
     </>
   );
