@@ -32,10 +32,13 @@ function percent(claimed: bigint, total: bigint): number | null {
   return (claimed < total ? Math.min(hundredths, 9999) : hundredths) / 100;
 }
 
-/** A summary card for one claimed-of-total figure: claimed amount, its total, and a fill bar. */
 /** One part of the total bar: that kind's claimed share of everything claimable, in its card's color. */
 type Slice = { label: string; color: string; claimed: bigint };
 
+/**
+ * A summary card for one claimed-of-total figure: claimed amount, its total, and a fill bar, split into `slices` when
+ * given.
+ */
 function ClaimCard({
   label,
   dot,
@@ -64,7 +67,13 @@ function ClaimCard({
     >
       <div className="meter">
         {slices ? (
-          <span className="bar-mini stack">
+          <span
+            className="bar-mini stack"
+            role="img"
+            aria-label={slices
+              .map((s) => `${s.label} ${(percent(s.claimed, total) ?? 0).toFixed(2)}%`)
+              .join(', ')}
+          >
             {slices.map((s) => (
               <i
                 key={s.label}

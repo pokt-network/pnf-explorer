@@ -374,7 +374,7 @@ main{max-width:var(--maxw);margin:0 auto;padding:8px 24px 64px}
 .meter{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:var(--text-secondary);font-variant-numeric:tabular-nums}
 .meter .bar-mini{flex:1;margin-left:0}
 .bar-mini.stack{display:flex}
-.bar-mini.stack i{border-radius:0;flex:none}
+.bar-mini.stack i{border-radius:0;flex:0 1 auto}
 .bar-mini.stack i + i{box-shadow:inset 1px 0 0 var(--bg-card)}
 .sumrow.c1{grid-template-columns:1fr;margin-bottom:14px}
 .sum.lead .val{font-size:28px}
