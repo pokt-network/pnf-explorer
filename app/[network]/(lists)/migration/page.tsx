@@ -105,7 +105,6 @@ export default async function MigrationPage({
     redirect(netHref(network, search ? `/migration?${search}` : '/migration'));
   }
   const summary = await summaryRead;
-  const isShannon = address != null && /^pokt1/i.test(address);
   const from = nodes.length === 0 ? 0 : offset + 1;
   const to = offset + nodes.length;
 
@@ -132,7 +131,7 @@ export default async function MigrationPage({
       <MorseSearch key={address ?? ''} active={address} />
       {truncated ? (
         <p className="dim" style={{ margin: '-6px 0 14px', fontSize: 13 }}>
-          This address holds more supplier claims than the search reads; some of them may be missing below.
+          This address has more claims than the search reads; some of them may be missing below.
         </p>
       ) : null}
 
@@ -178,7 +177,6 @@ export default async function MigrationPage({
         {nodes.length === 0 ? (
           <EmptyState>
             {address ? `No Morse claimable account matches ${address}.` : 'No Morse claimable accounts on this network.'}
-            {isShannon ? ' Supplier-claim destinations are being corrected in the indexer, so a supplier claim may not show up here yet.' : null}
           </EmptyState>
         ) : (
           <Pager page={page} pageSize={PAGE_SIZE} totalCount={totalCount} />
