@@ -2,7 +2,7 @@ import { gqlFetch } from '@/lib/graphql';
 import { lcdFetch } from '@/lib/lcd';
 import type { NetworkId } from '@/lib/networks';
 import { toBigInt } from '@/lib/format';
-import { NOT_COVERED, coveredWindow, lifetimeCoverage as coverage, unwrapRange, type Coverage } from '@/lib/data/range';
+import { NOT_COVERED, lifetimeCoverage as coverage, unwrapRange, type Coverage } from '@/lib/data/range';
 import type { RevShareEntry, SupplierEndpoint } from '@/lib/data/accounts';
 import {
   SUPPLIER_ROLE,
@@ -32,8 +32,8 @@ export interface ServiceSettlement {
   relays: number;
   claimedUpokt: string;
   settledUpokt: string;
-  /** The height of the service's latest settled claim; 0 while the catalog cannot vouch for one. */
-  lastBlock: number;
+  /** The height of the service's latest settled claim; null while the catalog cannot vouch for one. */
+  lastBlock: number | null;
 }
 export interface SettlementTotals {
   claims: number;
@@ -239,15 +239,12 @@ export interface FleetSettlement extends ServiceSettlement {
   overservicedUpokt: string;
 }
 
-export interface FleetEarnings {
+export interface FleetEarnings extends Coverage {
   fleetSize: number;
   /** Totals and `byService` cover the whole fleet; `bySupplier` lists the CONNECTION_CAP largest-staked operators. */
   totals: { claims: number; relays: number; claimedUpokt: string; settledUpokt: string; overservicedUpokt: string };
   bySupplier: FleetSettlement[];
   byService: FleetSettlement[];
-  /** Where the settlement catalog's data starts, and the stretches inside it with nothing indexed (epoch ms). */
-  dataSince: number | null;
-  gaps: { from: number; to: number }[];
 }
 
 interface EarningsRow {
@@ -272,7 +269,7 @@ function toEarnings(rows: EarningsRow[] | null, key: 'supplier_id' | 'service_id
     claimedUpokt: amount(r.claimed_upokt),
     settledUpokt: amount(r.settled_upokt),
     overservicedUpokt: amount(r.overservicing_loss_upokt),
-    lastBlock: Number(r.last_settled_height ?? 0),
+    lastBlock: r.last_settled_height == null ? null : Number(r.last_settled_height),
   }));
 }
 
@@ -280,7 +277,7 @@ function toEarnings(rows: EarningsRow[] | null, key: 'supplier_id' | 'service_id
  * Lifetime settlement of every supplier an owner wallet owns now, from the settlement catalog (`owners`), so a fleet
  * larger than the connection cap is counted whole. Claimed is what the claims asked for, Settled what was paid after
  * overservicing (the claim event's claimedAmount is already the settled amount) and Overserviced the difference. The operator table lists the
- * CONNECTION_CAP largest-staked operators; it and By service carry each row's last settled height from the catalog (0
+ * CONNECTION_CAP largest-staked operators; it and By service carry each row's last settled height from the catalog (null
  * when it cannot vouch for one). NOT_COVERED when the catalog has nothing indexed.
  */
 export async function getFleetEarnings(network: NetworkId, ownerId: string): Promise<FleetEarnings | typeof NOT_COVERED> {
@@ -297,24 +294,23 @@ export async function getFleetEarnings(network: NetworkId, ownerId: string): Pro
   ).then((fleet) => ({ fleetSize: fleet.suppliers?.totalCount ?? 0, ids: new Set(fleet.suppliers?.nodes?.map((n) => n.id) ?? []) }));
   const [fleet, perSupplier, perService] = await Promise.all([listedFleet, earnings(true, false), earnings(false, true)]);
   // The totals are the By service rows summed: one fewer lifetime read, and the headline always matches the table.
-  const window = coveredWindow(perService.range, -Infinity, Infinity);
-  if (!window) return NOT_COVERED;
-  const byService = toEarnings(perService.data, 'service_id');
-  const sum = (k: 'claimed_upokt' | 'settled_upokt' | 'overservicing_loss_upokt') => (perService.data ?? []).reduce((t, r) => t + BigInt(amount(r[k])), 0n).toString();
+  const cover = coverage(perService.range);
+  if (cover.notCovered) return NOT_COVERED;
+  const rows = perService.data ?? [];
+  const byService = toEarnings(rows, 'service_id');
   const bySupplier = toEarnings(perSupplier.data, 'supplier_id').filter((s) => fleet.ids.has(s.serviceId));
   return {
     fleetSize: fleet.fleetSize,
     totals: {
-      claims: (perService.data ?? []).reduce((t, r) => t + Number(r.settled_claims ?? 0), 0),
+      claims: rows.reduce((t, r) => t + Number(r.settled_claims ?? 0), 0),
       relays: byService.reduce((t, r) => t + r.relays, 0),
-      claimedUpokt: sum('claimed_upokt'),
-      settledUpokt: sum('settled_upokt'),
-      overservicedUpokt: sum('overservicing_loss_upokt'),
+      claimedUpokt: sumAmount(rows, (r) => r.claimed_upokt),
+      settledUpokt: sumAmount(rows, (r) => r.settled_upokt),
+      overservicedUpokt: sumAmount(rows, (r) => r.overservicing_loss_upokt),
     },
     bySupplier: bySupplier.sort((a, b) => b.relays - a.relays),
     byService: byService.sort((a, b) => b.relays - a.relays),
-    dataSince: perService.range && Number.isFinite(window.from) ? window.from : null,
-    gaps: window.gaps,
+    ...cover,
   };
 }
 
@@ -352,7 +348,7 @@ function toSpend(rows: SpendRow[]): ServiceSettlement[] {
     relays: Number(r.relays ?? 0),
     claimedUpokt: amount(r.burned_upokt),
     settledUpokt: amount(r.burned_upokt),
-    lastBlock: Number(r.last_settled_height ?? 0),
+    lastBlock: r.last_settled_height == null ? null : Number(r.last_settled_height),
   }));
 }
 
@@ -415,7 +411,7 @@ const DELEGATION_EVENT_CALLS = 10;
 export interface GatewayDelegationCounts {
   delegate: number;
   undelegate: number;
-  /** True when the walk stopped at its call cap: the counts are then lower bounds. */
+  /** True when the walk stopped at its call cap with the last page full: there may be more, the counts are lower bounds. */
   capped: boolean;
 }
 
@@ -428,6 +424,7 @@ export async function getGatewayDelegationCounts(network: NetworkId, id: string)
   let delegate = 0;
   let undelegate = 0;
   let before: { beforeHeight: string | null; beforeId: string | null } = { beforeHeight: null, beforeId: null };
+  let lastPage = 0;
   try {
     for (let call = 0; call < DELEGATION_EVENT_CALLS; call++) {
       const d: { getActorLifecycleList: { height: string; id: string; event: string }[] | null } = await gqlFetch(
@@ -444,11 +441,13 @@ export async function getGatewayDelegationCounts(network: NetworkId, id: string)
       }
       const last = rows[rows.length - 1];
       before = { beforeHeight: String(last.height), beforeId: last.id };
+      lastPage = rows.length;
     }
   } catch {
     return null;
   }
-  return { delegate, undelegate, capped: true };
+  // At the call cap: a last page shorter than asked was the end; a full one may have more after it.
+  return { delegate, undelegate, capped: lastPage >= DELEGATION_EVENT_PAGE };
 }
 
 export async function getGatewayRole(network: NetworkId, id: string): Promise<GatewayRoleView | null> {

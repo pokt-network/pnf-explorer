@@ -8,6 +8,7 @@ import { formatNumber, formatPokt } from '@/lib/format';
 import { absoluteUtc, agoFromBlocks } from '@/lib/time';
 import { HOME_GATEWAYS } from '@/lib/config';
 import { NOT_COVERED_HINT } from '@/lib/data/window';
+import { coveredEmpty } from '@/components/ui/SinceNote';
 
 /**
  * Supplier Traffic tab — the "configured vs. actually-served" view. Lists every configured service
@@ -65,9 +66,14 @@ export async function SupplierTrafficPanel({
   const gaps = routing.coverage.gaps.map((g) => `${absoluteUtc(g.from)} – ${absoluteUtc(g.to)}`).join(', ');
   const summary =
     activeCount === 0
-      ? `Staked but idle — 0 of ${configured.length} services have settled claims.`
-      : `${activeCount} of ${configured.length} services receiving traffic · routed via ${gateways.length} gateway${gateways.length === 1 ? '' : 's'}` +
-        (HOME_GATEWAYS.length && homeMatches ? ` · ${homeMatches} via your gateway` : '');
+      ? lagging
+        ? coveredEmpty(routing.coverage, `0 of ${configured.length} services have settled claims`)
+        : `Staked but idle — 0 of ${configured.length} services have settled claims.`
+      : `${activeCount} of ${configured.length} services receiving traffic` +
+        (routing.gatewaysUnavailable
+          ? ''
+          : ` · routed via ${gateways.length} gateway${gateways.length === 1 ? '' : 's'}` +
+            (HOME_GATEWAYS.length && homeMatches ? ` · ${homeMatches} via your gateway` : ''));
 
   return (
     <div className="card flush-top">
@@ -76,6 +82,11 @@ export async function SupplierTrafficPanel({
           <div className="k">Traffic</div>
           <div className="v">
             {summary}
+            {routing.gatewaysUnavailable ? (
+              <div className="muted" style={{ marginTop: 4 }}>
+                Couldn’t load the routing gateways right now.
+              </div>
+            ) : null}
             {lagging ? (
               <div className="muted" style={{ marginTop: 4 }}>
                 Settlements indexed until {absoluteUtc(routing.coverage.dataUntil!)}; newer ones are not covered yet.
@@ -106,7 +117,7 @@ export async function SupplierTrafficPanel({
           </thead>
           <tbody>
             {rows.map(({ serviceId, traffic, earned: e, relays }) => {
-              const agoBlocks = traffic && traffic.lastBlock > 0 && currentHeight != null ? currentHeight - traffic.lastBlock : null;
+              const agoBlocks = traffic && traffic.lastBlock != null && currentHeight != null ? currentHeight - traffic.lastBlock : null;
               return (
                 <tr key={serviceId}>
                   <td>
@@ -128,7 +139,7 @@ export async function SupplierTrafficPanel({
                     {e && e.overservicedUpokt !== '0' ? <span className="out">{formatPokt(e.overservicedUpokt)} POKT</span> : <span className="dim">—</span>}
                   </td>
                   <td>
-                    {traffic && traffic.lastBlock > 0 ? (
+                    {traffic && traffic.lastBlock != null ? (
                       <>
                         <Link href={`/block/${traffic.lastBlock}`}>{formatNumber(traffic.lastBlock)}</Link>
                         {agoBlocks != null ? <span className="dim"> · {agoFromBlocks(agoBlocks)}</span> : null}

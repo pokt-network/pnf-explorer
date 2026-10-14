@@ -10,7 +10,8 @@ import type { OwnerRole } from '@/lib/data/accounts';
 import type { NetworkId } from '@/lib/networks';
 import { NOT_COVERED } from '@/lib/data/range';
 import { formatNumber, formatPokt, formatPoktCompact, formatCompact } from '@/lib/format';
-import { absoluteUtc, agoFromBlocks } from '@/lib/time';
+import { agoFromBlocks } from '@/lib/time';
+import { SinceNote, coveredEmpty } from '@/components/ui/SinceNote';
 import { parsePage } from '@/lib/paging';
 
 /**
@@ -38,14 +39,11 @@ async function FleetEarningsPanel({ network, ownerId, currentHeight }: { network
       </div>
     );
   }
-  const since = f.dataSince != null ? absoluteUtc(f.dataSince) : null;
-  const gaps = f.gaps.map((g) => `${absoluteUtc(g.from)} – ${absoluteUtc(g.to)}`).join(', ');
   if (f.totals.claims === 0) {
     return (
       <div className="card flush-top">
-        <EmptyState>
-          {since ? `No settled claims across this owner’s operators since ${since}.` : 'No settled claims across this owner’s operators yet.'}
-        </EmptyState>
+        <EmptyState>{coveredEmpty(f, 'No settled claims across this owner’s operators')}</EmptyState>
+        <SinceNote c={f} />
       </div>
     );
   }
@@ -58,12 +56,7 @@ async function FleetEarningsPanel({ network, ownerId, currentHeight }: { network
             <div className="k">Fleet</div>
             <div className="v">
               <b>{formatNumber(f.totals.relays)}</b> relays <span className="dim">· {formatPokt(f.totals.settledUpokt)} POKT settled{f.totals.overservicedUpokt !== '0' ? ` · ${formatPokt(f.totals.claimedUpokt)} POKT claimed, ${formatPokt(f.totals.overservicedUpokt)} POKT lost to overservicing` : ''}</span>
-              {since ? (
-                <div className="muted" style={{ marginTop: 4 }}>
-                  Settlements since {since}
-                  {gaps ? ` · not indexed: ${gaps}` : ''}
-                </div>
-              ) : null}
+              <SinceNote c={f} />
               {f.fleetSize > CONNECTION_CAP ? (
                 <div className="muted" style={{ marginTop: 4 }}>
                   The table lists the {formatNumber(CONNECTION_CAP)} largest-staked operators of {formatNumber(f.fleetSize)}; the totals and
@@ -87,7 +80,7 @@ async function FleetEarningsPanel({ network, ownerId, currentHeight }: { network
             </thead>
             <tbody>
               {f.bySupplier.map((s) => {
-                const agoBlocks = currentHeight != null && s.lastBlock > 0 ? currentHeight - s.lastBlock : null;
+                const agoBlocks = currentHeight != null && s.lastBlock != null ? currentHeight - s.lastBlock : null;
                 return (
                   <tr key={s.serviceId}>
                     <td>
@@ -98,7 +91,7 @@ async function FleetEarningsPanel({ network, ownerId, currentHeight }: { network
                     <td className="num mono">{formatPokt(s.settledUpokt)} POKT</td>
                     <td className="num mono">{s.overservicedUpokt !== '0' ? <span className="out">{formatPokt(s.overservicedUpokt)} POKT</span> : <span className="dim">—</span>}</td>
                     <td>
-                      {s.lastBlock > 0 ? <Link href={`/block/${s.lastBlock}`}>{formatNumber(s.lastBlock)}</Link> : <span className="dim">—</span>}
+                      {s.lastBlock != null ? <Link href={`/block/${s.lastBlock}`}>{formatNumber(s.lastBlock)}</Link> : <span className="dim">—</span>}
                       {agoBlocks != null ? <span className="dim"> · {agoFromBlocks(agoBlocks)}</span> : null}
                     </td>
                   </tr>
@@ -138,8 +131,8 @@ async function FleetEarningsPanel({ network, ownerId, currentHeight }: { network
                   <td className="num mono">{formatPokt(s.settledUpokt)} POKT</td>
                   <td className="num mono">{s.overservicedUpokt !== '0' ? <span className="out">{formatPokt(s.overservicedUpokt)} POKT</span> : <span className="dim">—</span>}</td>
                   <td>
-                    {s.lastBlock > 0 ? <Link href={`/block/${s.lastBlock}`}>{formatNumber(s.lastBlock)}</Link> : <span className="dim">—</span>}
-                    {currentHeight != null && s.lastBlock > 0 ? <span className="dim"> · {agoFromBlocks(currentHeight - s.lastBlock)}</span> : null}
+                    {s.lastBlock != null ? <Link href={`/block/${s.lastBlock}`}>{formatNumber(s.lastBlock)}</Link> : <span className="dim">—</span>}
+                    {currentHeight != null && s.lastBlock != null ? <span className="dim"> · {agoFromBlocks(currentHeight - s.lastBlock)}</span> : null}
                   </td>
                 </tr>
               ))}

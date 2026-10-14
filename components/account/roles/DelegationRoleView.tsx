@@ -19,6 +19,7 @@ import { validatorMoniker, formatCommission, deriveValidatorState } from '@/lib/
 import { parsePage } from '@/lib/paging';
 import { NOT_COVERED_HINT, START_UNKNOWN_HINT, STILL_PROCESSING, stillProcessingHint, windowLabel } from '@/lib/data/window';
 import { NOT_COVERED, coverageNote } from '@/lib/data/range';
+import { coveredEmpty } from '@/components/ui/SinceNote';
 
 const LIMIT = 25;
 
@@ -219,7 +220,7 @@ async function SettlementsPanel({
   if (data.rows.length === 0 && page === 1) {
     return (
       <div className="card flush-top">
-        <EmptyState>{notCovered ? NOT_COVERED_HINT : `No settlement has paid this address in the last ${EARNINGS_WINDOW_DAYS} days.`}</EmptyState>
+        <EmptyState>{notCovered ? NOT_COVERED_HINT : coveredEmpty(data.coverage, `No settlement has paid this address in the last ${EARNINGS_WINDOW_DAYS} days`)}</EmptyState>
       </div>
     );
   }
@@ -271,7 +272,11 @@ async function SettlementsPanel({
           <tbody>
             {data.rows.map((r) => (
               <tr key={r.id}>
-                <td className="mono">{r.day.slice(0, 10)}</td>
+                <td className="mono">
+                  {r.day.slice(0, 10)}
+                  {/* The window starts inside its oldest day: that row covers the day from then on only. */}
+                  {r.partialFrom ? <span className="dim"> since {r.partialFrom.slice(11, 16)} UTC</span> : null}
+                </td>
                 <td title={absoluteUtc(r.day)}>{relativeTime(r.day)}</td>
                 <td>
                   {r.validatorAddress ? (

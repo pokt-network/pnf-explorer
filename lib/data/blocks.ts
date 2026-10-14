@@ -114,7 +114,8 @@ export async function getBlockList(network: NetworkId, limit: number, offset: nu
 }
 
 export async function getBlockSummary(network: NetworkId) {
-  const end = new Date();
+  // Rounded down to the minute, so the request (and with it the fetch-cache key) stays the same for that long.
+  const end = new Date(Math.floor(Date.now() / 60_000) * 60_000);
   const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
   const data = await gqlFetch<{ latest: { nodes: { height: string }[] }; stats: unknown }>(
     network,

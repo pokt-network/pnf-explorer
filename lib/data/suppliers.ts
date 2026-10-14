@@ -42,7 +42,8 @@ export interface ServiceTraffic {
   claimedUpokt: string;
   settledUpokt: string;
   overservicedUpokt: string;
-  lastBlock: number;
+  /** The latest settled height over the service's rows; null while the catalog cannot vouch for one. */
+  lastBlock: number | null;
   /** Distinct gateways whose delegated apps drove this service's claims (the routing inference). */
   gateways: string[];
 }
@@ -54,12 +55,15 @@ export interface SupplierRouting {
   gateways: string[];
   /** What the settlement catalog covers: a service missing past it is not covered yet, not idle. */
   coverage: Coverage;
+  /** True when the gateway lookup failed: relays and status stand, the routing gateways are unknown. */
+  gatewaysUnavailable: boolean;
 }
 
 /** Rows asked per page of the gateway lookup, ids per request, and the most pages one walk may read. */
 const GATEWAY_PAGE = 1000;
 const APP_CHUNK = 500;
 const GATEWAY_PAGE_CAP = 50;
+const GATEWAY_CHUNKS_AT_ONCE = 4;
 
 /**
  * The gateways each application delegates to now. One consistent read: every page at the same indexed
@@ -74,8 +78,8 @@ async function getAppGateways(network: NetworkId, appIds: string[], pinHeight: n
   const blockHeight = String(
     pinHeight ?? (await gqlFetch<MetadataResult>(network, METADATA_QUERY, undefined, { revalidate: 30 }))._metadata.lastProcessedHeight,
   );
-  for (let i = 0; i < appIds.length; i += APP_CHUNK) {
-    const ids = appIds.slice(i, i + APP_CHUNK);
+  // One walk per chunk of ids, at most GATEWAY_CHUNKS_AT_ONCE at a time; each walk is keyset by id.
+  const walk = async (ids: string[]) => {
     let after = '';
     let seen = 0;
     let total: number | null = null;
@@ -95,7 +99,10 @@ async function getAppGateways(network: NetworkId, appIds: string[], pinHeight: n
       after = rows[rows.length - 1].id;
     }
     if (seen !== total) throw new Error(`Gateway lookup read ${seen} of ${total} rows`);
-  }
+  };
+  const chunks: string[][] = [];
+  for (let i = 0; i < appIds.length; i += APP_CHUNK) chunks.push(appIds.slice(i, i + APP_CHUNK));
+  for (let i = 0; i < chunks.length; i += GATEWAY_CHUNKS_AT_ONCE) await Promise.all(chunks.slice(i, i + GATEWAY_CHUNKS_AT_ONCE).map(walk));
   return out;
 }
 
@@ -104,7 +111,7 @@ async function getAppGateways(network: NetworkId, appIds: string[], pinHeight: n
  * gateway isn't recorded on-chain, so this joins settled claims (service+app+relays+block) to each
  * app's delegated gateways — an authorized-routing inference, not cryptographic proof. Empty for an
  * idle supplier (no settled claims). See SUPPLIER_ROUTING. The settlement catalog answers what it
- * covers; `lastBlock` is 0 where it cannot vouch for a height yet.
+ * covers; `lastBlock` is null where it cannot vouch for a height yet.
  */
 export async function getSupplierRouting(network: NetworkId, id: string, pinHeight: number | null = null): Promise<SupplierRouting> {
   const data = await gqlFetch<{ getSupplierEarningsJson: unknown }>(network, SUPPLIER_ROUTING, { suppliers: [id] }, { revalidate: 30 });
@@ -120,7 +127,8 @@ export async function getSupplierRouting(network: NetworkId, id: string, pinHeig
     }[]
   >(data.getSupplierEarningsJson);
   const rows = answer.data ?? [];
-  const appGateways = await getAppGateways(network, [...new Set(rows.map((r) => r.application_id).filter(Boolean))], pinHeight);
+  // A failed gateway lookup costs the routing column, not the tab.
+  const appGateways = await getAppGateways(network, [...new Set(rows.map((r) => r.application_id).filter(Boolean))], pinHeight).catch(() => null);
 
   // Per service: the (service, application) rows summed. Amounts are JSON strings (they can pass 2^53): BigInt.
   const byService: Record<string, ServiceTraffic> = {};
@@ -128,17 +136,17 @@ export async function getSupplierRouting(network: NetworkId, id: string, pinHeig
   for (const r of rows) {
     const serviceId = r.service_id;
     if (!serviceId) continue;
-    const entry = (byService[serviceId] ??= { serviceId, relays: 0, claimedUpokt: '0', settledUpokt: '0', overservicedUpokt: '0', lastBlock: 0, gateways: [] });
+    const entry = (byService[serviceId] ??= { serviceId, relays: 0, claimedUpokt: '0', settledUpokt: '0', overservicedUpokt: '0', lastBlock: null, gateways: [] });
     entry.relays += Number(r.relays ?? 0);
     entry.claimedUpokt = add(entry.claimedUpokt, r.claimed_upokt);
     entry.settledUpokt = add(entry.settledUpokt, r.settled_upokt);
     entry.overservicedUpokt = add(entry.overservicedUpokt, r.overservicing_loss_upokt);
-    entry.lastBlock = Math.max(entry.lastBlock, Number(r.last_settled_height ?? 0));
-    for (const gw of appGateways.get(r.application_id) ?? []) {
+    if (r.last_settled_height != null) entry.lastBlock = Math.max(entry.lastBlock ?? 0, Number(r.last_settled_height));
+    for (const gw of appGateways?.get(r.application_id) ?? []) {
       if (!entry.gateways.includes(gw)) entry.gateways.push(gw);
     }
   }
 
   const gateways = [...new Set(Object.values(byService).flatMap((e) => e.gateways))];
-  return { byService, activeCount: Object.keys(byService).length, gateways, coverage: lifetimeCoverage(answer.range) };
+  return { byService, activeCount: Object.keys(byService).length, gateways, coverage: lifetimeCoverage(answer.range), gatewaysUnavailable: appGateways == null };
 }

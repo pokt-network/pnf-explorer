@@ -6,7 +6,7 @@ import { UPOKT_PER_POKT } from '@/lib/config';
 import { toBigInt } from '@/lib/format';
 import { DELEGATION_FIRST_HOUR, DELEGATION_WINDOW, WINDOW_START_BLOCK } from '@/lib/queries/delegations';
 import { MIN_SPAN_DAYS, trailingRange } from '@/lib/data/window';
-import { NOT_COVERED, coveredMs, coveredWindow, unwrapRange, type CoveredRange } from '@/lib/data/range';
+import { NOT_COVERED, coveredMs, coveredWindow, lifetimeCoverage, unwrapRange, type CoveredRange, type Coverage } from '@/lib/data/range';
 
 // Staking-delegation data layer. See lib/queries/delegations.ts for the verified model; the short
 // version is that Shannon pays the validator pool's settlement share DIRECTLY to delegator wallets
@@ -168,6 +168,8 @@ export interface SettlementRow {
   validatorAddress: string;
   /** What this address received, upokt. */
   myShareUpokt: number;
+  /** On the oldest day, which the window starts inside of: the time it starts at (ISO); null on whole days. */
+  partialFrom: string | null;
 }
 
 /**
@@ -181,10 +183,12 @@ export async function getDelegationSettlements(
   address: string,
   limit: number,
   offset: number,
-): Promise<{ totalCount: number; rows: SettlementRow[] }> {
+): Promise<{ totalCount: number; rows: SettlementRow[]; coverage: Coverage }> {
   const range = trailingRange(EARNINGS_WINDOW_DAYS, 60);
   const d = await gqlFetch<{ income: unknown }>(network, DELEGATION_WINDOW, { delegators: [address], ...range }, { revalidate: 60 });
-  const income = unwrapRange<{ bucket_start: string; validator_operator: string; amount_upokt: string | null }[]>(d.income).data ?? [];
+  const answer = unwrapRange<{ bucket_start: string; validator_operator: string; amount_upokt: string | null }[]>(d.income);
+  const income = answer.data ?? [];
+  const windowStart = Date.parse(range.rangeStart);
   const rows = income
     .filter((r) => Number(r.amount_upokt ?? 0) > 0)
     .sort((a, b) => Date.parse(b.bucket_start) - Date.parse(a.bucket_start) || a.validator_operator.localeCompare(b.validator_operator));
@@ -195,7 +199,9 @@ export async function getDelegationSettlements(
       day: r.bucket_start,
       validatorAddress: r.validator_operator,
       myShareUpokt: Number(r.amount_upokt ?? 0),
+      partialFrom: Date.parse(r.bucket_start) < windowStart ? range.rangeStart : null,
     })),
+    coverage: lifetimeCoverage(answer.range),
   };
 }
 

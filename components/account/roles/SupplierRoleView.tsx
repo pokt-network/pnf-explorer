@@ -12,7 +12,7 @@ import { SupplierTrafficPanel } from '@/components/account/SupplierTrafficPanel'
 import { RoleStats, SummaryCard, DOT, UnbondBanner } from './RoleStats';
 import { getSupplierPayouts, getSupplierHistory, getActorRaw } from '@/lib/data/roles';
 import type { SupplierRoleView as SupplierView, SupplierServiceRow, HistoryList } from '@/lib/data/roles';
-import { SinceNote } from '@/components/ui/SinceNote';
+import { SinceNote, coveredEmpty } from '@/components/ui/SinceNote';
 import { NOT_COVERED_HINT } from '@/lib/data/window';
 import type { SupplierRole } from '@/lib/data/accounts';
 import type { NetworkId } from '@/lib/networks';
@@ -52,7 +52,7 @@ function ServicesPanel({ view, currentHeight }: { view: SupplierView; currentHei
 
   const row = (s: SupplierServiceRow) => {
     const st = s.settlement;
-    const agoBlocks = st && st.lastBlock > 0 && currentHeight != null ? currentHeight - st.lastBlock : null;
+    const agoBlocks = st && st.lastBlock != null && currentHeight != null ? currentHeight - st.lastBlock : null;
     return (
       <tr key={s.serviceId}>
         <td>
@@ -92,7 +92,7 @@ function ServicesPanel({ view, currentHeight }: { view: SupplierView; currentHei
         <td>
           {st ? (
             <>
-              {st.lastBlock > 0 ? <Link href={`/block/${st.lastBlock}`}>{formatNumber(st.lastBlock)}</Link> : <span className="dim">—</span>}
+              {st.lastBlock != null ? <Link href={`/block/${st.lastBlock}`}>{formatNumber(st.lastBlock)}</Link> : <span className="dim">—</span>}
               {agoBlocks != null ? <span className="dim"> · {agoFromBlocks(agoBlocks)}</span> : null}
             </>
           ) : view.notCovered || view.dataUntil != null ? (
@@ -165,7 +165,7 @@ function ServicesPanel({ view, currentHeight }: { view: SupplierView; currentHei
                     <td className="num mono">{formatPokt(f.claimedUpokt)}</td>
                     <td className="num mono">{formatPokt(f.settledUpokt)}</td>
                     <td>
-                      {f.lastBlock > 0 ? <Link href={`/block/${f.lastBlock}`}>{formatNumber(f.lastBlock)}</Link> : <span className="dim">—</span>}
+                      {f.lastBlock != null ? <Link href={`/block/${f.lastBlock}`}>{formatNumber(f.lastBlock)}</Link> : <span className="dim">—</span>}
                     </td>
                   </tr>
                 ))}
@@ -197,9 +197,8 @@ async function EarningsPanel({ network, view, page }: { network: NetworkId; view
   if (payouts.rows.length === 0) {
     return (
       <div className="card flush-top">
-        <EmptyState>
-          {payouts.notCovered ? NOT_COVERED_HINT : 'This supplier has never been paid out — no settled claims yet.'}
-        </EmptyState>
+        <EmptyState>{coveredEmpty(payouts, 'No payouts from this supplier’s settled claims')}</EmptyState>
+        <SinceNote c={payouts} />
       </div>
     );
   }
@@ -533,7 +532,7 @@ export function SupplierRoleView({
             {view.notCovered ? (
               <span className="dim" title={NOT_COVERED_HINT}>—</span>
             ) : view.slashCount === 0 ? (
-              <span className="dim">Never slashed</span>
+              <span className="dim">{coveredEmpty(view, 'Never slashed')}</span>
             ) : (
               <>
                 {formatNumber(view.slashCount)} <span className="dim">· {formatPokt(view.slashPenaltyUpokt, 6)} POKT penalty total</span>

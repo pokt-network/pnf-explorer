@@ -48,10 +48,11 @@ export const DELEGATION_WINDOW = /* GraphQL */ `
   }
 `;
 
-/** The newest block at or before a time: the height the trailing window starts at. */
+/** The newest block at or before a time: the height the trailing window starts at. Ordered by timestamp so the
+ *  (timestamp, id) index answers it (4 buffers against 76k for id order, replica, 2026-10-14). */
 export const WINDOW_START_BLOCK = /* GraphQL */ `
   query windowStartBlock($cutoff: Datetime!) {
-    blocks(first: 1, orderBy: ID_DESC, filter: { timestamp: { lessThanOrEqualTo: $cutoff } }) {
+    blocks(first: 1, orderBy: TIMESTAMP_DESC, filter: { timestamp: { lessThanOrEqualTo: $cutoff } }) {
       nodes {
         id
       }

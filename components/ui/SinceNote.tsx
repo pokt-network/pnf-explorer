@@ -25,3 +25,14 @@ export function SinceNote({ c }: { c: Coverage }) {
     </div>
   );
 }
+
+/**
+ * An empty state that holds only inside the covered span. `none` is the definite statement without its full stop
+ * ("No settled claims for this application"): past the catalog's end it becomes "… until <time>; newer settlements
+ * are not covered yet.", and with nothing covered the not-covered hint.
+ */
+export function coveredEmpty(c: Coverage, none: string): string {
+  if (c.notCovered) return NOT_COVERED_HINT;
+  if (c.dataUntil != null) return `${none} until ${absoluteUtc(c.dataUntil)}; newer settlements are not covered yet.`;
+  return `${none}.`;
+}

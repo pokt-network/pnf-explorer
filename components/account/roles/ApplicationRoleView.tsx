@@ -13,8 +13,7 @@ import type { ApplicationRoleView as AppView } from '@/lib/data/roles';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, formatPoktCompact, formatCompact } from '@/lib/format';
 import { agoFromBlocks } from '@/lib/time';
-import { SinceNote } from '@/components/ui/SinceNote';
-import { NOT_COVERED_HINT } from '@/lib/data/window';
+import { SinceNote, coveredEmpty } from '@/components/ui/SinceNote';
 import { parsePage } from '@/lib/paging';
 
 /**
@@ -26,7 +25,8 @@ function UsagePanel({ view, currentHeight }: { view: AppView; currentHeight: num
   if (view.byService.length === 0) {
     return (
       <div className="card flush-top">
-        <EmptyState>{view.notCovered ? NOT_COVERED_HINT : 'This application has no settled claims yet — nothing has been served for it.'}</EmptyState>
+        <EmptyState>{coveredEmpty(view, 'No settled claims for this application — nothing served for it')}</EmptyState>
+        <SinceNote c={view} />
       </div>
     );
   }
@@ -58,7 +58,7 @@ function UsagePanel({ view, currentHeight }: { view: AppView; currentHeight: num
           </thead>
           <tbody>
             {view.byService.map((s) => {
-              const agoBlocks = currentHeight != null && s.lastBlock > 0 ? currentHeight - s.lastBlock : null;
+              const agoBlocks = currentHeight != null && s.lastBlock != null ? currentHeight - s.lastBlock : null;
               return (
                 <tr key={s.serviceId}>
                   <td>
@@ -70,7 +70,7 @@ function UsagePanel({ view, currentHeight }: { view: AppView; currentHeight: num
                   <td className="num mono">{formatNumber(s.relays)}</td>
                   <td className="num mono">{formatPokt(s.claimedUpokt)}</td>
                   <td>
-                    {s.lastBlock > 0 ? <Link href={`/block/${s.lastBlock}`}>{formatNumber(s.lastBlock)}</Link> : <span className="dim">—</span>}
+                    {s.lastBlock != null ? <Link href={`/block/${s.lastBlock}`}>{formatNumber(s.lastBlock)}</Link> : <span className="dim">—</span>}
                     {agoBlocks != null ? <span className="dim"> · {agoFromBlocks(agoBlocks)}</span> : null}
                   </td>
                 </tr>
