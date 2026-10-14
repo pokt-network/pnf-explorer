@@ -1,32 +1,18 @@
 // Application list query (post-MVP scope expansion). ACTIVE only — filter to Staked so the list
 // reflects apps currently consuming the network (excludes unstaked apps that still hold a balance).
-// id is the app's pokt1 address (links to /account). The # of services is APPLICATION_SERVICE_COUNTS.
+// id is the app's pokt1 address (links to /account). One request: the fleet function lists the page (largest stake
+// first, then by id) with each application's # of services, and the plain list gives the total.
 
 export const APPLICATIONS_LIST = /* GraphQL */ `
   query applicationsList($limit: Int!, $offset: Int!) {
-    applications(
-      filter: { stakeStatus: { equalTo: Staked } }
-      first: $limit
-      offset: $offset
-      orderBy: STAKE_AMOUNT_DESC
-    ) {
-      totalCount
-      nodes {
-        id
-        stakeAmount
-        stakeStatus
-      }
-    }
-  }
-`;
-
-// The # of services each listed application is staked for (up to 200 ids), from the fleet function: the closed
-// schema has no nested `applicationServices { totalCount }`.
-export const APPLICATION_SERVICE_COUNTS = /* GraphQL */ `
-  query applicationServiceCounts($ids: [String]) {
-    getApplicationFleetList(applications: $ids) {
+    getApplicationFleetList(stakeStatuses: ["Staked"], first: $limit, offset: $offset) {
       applicationId
+      stakeUpokt
+      stakeStatus
       serviceCount
+    }
+    applications(filter: { stakeStatus: { equalTo: Staked } }) {
+      totalCount
     }
   }
 `;

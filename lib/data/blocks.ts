@@ -169,7 +169,15 @@ export async function resolveBlock(network: NetworkId, idParam: string, fallback
   return null;
 }
 
-export async function getBlockTransactions(network: NetworkId, height: string, limit: number, offset: number, targetHeight: number | null) {
+/** `timestamp`: the block's time when the caller already has it (the block page), saving the block-time read. */
+export async function getBlockTransactions(
+  network: NetworkId,
+  height: string,
+  limit: number,
+  offset: number,
+  targetHeight: number | null,
+  timestamp?: string,
+) {
   const revalidate = revalidateForHeight(Number(height), targetHeight);
   const data = await gqlFetch<{ transactions: { nodes: TxNode[]; totalCount: number } }>(
     network,
@@ -177,7 +185,10 @@ export async function getBlockTransactions(network: NetworkId, height: string, l
     { limit, offset, filter: { blockId: { equalTo: Number(height) } } },
     { revalidate },
   );
-  return { totalCount: data.transactions.totalCount, nodes: await withBlocks(network, data.transactions.nodes, revalidate) };
+  const nodes = timestamp
+    ? data.transactions.nodes.map(({ blockId, ...n }): BlockTx => ({ ...n, block: { timestamp, height: String(blockId) } }))
+    : await withBlocks(network, data.transactions.nodes, revalidate);
+  return { totalCount: data.transactions.totalCount, nodes };
 }
 
 // ---- RPC fallback (Tendermint) — partial; indexer-only metrics are unavailable here (§2) ----

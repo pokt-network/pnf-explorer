@@ -2,7 +2,6 @@ import { NetLink as Link } from '@/components/shell/NetLink';
 import { Hash } from '@/components/ui/Hash';
 import { EmptyState } from '@/components/ui/states';
 import { getSupplierRouting } from '@/lib/data/suppliers';
-import { getSupplierServiceEarningsCovered } from '@/lib/data/roles';
 import type { SupplierRole } from '@/lib/data/accounts';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt } from '@/lib/format';
@@ -22,10 +21,13 @@ export async function SupplierTrafficPanel({
   network,
   supplier,
   currentHeight,
+  pinHeight,
 }: {
   network: NetworkId;
   supplier: SupplierRole;
   currentHeight: number | null;
+  /** The indexer's last processed height, as the page read it: the one height the gateway lookup reads at. */
+  pinHeight: number | null;
 }) {
   const configured = supplier.serviceConfigs.nodes.map((c) => c.serviceId);
   if (configured.length === 0) {
@@ -33,10 +35,8 @@ export async function SupplierTrafficPanel({
   }
 
   let routing: Awaited<ReturnType<typeof getSupplierRouting>>;
-  // A failed catalog read falls back to the claim events' relays and says the amounts are missing, instead of failing the tab.
-  const earningsRead = getSupplierServiceEarningsCovered(network, supplier.id).catch(() => null);
   try {
-    routing = await getSupplierRouting(network, supplier.id);
+    routing = await getSupplierRouting(network, supplier.id, pinHeight);
   } catch {
     return <div className="card flush-top"><EmptyState>Couldn’t load traffic right now.</EmptyState></div>;
   }
@@ -46,18 +46,13 @@ export async function SupplierTrafficPanel({
   }
   // Past the catalog's end a service without settlements is not covered yet, rather than idle.
   const lagging = routing.coverage.dataUntil != null;
-  const earnings = await earningsRead;
-  const earned = new Map((earnings?.rows ?? []).map((e) => [e.serviceId, e]));
 
   // Active services first (by the relays shown), then idle (alphabetical).
   const rows = configured
     .map((serviceId) => {
+      // One settlement-catalog read gives relays, amounts, last height and routing per service.
       const traffic = routing.byService[serviceId] ?? null;
-      const e = earned.get(serviceId) ?? null;
-      // The catalog's relays when it has the service; the claim events' when it has none (read failed, or settlements
-      // newer than its coverage), so an active service never sorts or shows as idle.
-      const relays = e?.relays ?? traffic?.relays ?? null;
-      return { serviceId, traffic, earned: e, relays };
+      return { serviceId, traffic, earned: traffic, relays: traffic?.relays ?? null };
     })
     .sort((a, b) => (b.relays ?? -1) - (a.relays ?? -1) || a.serviceId.localeCompare(b.serviceId));
   // Only the configured services count as receiving traffic: settled claims on a service no longer in the config
@@ -67,7 +62,7 @@ export async function SupplierTrafficPanel({
   // Gateways of the configured services only, like the service count.
   const gateways = [...new Set(rows.flatMap((r) => r.traffic?.gateways ?? []))];
   const homeMatches = gateways.filter((g) => HOME_GATEWAYS.includes(g)).length;
-  const gaps = (earnings?.gaps ?? []).map((g) => `${absoluteUtc(g.from)} – ${absoluteUtc(g.to)}`).join(', ');
+  const gaps = routing.coverage.gaps.map((g) => `${absoluteUtc(g.from)} – ${absoluteUtc(g.to)}`).join(', ');
   const summary =
     activeCount === 0
       ? `Staked but idle — 0 of ${configured.length} services have settled claims.`
@@ -86,13 +81,9 @@ export async function SupplierTrafficPanel({
                 Settlements indexed until {absoluteUtc(routing.coverage.dataUntil!)}; newer ones are not covered yet.
               </div>
             ) : null}
-            {earnings == null ? (
+            {routing.coverage.dataSince != null ? (
               <div className="muted" style={{ marginTop: 4 }}>
-                Couldn’t load claimed, settled and overserviced amounts right now; relays are from the settlement catalog’s per-application rows.
-              </div>
-            ) : earnings.dataSince != null ? (
-              <div className="muted" style={{ marginTop: 4 }}>
-                Relays and amounts: settlements since {absoluteUtc(earnings.dataSince)}
+                Relays and amounts: settlements since {absoluteUtc(routing.coverage.dataSince)}
                 {gaps ? ` · not indexed: ${gaps}` : ''}
               </div>
             ) : null}

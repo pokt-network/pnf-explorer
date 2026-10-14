@@ -54,8 +54,8 @@ export async function AddressTransfersPanel({ network, address, page }: { networ
 /** Count badges for the tab headers (so they show totals without fetching twice in the page). */
 export async function addressTabCounts(network: NetworkId, address: string) {
   const [txs, transfers] = await Promise.all([
-    getAddressTransactions(network, address, 1, 0).catch(() => null),
-    getTransfers(network, address, 1, 0).catch(() => null),
+    getAddressTransactions(network, address, 1, 0, false).catch(() => null),
+    getTransfers(network, address, 1, 0, false).catch(() => null),
   ]);
   return { txCount: txs?.totalCount ?? null, transferCount: transfers?.totalCount ?? null };
 }

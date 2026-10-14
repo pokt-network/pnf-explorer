@@ -1,7 +1,5 @@
 import { gqlFetch } from '@/lib/graphql';
 import { getDelegations } from '@/lib/data/delegations';
-import { getBlockTimes } from '@/lib/data/blocks';
-import { getSupplierServiceCounts } from '@/lib/data/suppliers';
 import type { NetworkId } from '@/lib/networks';
 import {
   ACCOUNT_LIST,
@@ -27,13 +25,15 @@ export interface AccountListRow {
   amount: string;
   denom: string;
   accountId: string;
-  lastUpdatedBlock: { height: string; timestamp: string } | null;
+  /** The list shows the height alone, so no block-time read is made for it. */
+  lastUpdatedBlock: { height: string } | null;
 }
 
 export interface AccountBalance {
   amount: string;
   denom: string;
-  lastUpdatedBlock: { height: string; timestamp: string } | null;
+  /** The height alone: the account view reads its time when it renders it (getBlockTimes), no other view needs it. */
+  lastUpdatedBlock: { height: string } | null;
 }
 
 export interface Account {
@@ -147,19 +147,6 @@ export interface AccountSummary {
   last90DaysAccounts: number | null;
 }
 
-/** Balance rows with `lastUpdatedBlock` filled from their heights (null while the block is not indexed). */
-async function withLastUpdated<T extends { lastUpdatedBlockId: string }>(
-  network: NetworkId,
-  rows: T[],
-  revalidate: number,
-): Promise<(Omit<T, 'lastUpdatedBlockId'> & { lastUpdatedBlock: { height: string; timestamp: string } | null })[]> {
-  const times = await getBlockTimes(network, rows.map((r) => r.lastUpdatedBlockId), revalidate);
-  return rows.map(({ lastUpdatedBlockId, ...r }) => {
-    const timestamp = times.get(String(lastUpdatedBlockId));
-    return { ...r, lastUpdatedBlock: timestamp ? { height: String(lastUpdatedBlockId), timestamp } : null };
-  });
-}
-
 // ---- list ----
 export async function getAccountList(network: NetworkId, limit: number, offset: number) {
   const data = await gqlFetch<{ balances: { nodes: (Omit<AccountListRow, 'lastUpdatedBlock'> & { lastUpdatedBlockId: string })[]; totalCount: number } }>(
@@ -168,7 +155,10 @@ export async function getAccountList(network: NetworkId, limit: number, offset: 
     { limit, offset },
     { revalidate: 15 },
   );
-  return { totalCount: data.balances.totalCount, nodes: await withLastUpdated(network, data.balances.nodes, 15) };
+  return {
+    totalCount: data.balances.totalCount,
+    nodes: data.balances.nodes.map(({ lastUpdatedBlockId, ...r }): AccountListRow => ({ ...r, lastUpdatedBlock: { height: String(lastUpdatedBlockId) } })),
+  };
 }
 
 export async function getAccountSummary(network: NetworkId): Promise<AccountSummary> {
@@ -272,7 +262,12 @@ export async function getAccountProfile(network: NetworkId, id: string): Promise
   const fleet = d.ownedOperators?.[0];
   const owner =
     Number(fleet?.supplierCount ?? 0) > 0 ? { operatorCount: Number(fleet!.supplierCount), totalStakeUpokt: fleet!.stakeUpokt ?? '0' } : null;
-  const account = d.account ? { id: d.account.id, balances: { nodes: await withLastUpdated(network, d.balances?.nodes ?? [], 30) } } : null;
+  const account = d.account
+    ? {
+        id: d.account.id,
+        balances: { nodes: (d.balances?.nodes ?? []).map(({ lastUpdatedBlockId, ...b }) => ({ ...b, lastUpdatedBlock: { height: String(lastUpdatedBlockId) } })) },
+      }
+    : null;
   return {
     account,
     supplier: d.supplier ? { ...d.supplier, serviceConfigs: d.serviceConfigs ?? { totalCount: 0, nodes: [] } } : null,
@@ -308,16 +303,15 @@ export async function getAccountProfile(network: NetworkId, id: string): Promise
 
 /** Owner → operator nodes, paginated (newest-staked first). Powers the account "Operators" tab. */
 export async function getOwnedOperators(network: NetworkId, id: string, limit: number, offset: number) {
-  const data = await gqlFetch<{ suppliers: { totalCount: number; nodes: Omit<OwnedOperatorRow, 'serviceConfigs'>[] } }>(
-    network,
-    OWNED_OPERATORS,
-    { id, limit, offset },
-    { revalidate: 30 },
-  );
-  const counts = await getSupplierServiceCounts(network, data.suppliers.nodes.map((n) => n.id));
+  const data = await gqlFetch<{
+    getSupplierFleetList: { supplierId: string; stakeStatus: string | null; stakeUpokt: string | null; serviceCount: string | null }[] | null;
+    suppliers: { totalCount: number };
+  }>(network, OWNED_OPERATORS, { id, ids: [id], limit, offset }, { revalidate: 30 });
   return {
     totalCount: data.suppliers.totalCount,
-    nodes: data.suppliers.nodes.map((n): OwnedOperatorRow => ({ ...n, serviceConfigs: { totalCount: counts.get(n.id) ?? 0 } })),
+    nodes: (data.getSupplierFleetList ?? []).map(
+      (s): OwnedOperatorRow => ({ id: s.supplierId, stakeStatus: s.stakeStatus, stakeAmount: s.stakeUpokt, serviceConfigs: { totalCount: Number(s.serviceCount ?? 0) } }),
+    ),
   };
 }
 

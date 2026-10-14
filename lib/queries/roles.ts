@@ -101,13 +101,6 @@ export const FLEET_EARNINGS = /* GraphQL */ `
   }
 `;
 
-// One supplier's lifetime earnings per service (the supplier Traffic tab).
-export const SUPPLIER_SERVICE_EARNINGS = /* GraphQL */ `
-  query supplierServiceEarnings($suppliers: [String]) {
-    getSupplierEarningsJson(suppliers: $suppliers, rangeStart: null, rangeEnd: null, bySupplier: false, byService: true)
-  }
-`;
-
 // ---- application ----
 // Claim amounts on an application are SPEND (stake burned to pay suppliers), not income. The spend
 // per service comes from the settlement catalog (burned, overserviced and unpaid, last settled height).

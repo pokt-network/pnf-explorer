@@ -1,6 +1,6 @@
 import { gqlFetch } from '@/lib/graphql';
 import type { NetworkId } from '@/lib/networks';
-import { SERVED_APP_GATEWAYS, SUPPLIERS_LIST, SUPPLIER_ROUTING, SUPPLIER_SERVICE_COUNTS } from '@/lib/queries/suppliers';
+import { SERVED_APP_GATEWAYS, SUPPLIERS_LIST, SUPPLIER_ROUTING } from '@/lib/queries/suppliers';
 import { lifetimeCoverage, unwrapRange, type Coverage } from '@/lib/data/range';
 import { METADATA_QUERY } from '@/lib/queries/shared';
 import type { MetadataResult } from '@/lib/types';
@@ -13,30 +13,23 @@ export interface SupplierRow {
   serviceConfigs: { totalCount: number };
 }
 
-/** The # of services each supplier listed (up to 200) has a live config for; an id the function does not return counts 0. */
-export async function getSupplierServiceCounts(network: NetworkId, ids: string[], revalidate = 30): Promise<Map<string, number>> {
-  if (ids.length === 0) return new Map();
-  const data = await gqlFetch<{ getSupplierFleetList: { supplierId: string; serviceCount: string | null }[] | null }>(
-    network,
-    SUPPLIER_SERVICE_COUNTS,
-    { ids },
-    { revalidate },
-  );
-  return new Map((data.getSupplierFleetList ?? []).map((r) => [r.supplierId, Number(r.serviceCount ?? 0)]));
-}
-
-/** Active (Staked) suppliers, ordered by stake desc. Offset-paginated. ISR 30s. */
+/** Active (Staked) suppliers, ordered by stake desc (then id). Offset-paginated. ISR 30s. */
 export async function getSupplierList(network: NetworkId, limit: number, offset: number) {
-  const data = await gqlFetch<{ suppliers: { totalCount: number; nodes: Omit<SupplierRow, 'serviceConfigs'>[] } }>(
-    network,
-    SUPPLIERS_LIST,
-    { limit, offset },
-    { revalidate: 30 },
-  );
-  const counts = await getSupplierServiceCounts(network, data.suppliers.nodes.map((n) => n.id));
+  const data = await gqlFetch<{
+    getSupplierFleetList: { supplierId: string; ownerId: string | null; stakeUpokt: string | null; stakeStatus: string | null; serviceCount: string | null }[] | null;
+    suppliers: { totalCount: number };
+  }>(network, SUPPLIERS_LIST, { limit, offset }, { revalidate: 30 });
   return {
     totalCount: data.suppliers.totalCount,
-    nodes: data.suppliers.nodes.map((n): SupplierRow => ({ ...n, serviceConfigs: { totalCount: counts.get(n.id) ?? 0 } })),
+    nodes: (data.getSupplierFleetList ?? []).map(
+      (s): SupplierRow => ({
+        id: s.supplierId,
+        ownerId: s.ownerId,
+        stakeAmount: s.stakeUpokt,
+        stakeStatus: s.stakeStatus,
+        serviceConfigs: { totalCount: Number(s.serviceCount ?? 0) },
+      }),
+    ),
   };
 }
 
@@ -45,6 +38,10 @@ export async function getSupplierList(network: NetworkId, limit: number, offset:
 export interface ServiceTraffic {
   serviceId: string;
   relays: number;
+  /** What the claims asked for, what was paid, and the difference lost to overservicing (upokt). */
+  claimedUpokt: string;
+  settledUpokt: string;
+  overservicedUpokt: string;
   lastBlock: number;
   /** Distinct gateways whose delegated apps drove this service's claims (the routing inference). */
   gateways: string[];
@@ -69,12 +66,14 @@ const GATEWAY_PAGE_CAP = 50;
  * height, by keyset (id order), stepping by the rows returned. A walk that hits its page cap or ends
  * with fewer rows than the first page counted throws instead of returning a partial map.
  */
-async function getAppGateways(network: NetworkId, appIds: string[]): Promise<Map<string, string[]>> {
+async function getAppGateways(network: NetworkId, appIds: string[], pinHeight: number | null): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
   if (appIds.length === 0) return out;
-  // A page at a fixed height never changes, so each one can stay cached; the height moves every 30 s.
-  const meta = await gqlFetch<MetadataResult>(network, METADATA_QUERY, undefined, { revalidate: 30 });
-  const blockHeight = String(meta._metadata.lastProcessedHeight);
+  // A page at a fixed height never changes, so each one can stay cached. The height is the caller's (the page already
+  // read the indexer's metadata), or read here when it has none.
+  const blockHeight = String(
+    pinHeight ?? (await gqlFetch<MetadataResult>(network, METADATA_QUERY, undefined, { revalidate: 30 }))._metadata.lastProcessedHeight,
+  );
   for (let i = 0; i < appIds.length; i += APP_CHUNK) {
     const ids = appIds.slice(i, i + APP_CHUNK);
     let after = '';
@@ -107,20 +106,33 @@ async function getAppGateways(network: NetworkId, appIds: string[]): Promise<Map
  * idle supplier (no settled claims). See SUPPLIER_ROUTING. The settlement catalog answers what it
  * covers; `lastBlock` is 0 where it cannot vouch for a height yet.
  */
-export async function getSupplierRouting(network: NetworkId, id: string): Promise<SupplierRouting> {
+export async function getSupplierRouting(network: NetworkId, id: string, pinHeight: number | null = null): Promise<SupplierRouting> {
   const data = await gqlFetch<{ getSupplierEarningsJson: unknown }>(network, SUPPLIER_ROUTING, { suppliers: [id] }, { revalidate: 30 });
-  const answer = unwrapRange<{ service_id: string; application_id: string; relays: string | null; last_settled_height: string | null }[]>(
-    data.getSupplierEarningsJson,
-  );
+  const answer = unwrapRange<
+    {
+      service_id: string;
+      application_id: string;
+      relays: string | null;
+      claimed_upokt: string | null;
+      settled_upokt: string | null;
+      overservicing_loss_upokt: string | null;
+      last_settled_height: string | null;
+    }[]
+  >(data.getSupplierEarningsJson);
   const rows = answer.data ?? [];
-  const appGateways = await getAppGateways(network, [...new Set(rows.map((r) => r.application_id).filter(Boolean))]);
+  const appGateways = await getAppGateways(network, [...new Set(rows.map((r) => r.application_id).filter(Boolean))], pinHeight);
 
+  // Per service: the (service, application) rows summed. Amounts are JSON strings (they can pass 2^53): BigInt.
   const byService: Record<string, ServiceTraffic> = {};
+  const add = (a: string, b: string | null) => (BigInt(a) + BigInt(b ?? '0')).toString();
   for (const r of rows) {
     const serviceId = r.service_id;
     if (!serviceId) continue;
-    const entry = (byService[serviceId] ??= { serviceId, relays: 0, lastBlock: 0, gateways: [] });
+    const entry = (byService[serviceId] ??= { serviceId, relays: 0, claimedUpokt: '0', settledUpokt: '0', overservicedUpokt: '0', lastBlock: 0, gateways: [] });
     entry.relays += Number(r.relays ?? 0);
+    entry.claimedUpokt = add(entry.claimedUpokt, r.claimed_upokt);
+    entry.settledUpokt = add(entry.settledUpokt, r.settled_upokt);
+    entry.overservicedUpokt = add(entry.overservicedUpokt, r.overservicing_loss_upokt);
     entry.lastBlock = Math.max(entry.lastBlock, Number(r.last_settled_height ?? 0));
     for (const gw of appGateways.get(r.application_id) ?? []) {
       if (!entry.gateways.includes(gw)) entry.gateways.push(gw);

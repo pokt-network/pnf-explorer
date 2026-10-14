@@ -9,6 +9,7 @@ import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, formatUpokt } from '@/lib/format';
 import { relativeTime, absoluteUtc } from '@/lib/time';
 import { parsePage } from '@/lib/paging';
+import { getBlockTimes } from '@/lib/data/blocks';
 
 /**
  * The wallet actor — liquid balance and the address's own transaction history. Everything staked
@@ -29,8 +30,13 @@ export async function AccountRoleView({
   txsPage: string | undefined;
   transfersPage: string | undefined;
 }) {
-  const counts = await addressTabCounts(network, address);
   const balance = profile.account?.balances?.nodes?.find((b) => b.denom === 'upokt') ?? profile.account?.balances?.nodes?.[0] ?? null;
+  // The balance's block time is read here, the one view that shows it; a failed read only drops the age.
+  const updatedHeight = balance?.lastUpdatedBlock?.height ?? null;
+  const [counts, updatedAt] = await Promise.all([
+    addressTabCounts(network, address),
+    updatedHeight ? getBlockTimes(network, [updatedHeight], 30).then((t) => t.get(updatedHeight) ?? null).catch(() => null) : null,
+  ]);
   const rawData = profile.account ?? { id: address, balances: { nodes: [] } };
 
   const tabs: TabDef[] = [
@@ -74,11 +80,15 @@ export async function AccountRoleView({
           </div>
           <div className="upokt">{formatUpokt(balance?.amount ?? '0')} upokt</div>
           {balance?.lastUpdatedBlock ? (
-            <div className="upd" title={absoluteUtc(balance.lastUpdatedBlock.timestamp)}>
+            <div className="upd" title={updatedAt ? absoluteUtc(updatedAt) : undefined}>
               Last updated at block{' '}
               <Link href={`/block/${balance.lastUpdatedBlock.height}`}>{formatNumber(balance.lastUpdatedBlock.height)}</Link>
-              {' · '}
-              {relativeTime(balance.lastUpdatedBlock.timestamp)}
+              {updatedAt ? (
+                <>
+                  {' · '}
+                  {relativeTime(updatedAt)}
+                </>
+              ) : null}
             </div>
           ) : null}
         </div>
