@@ -165,20 +165,18 @@ export async function getAccountList(network: NetworkId, limit: number, offset: 
 export async function getAccountSummary(network: NetworkId): Promise<AccountSummary> {
   // Rounded down to the minute, so the request (and with it the fetch-cache key) stays the same for that long.
   const now = new Date(Math.floor(Date.now() / 60_000) * 60_000);
-  // Start of today (UTC), -30d, -90d — ISO Datetime strings for the indexer filters.
-  const todayDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
-  const monthDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  const last90Date = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  // Start of today (UTC), -30d, -90d. The newest block BEFORE each is wanted, and getHeightAt answers at-or-before,
+  // so it is asked for the millisecond before.
+  const before = (ms: number) => new Date(ms - 1).toISOString();
+  const todayDate = before(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const monthDate = before(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const last90Date = before(now.getTime() - 90 * 24 * 60 * 60 * 1000);
   // A balance updated since a date is one whose last-updated height is past the newest block before it (-1: the chain
-  // is younger than the date, so every balance counts).
-  type Newest = { nodes: { id: string }[] };
-  const h = await gqlFetch<{ today: Newest; month: Newest; last90: Newest }>(
-    network,
-    ACCOUNT_SUMMARY_HEIGHTS,
-    { todayDate, monthDate, last90Date },
-    { revalidate: 15 },
-  );
-  const height = (b: Newest) => b.nodes[0]?.id ?? '-1';
+  // is younger than the date, so every balance counts). A date past the indexed tip has no answer yet: unknown, not 0.
+  type At = { height: string | null; beyondTip: boolean | null } | null;
+  const h = await gqlFetch<{ today: At; month: At; last90: At }>(network, ACCOUNT_SUMMARY_HEIGHTS, { todayDate, monthDate, last90Date }, { revalidate: 15 });
+  const known = (a: At) => !a?.beyondTip;
+  const height = (a: At) => a?.height ?? '-1';
   const data = await gqlFetch<{
     accountsWithBalance: { totalCount: number };
     todayAccounts: { totalCount: number };
@@ -192,9 +190,9 @@ export async function getAccountSummary(network: NetworkId): Promise<AccountSumm
   );
   return {
     accountsWithBalance: data.accountsWithBalance?.totalCount ?? null,
-    todayAccounts: data.todayAccounts?.totalCount ?? null,
-    monthAccounts: data.monthAccounts?.totalCount ?? null,
-    last90DaysAccounts: data.last90DaysAccounts?.totalCount ?? null,
+    todayAccounts: known(h.today) ? (data.todayAccounts?.totalCount ?? null) : null,
+    monthAccounts: known(h.month) ? (data.monthAccounts?.totalCount ?? null) : null,
+    last90DaysAccounts: known(h.last90) ? (data.last90DaysAccounts?.totalCount ?? null) : null,
   };
 }
 

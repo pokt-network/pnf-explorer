@@ -139,14 +139,15 @@ const DELEGATED_AT_TIMEOUT_MS = 3000;
 async function delegatedAt(network: NetworkId, address: string, atMs: number): Promise<Set<string> | null> {
   const signal = AbortSignal.timeout(DELEGATED_AT_TIMEOUT_MS);
   try {
-    const b = await gqlFetch<{ blocks: { nodes: { id: string }[] } }>(
+    const b = await gqlFetch<{ getHeightAt: { height: string | null; beyondTip: boolean | null } | null }>(
       network,
       WINDOW_START_BLOCK,
-      // Indexer timestamps are UTC-naive, so the cutoff goes without the trailing Z.
-      { cutoff: new Date(atMs).toISOString().replace('Z', '') },
+      // getHeightAt takes a time with an explicit zone.
+      { cutoff: new Date(atMs).toISOString() },
       { revalidate: 3600, signal },
     );
-    const height = b.blocks.nodes[0]?.id;
+    // Past the indexed tip the block of that time is not known yet.
+    const height = b.getHeightAt?.beyondTip ? null : b.getHeightAt?.height;
     if (!height) return null;
     const res = await lcdFetch<LcdDelegationResponse>(
       network,

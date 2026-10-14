@@ -1,4 +1,3 @@
-import { unstable_cache } from 'next/cache';
 import { gqlFetch } from '@/lib/graphql';
 import { lcdFetch } from '@/lib/lcd';
 import type { NetworkId } from '@/lib/networks';
@@ -13,7 +12,6 @@ import {
   FLEET_EARNINGS,
   APPLICATION_ROLE,
   GATEWAY_ROLE,
-  GATEWAY_DELEGATION_EVENTS,
   GATEWAY_TRAFFIC,
   SERVICE_OWNER_ROLE,
   SERVICE_OWNER_COUNTS,
@@ -403,61 +401,10 @@ export interface GatewayRoleView {
   stakeStatus: string | null;
   unstakingEndHeight: string | null;
   appCount: number;
-}
-
-/** Delegate/undelegate rows asked per call, and at most this many calls. */
-const DELEGATION_EVENT_PAGE = 1000;
-const DELEGATION_EVENT_CALLS = 10;
-
-export interface GatewayDelegationCounts {
-  delegate: number;
-  undelegate: number;
-  /** True when the walk stopped at its call cap with the last page full: there may be more, the counts are lower bounds. */
-  capped: boolean;
-}
-
-/**
- * The gateway's delegate and undelegate messages counted, paging the lifecycle function by its last
- * row until a page comes back empty (never by the server's row limit), at most DELEGATION_EVENT_CALLS
- * calls. Throws when a read fails: the counts are then unknown, not 0.
- */
-async function walkDelegationEvents(network: NetworkId, id: string): Promise<GatewayDelegationCounts> {
-  let delegate = 0;
-  let undelegate = 0;
-  let before: { beforeHeight: string | null; beforeId: string | null } = { beforeHeight: null, beforeId: null };
-  let lastPage = 0;
-  for (let call = 0; call < DELEGATION_EVENT_CALLS; call++) {
-    // Pages are not cached on their own: the joined counts are (getGatewayDelegationCounts).
-    const d: { getActorLifecycleList: { height: string; id: string; event: string }[] | null } = await gqlFetch(
-      network,
-      GATEWAY_DELEGATION_EVENTS,
-      { ids: [id], rowLimit: DELEGATION_EVENT_PAGE, ...before },
-      { cache: 'no-store' },
-    );
-    const rows = d.getActorLifecycleList ?? [];
-    if (rows.length === 0) return { delegate, undelegate, capped: false };
-    for (const r of rows) {
-      if (r.event === 'delegate') delegate++;
-      else if (r.event === 'undelegate') undelegate++;
-    }
-    const last = rows[rows.length - 1];
-    before = { beforeHeight: String(last.height), beforeId: last.id };
-    lastPage = rows.length;
-  }
-  // At the call cap: a last page shorter than asked was the end; a full one may have more after it.
-  return { delegate, undelegate, capped: lastPage >= DELEGATION_EVENT_PAGE };
-}
-
-/** One cached result per gateway and network for 30 s: the whole walk, not each page. A failure throws through it
- *  (so it is not cached) and comes back as null. */
-const cachedDelegationCounts = unstable_cache(walkDelegationEvents, ['gateway-delegation-counts'], { revalidate: 30 });
-
-export async function getGatewayDelegationCounts(network: NetworkId, id: string): Promise<GatewayDelegationCounts | null> {
-  try {
-    return await cachedDelegationCounts(network, id);
-  } catch {
-    return null;
-  }
+  /** Delegate and undelegate messages the gateway ever received (a re-delegation counts again; a delegation from the
+   *  genesis state has no message). Null when the fleet function has no row for it: unknown, not 0. */
+  delegationMsgs: number | null;
+  undelegationMsgs: number | null;
 }
 
 export async function getGatewayRole(network: NetworkId, id: string): Promise<GatewayRoleView | null> {
@@ -468,16 +415,19 @@ export async function getGatewayRole(network: NetworkId, id: string): Promise<Ga
       stakeStatus: string | null;
       unstakingEndHeight: string | null;
     } | null;
-    applicationGateways: { totalCount: number } | null;
-  }>(network, GATEWAY_ROLE, { id }, { revalidate: 30 });
+    fleet: { delegatedApplications: string | null; delegationsEver: string | null; undelegationsEver: string | null }[] | null;
+  }>(network, GATEWAY_ROLE, { id, ids: [id] }, { revalidate: 30 });
   const g = d.gateway;
   if (!g) return null;
+  const f = d.fleet?.[0];
   return {
     id: g.id,
     stakeAmount: g.stakeAmount,
     stakeStatus: g.stakeStatus,
     unstakingEndHeight: g.unstakingEndHeight,
-    appCount: d.applicationGateways?.totalCount ?? 0,
+    appCount: Number(f?.delegatedApplications ?? 0),
+    delegationMsgs: f ? Number(f.delegationsEver ?? 0) : null,
+    undelegationMsgs: f ? Number(f.undelegationsEver ?? 0) : null,
   };
 }
 

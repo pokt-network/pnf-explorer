@@ -139,7 +139,7 @@ export const APPLICATION_ROLE = /* GraphQL */ `
 // height (getGatewaySpend), not by today's delegators. Same authorized-routing inference the
 // supplier Traffic tab uses, in the opposite direction.
 export const GATEWAY_ROLE = /* GraphQL */ `
-  query gatewayRole($id: String!) {
+  query gatewayRole($id: String!, $ids: [String]) {
     gateway(id: $id) {
       id
       stakeAmount
@@ -148,27 +148,12 @@ export const GATEWAY_ROLE = /* GraphQL */ `
       unstakingBeginBlockId
       unstakingEndHeight
     }
-    applicationGateways(filter: { gatewayId: { equalTo: $id } }) {
-      totalCount
-    }
-  }
-`;
-
-// Delegate and undelegate messages to the gateway, newest first, `rowLimit` per call; page with the last row's
-// height and id (lib/data/roles.ts counts them).
-export const GATEWAY_DELEGATION_EVENTS = /* GraphQL */ `
-  query gatewayDelegationEvents($ids: [String], $rowLimit: Int!, $beforeHeight: BigInt, $beforeId: String) {
-    getActorLifecycleList(
-      kind: "gateway"
-      addresses: $ids
-      events: ["delegate", "undelegate"]
-      rowLimit: $rowLimit
-      beforeHeight: $beforeHeight
-      beforeId: $beforeId
-    ) {
-      height
-      id
-      event
+    # The applications delegating to it now and the delegate/undelegate messages it ever received, from the gateway
+    # fleet function.
+    fleet: getGatewayFleetList(gateways: $ids) {
+      delegatedApplications
+      delegationsEver
+      undelegationsEver
     }
   }
 `;
