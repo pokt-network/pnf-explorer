@@ -43,12 +43,19 @@ export const SUPPLIER_ROUTING = /* GraphQL */ `
   }
 `;
 
-// The gateways the listed applications delegate to now, paged by the connection cap.
+// The gateways the listed applications delegate to, at one pinned height (`blockHeight`), paged by keyset: the rows
+// after `after` in id order.
 export const SERVED_APP_GATEWAYS = /* GraphQL */ `
-  query servedAppGateways($ids: [String!], $limit: Int!, $offset: Int!) {
-    applicationGateways(filter: { applicationId: { in: $ids } }, orderBy: ID_ASC, first: $limit, offset: $offset) {
+  query servedAppGateways($ids: [String!], $blockHeight: String!, $after: String!, $limit: Int!) {
+    applicationGateways(
+      blockHeight: $blockHeight
+      filter: { applicationId: { in: $ids }, id: { greaterThan: $after } }
+      orderBy: ID_ASC
+      first: $limit
+    ) {
       totalCount
       nodes {
+        id
         applicationId
         gatewayId
       }

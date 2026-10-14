@@ -8,6 +8,7 @@ import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt } from '@/lib/format';
 import { absoluteUtc, agoFromBlocks } from '@/lib/time';
 import { HOME_GATEWAYS } from '@/lib/config';
+import { NOT_COVERED_HINT } from '@/lib/data/window';
 
 /**
  * Supplier Traffic tab — the "configured vs. actually-served" view. Lists every configured service
@@ -40,6 +41,11 @@ export async function SupplierTrafficPanel({
     return <div className="card flush-top"><EmptyState>Couldn’t load traffic right now.</EmptyState></div>;
   }
 
+  if (routing.coverage.notCovered) {
+    return <div className="card flush-top"><EmptyState>{NOT_COVERED_HINT}</EmptyState></div>;
+  }
+  // Past the catalog's end a service without settlements is not covered yet, rather than idle.
+  const lagging = routing.coverage.dataUntil != null;
   const earnings = await earningsRead;
   const earned = new Map((earnings?.rows ?? []).map((e) => [e.serviceId, e]));
 
@@ -75,6 +81,11 @@ export async function SupplierTrafficPanel({
           <div className="k">Traffic</div>
           <div className="v">
             {summary}
+            {lagging ? (
+              <div className="muted" style={{ marginTop: 4 }}>
+                Settlements indexed until {absoluteUtc(routing.coverage.dataUntil!)}; newer ones are not covered yet.
+              </div>
+            ) : null}
             {earnings == null ? (
               <div className="muted" style={{ marginTop: 4 }}>
                 Couldn’t load claimed, settled and overserviced amounts right now; relays are from the claim events.
@@ -113,6 +124,8 @@ export async function SupplierTrafficPanel({
                   <td>
                     {traffic ? (
                       <span className="statuspill sm s-ok">Active</span>
+                    ) : lagging ? (
+                      <span className="dim" title={NOT_COVERED_HINT}>—</span>
                     ) : (
                       <span className="muted">Idle</span>
                     )}

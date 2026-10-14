@@ -12,7 +12,9 @@ import { getActorRaw } from '@/lib/data/roles';
 import type { ApplicationRoleView as AppView } from '@/lib/data/roles';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, formatPoktCompact, formatCompact } from '@/lib/format';
-import { absoluteUtc, agoFromBlocks } from '@/lib/time';
+import { agoFromBlocks } from '@/lib/time';
+import { SinceNote } from '@/components/ui/SinceNote';
+import { NOT_COVERED_HINT } from '@/lib/data/window';
 import { parsePage } from '@/lib/paging';
 
 /**
@@ -24,7 +26,7 @@ function UsagePanel({ view, currentHeight }: { view: AppView; currentHeight: num
   if (view.byService.length === 0) {
     return (
       <div className="card flush-top">
-        <EmptyState>This application has no settled claims yet — nothing has been served for it.</EmptyState>
+        <EmptyState>{view.notCovered ? NOT_COVERED_HINT : 'This application has no settled claims yet — nothing has been served for it.'}</EmptyState>
       </div>
     );
   }
@@ -39,12 +41,7 @@ function UsagePanel({ view, currentHeight }: { view: AppView; currentHeight: num
             <div className="muted" style={{ marginTop: 4 }}>
               Amounts on an application are what it paid suppliers, not what it earned.
             </div>
-            {view.dataSince != null ? (
-              <div className="muted" style={{ marginTop: 4 }}>
-                Settlements since {absoluteUtc(view.dataSince)}
-                {view.gaps.length > 0 ? ` · not indexed: ${view.gaps.map((g) => `${absoluteUtc(g.from)} – ${absoluteUtc(g.to)}`).join(', ')}` : ''}
-              </div>
-            ) : null}
+            <SinceNote c={view} />
           </div>
         </div>
       </div>
@@ -178,8 +175,8 @@ export function ApplicationRoleView({
     <>
       <RoleStats>
         <SummaryCard label="Stake" dot={DOT.gold} value={formatPokt(view.stakeAmount)} unit="POKT" />
-        <SummaryCard label="Relays Served" dot={DOT.blue} value={formatCompact(view.totals.relays)} />
-        <SummaryCard label="Spent" dot={DOT.coral} value={formatPoktCompact(view.totals.claimedUpokt)} unit="POKT" />
+        <SummaryCard label="Relays Served" dot={DOT.blue} value={view.notCovered ? '—' : formatCompact(view.totals.relays)} />
+        <SummaryCard label="Spent" dot={DOT.coral} value={view.notCovered ? '—' : formatPoktCompact(view.totals.claimedUpokt)} unit="POKT" />
         <SummaryCard label="Gateways" dot={DOT.lavender} value={formatNumber(view.gatewayCount)} />
       </RoleStats>
 

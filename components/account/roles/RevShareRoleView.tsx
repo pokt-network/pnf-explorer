@@ -11,7 +11,7 @@ import { getRevShareIncome } from '@/lib/data/roles';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt } from '@/lib/format';
 import { parsePage } from '@/lib/paging';
-import { absoluteUtc } from '@/lib/time';
+import { SinceNote } from '@/components/ui/SinceNote';
 
 const LIMIT = 25;
 
@@ -58,10 +58,12 @@ async function ReceivedLine({ network, address }: { network: NetworkId; address:
       <div className="line">
         <div className="k">Received</div>
         <div className="v">
-          <b>{formatPokt(income.totalUpokt)} POKT</b>{' '}
-          <span className="dim">
-            lifetime, from every paying supplier · {formatNumber(income.transfers)} settlement transfers
-          </span>
+          <b>{income.notCovered ? '—' : `${formatPokt(income.totalUpokt)} POKT`}</b>{' '}
+          {income.notCovered ? null : (
+            <span className="dim">
+              lifetime, from every paying supplier · {formatNumber(income.transfers)} settlement transfers
+            </span>
+          )}
           {income.byReason.length > 0 ? (
             <div className="muted" style={{ marginTop: 4 }}>
               {income.byReason.map((r, i) => (
@@ -72,12 +74,7 @@ async function ReceivedLine({ network, address }: { network: NetworkId; address:
               ))}
             </div>
           ) : null}
-          {income.dataSince != null ? (
-            <div className="muted" style={{ marginTop: 4 }}>
-              Settlements since {absoluteUtc(income.dataSince)}
-              {income.gaps.length > 0 ? ` · not indexed: ${income.gaps.map((g) => `${absoluteUtc(g.from)} – ${absoluteUtc(g.to)}`).join(', ')}` : ''}
-            </div>
-          ) : null}
+          <SinceNote c={income} />
         </div>
       </div>
     </div>

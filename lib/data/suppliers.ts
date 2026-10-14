@@ -1,7 +1,9 @@
 import { gqlFetch } from '@/lib/graphql';
 import type { NetworkId } from '@/lib/networks';
 import { SERVED_APP_GATEWAYS, SUPPLIERS_LIST, SUPPLIER_ROUTING, SUPPLIER_SERVICE_COUNTS } from '@/lib/queries/suppliers';
-import { unwrapRange } from '@/lib/data/range';
+import { lifetimeCoverage, unwrapRange, type Coverage } from '@/lib/data/range';
+import { METADATA_QUERY } from '@/lib/queries/shared';
+import type { MetadataResult } from '@/lib/types';
 
 export interface SupplierRow {
   id: string;
@@ -53,27 +55,47 @@ export interface SupplierRouting {
   activeCount: number;
   /** All distinct routing gateways across every service. */
   gateways: string[];
+  /** What the settlement catalog covers: a service missing past it is not covered yet, not idle. */
+  coverage: Coverage;
 }
 
-/** Page size of the gateway lookup (the indexer's connection limit), and ids per request. */
+/** Rows asked per page of the gateway lookup, ids per request, and the most pages one walk may read. */
 const GATEWAY_PAGE = 1000;
 const APP_CHUNK = 500;
+const GATEWAY_PAGE_CAP = 50;
 
-/** The gateways each application delegates to now. */
+/**
+ * The gateways each application delegates to now. One consistent read: every page at the same indexed
+ * height, by keyset (id order), stepping by the rows returned. A walk that hits its page cap or ends
+ * with fewer rows than the first page counted throws instead of returning a partial map.
+ */
 async function getAppGateways(network: NetworkId, appIds: string[]): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
+  if (appIds.length === 0) return out;
+  // A page at a fixed height never changes, so each one can stay cached; the height moves every 30 s.
+  const meta = await gqlFetch<MetadataResult>(network, METADATA_QUERY, undefined, { revalidate: 30 });
+  const blockHeight = String(meta._metadata.lastProcessedHeight);
   for (let i = 0; i < appIds.length; i += APP_CHUNK) {
     const ids = appIds.slice(i, i + APP_CHUNK);
-    for (let offset = 0; ; offset += GATEWAY_PAGE) {
-      const d = await gqlFetch<{ applicationGateways: { nodes: { applicationId: string; gatewayId: string }[] } }>(
+    let after = '';
+    let seen = 0;
+    let total: number | null = null;
+    for (let page = 0; total == null || seen < total; page++) {
+      if (page >= GATEWAY_PAGE_CAP) throw new Error(`Gateway lookup stopped at ${seen} rows (page cap ${GATEWAY_PAGE_CAP})`);
+      const d = await gqlFetch<{ applicationGateways: { totalCount: number; nodes: { id: string; applicationId: string; gatewayId: string }[] } }>(
         network,
         SERVED_APP_GATEWAYS,
-        { ids, limit: GATEWAY_PAGE, offset },
+        { ids, blockHeight, after, limit: GATEWAY_PAGE },
         { revalidate: 30 },
       );
-      for (const n of d.applicationGateways.nodes) out.set(n.applicationId, [...(out.get(n.applicationId) ?? []), n.gatewayId]);
-      if (d.applicationGateways.nodes.length < GATEWAY_PAGE) break;
+      const rows = d.applicationGateways.nodes;
+      total ??= d.applicationGateways.totalCount;
+      if (rows.length === 0) break;
+      for (const n of rows) out.set(n.applicationId, [...(out.get(n.applicationId) ?? []), n.gatewayId]);
+      seen += rows.length;
+      after = rows[rows.length - 1].id;
     }
+    if (seen !== total) throw new Error(`Gateway lookup read ${seen} of ${total} rows`);
   }
   return out;
 }
@@ -87,9 +109,10 @@ async function getAppGateways(network: NetworkId, appIds: string[]): Promise<Map
  */
 export async function getSupplierRouting(network: NetworkId, id: string): Promise<SupplierRouting> {
   const data = await gqlFetch<{ getSupplierEarningsJson: unknown }>(network, SUPPLIER_ROUTING, { suppliers: [id] }, { revalidate: 30 });
-  const rows =
-    unwrapRange<{ service_id: string; application_id: string; relays: string | null; last_settled_height: string | null }[]>(data.getSupplierEarningsJson)
-      .data ?? [];
+  const answer = unwrapRange<{ service_id: string; application_id: string; relays: string | null; last_settled_height: string | null }[]>(
+    data.getSupplierEarningsJson,
+  );
+  const rows = answer.data ?? [];
   const appGateways = await getAppGateways(network, [...new Set(rows.map((r) => r.application_id).filter(Boolean))]);
 
   const byService: Record<string, ServiceTraffic> = {};
@@ -105,5 +128,5 @@ export async function getSupplierRouting(network: NetworkId, id: string): Promis
   }
 
   const gateways = [...new Set(Object.values(byService).flatMap((e) => e.gateways))];
-  return { byService, activeCount: Object.keys(byService).length, gateways };
+  return { byService, activeCount: Object.keys(byService).length, gateways, coverage: lifetimeCoverage(answer.range) };
 }

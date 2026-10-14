@@ -79,18 +79,25 @@ export async function getServiceList(network: NetworkId, limit: number, offset: 
 export async function getServiceActiveSupplierCounts(network: NetworkId): Promise<Map<string, number>> {
   const map = new Map<string, number>();
   try {
-    for (let offset = 0; offset < 20 * PAGE_CAP; offset += PAGE_CAP) {
+    // Keyset by service id, stepping by the rows returned until a page comes back empty; past the cap the counts
+    // are dropped rather than shown for part of the services.
+    let after = '';
+    for (let page = 0; ; page++) {
+      if (page >= 20) throw new Error('Service counts: page cap reached');
       const data = await gqlFetch<{ getServiceSummaryList: { serviceId: string; stakedSuppliers: string | null }[] | null }>(
         network,
         SERVICE_ACTIVE_SUPPLIER_COUNTS,
-        { limit: PAGE_CAP, offset },
+        { after },
         { revalidate: SERVICES_TTL },
       );
-      const rows = data.getServiceSummaryList ?? [];
+      // Done when a page brings no service not already counted (the database may order ids unlike JS strings).
+      const rows = (data.getServiceSummaryList ?? []).filter((r) => !map.has(r.serviceId));
+      if (rows.length === 0) break;
       for (const r of rows) map.set(r.serviceId, Number(r.stakedSuppliers ?? 0));
-      if (rows.length < PAGE_CAP) break;
+      after = rows.reduce((m, r) => (r.serviceId > m ? r.serviceId : m), after);
     }
   } catch {
+    map.clear();
     /* counts unset → rows render 0 */
   }
   return map;

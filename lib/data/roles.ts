@@ -2,7 +2,7 @@ import { gqlFetch } from '@/lib/graphql';
 import { lcdFetch } from '@/lib/lcd';
 import type { NetworkId } from '@/lib/networks';
 import { toBigInt } from '@/lib/format';
-import { NOT_COVERED, coveredWindow, unwrapRange, type CoveredRange } from '@/lib/data/range';
+import { NOT_COVERED, coveredWindow, lifetimeCoverage as coverage, unwrapRange, type Coverage } from '@/lib/data/range';
 import type { RevShareEntry, SupplierEndpoint } from '@/lib/data/accounts';
 import {
   SUPPLIER_ROLE,
@@ -43,17 +43,6 @@ export interface SettlementTotals {
   settledUpokt: string;
 }
 
-/** Where a lifetime catalog answer starts (epoch ms) and the stretches inside it with nothing indexed. */
-export interface Coverage {
-  /** Null from an indexer without the range contract. */
-  dataSince: number | null;
-  gaps: { from: number; to: number }[];
-}
-
-function coverage(range: CoveredRange | null): Coverage {
-  const window = coveredWindow(range, -Infinity, Infinity);
-  return { dataSince: range && window && Number.isFinite(window.from) ? window.from : null, gaps: window?.gaps ?? [] };
-}
 
 /** A catalog amount summed over rows: amounts are JSON strings (they can pass 2^53), summed as BigInt. */
 function sumAmount<T>(rows: T[], pick: (r: T) => string | null | undefined): string {

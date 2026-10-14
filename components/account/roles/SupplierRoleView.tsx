@@ -11,28 +11,18 @@ import { StakeStatusPill } from '@/components/ui/StatusPill';
 import { SupplierTrafficPanel } from '@/components/account/SupplierTrafficPanel';
 import { RoleStats, SummaryCard, DOT, UnbondBanner } from './RoleStats';
 import { getSupplierPayouts, getSupplierHistory, getActorRaw } from '@/lib/data/roles';
-import type { SupplierRoleView as SupplierView, SupplierServiceRow, HistoryList, Coverage } from '@/lib/data/roles';
+import type { SupplierRoleView as SupplierView, SupplierServiceRow, HistoryList } from '@/lib/data/roles';
+import { SinceNote } from '@/components/ui/SinceNote';
+import { NOT_COVERED_HINT } from '@/lib/data/window';
 import type { SupplierRole } from '@/lib/data/accounts';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, formatPoktCompact, formatCompact, toBigInt } from '@/lib/format';
-import { absoluteUtc, agoFromBlocks } from '@/lib/time';
+import { agoFromBlocks } from '@/lib/time';
 import { rpcTypeLabel } from '@/lib/service';
 import { parsePage } from '@/lib/paging';
 
 const EARN_LIMIT = 25;
 const HISTORY_LIMIT = 25;
-
-/** "Settlements since …" under a lifetime figure from the settlement catalog, with any stretch it has not indexed. */
-function SinceNote({ c }: { c: Coverage }) {
-  if (c.dataSince == null) return null;
-  const gaps = c.gaps.map((g) => `${absoluteUtc(g.from)} – ${absoluteUtc(g.to)}`).join(', ');
-  return (
-    <div className="muted" style={{ marginTop: 4 }}>
-      Settlements since {absoluteUtc(c.dataSince)}
-      {gaps ? ` · not indexed: ${gaps}` : ''}
-    </div>
-  );
-}
 
 /** A history list's count: the rows shown, and "+" when older ones exist past the limit. */
 function listCount(l: HistoryList<unknown>): string {
@@ -105,6 +95,9 @@ function ServicesPanel({ view, currentHeight }: { view: SupplierView; currentHei
               {st.lastBlock > 0 ? <Link href={`/block/${st.lastBlock}`}>{formatNumber(st.lastBlock)}</Link> : <span className="dim">—</span>}
               {agoBlocks != null ? <span className="dim"> · {agoFromBlocks(agoBlocks)}</span> : null}
             </>
+          ) : view.notCovered || view.dataUntil != null ? (
+            // No row where the catalog does not cover (yet): unknown, not idle.
+            <span className="dim" title={NOT_COVERED_HINT}>—</span>
           ) : (
             <span className="muted">idle</span>
           )}
@@ -204,7 +197,9 @@ async function EarningsPanel({ network, view, page }: { network: NetworkId; view
   if (payouts.rows.length === 0) {
     return (
       <div className="card flush-top">
-        <EmptyState>This supplier has never been paid out — no settled claims yet.</EmptyState>
+        <EmptyState>
+          {payouts.notCovered ? NOT_COVERED_HINT : 'This supplier has never been paid out — no settled claims yet.'}
+        </EmptyState>
       </div>
     );
   }
@@ -480,7 +475,7 @@ export function SupplierRoleView({
     svc: { badge: view.services.length || undefined, panel: <ServicesPanel view={view} currentHeight={currentHeight} /> },
     traffic: { panel: active === 'traffic' ? <SupplierTrafficPanel network={network} supplier={legacy} currentHeight={currentHeight} /> : null },
     earn: { panel: active === 'earn' ? <EarningsPanel network={network} view={view} page={parsePage(earnPage)} /> : null },
-    hist: { badge: view.slashCount || undefined, panel: <HistoryPanel network={network} id={view.id} /> },
+    hist: { badge: (!view.notCovered && view.slashCount) || undefined, panel: <HistoryPanel network={network} id={view.id} /> },
     raw: { panel: <RawPanel network={network} id={view.id} /> },
   };
   const tabs: TabDef[] = SUPPLIER_TABS.map((t) => ({ ...t, ...content[t.key] }));
@@ -489,9 +484,9 @@ export function SupplierRoleView({
     <>
       <RoleStats>
         <SummaryCard label="Stake" dot={DOT.coral} value={formatPokt(view.stakeAmount)} unit="POKT" />
-        <SummaryCard label="Lifetime Relays" dot={DOT.blue} value={formatCompact(view.totals.relays)} />
-        <SummaryCard label="Earned" dot={DOT.mint} value={formatPoktCompact(view.totals.settledUpokt)} unit="POKT" />
-        <SummaryCard label="Settled Claims" dot={DOT.gold} value={formatCompact(view.totals.claims)} />
+        <SummaryCard label="Lifetime Relays" dot={DOT.blue} value={view.notCovered ? '—' : formatCompact(view.totals.relays)} />
+        <SummaryCard label="Earned" dot={DOT.mint} value={view.notCovered ? '—' : formatPoktCompact(view.totals.settledUpokt)} unit="POKT" />
+        <SummaryCard label="Settled Claims" dot={DOT.gold} value={view.notCovered ? '—' : formatCompact(view.totals.claims)} />
       </RoleStats>
 
       {view.stakeStatus === 'Unstaking' ? (
@@ -528,7 +523,9 @@ export function SupplierRoleView({
         <div className="line">
           <div className="k">Slashes</div>
           <div className="v">
-            {view.slashCount === 0 ? (
+            {view.notCovered ? (
+              <span className="dim" title={NOT_COVERED_HINT}>—</span>
+            ) : view.slashCount === 0 ? (
               <span className="dim">Never slashed</span>
             ) : (
               <>

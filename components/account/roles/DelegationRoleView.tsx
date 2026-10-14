@@ -219,7 +219,7 @@ async function SettlementsPanel({
   if (data.rows.length === 0 && page === 1) {
     return (
       <div className="card flush-top">
-        <EmptyState>No settlement has paid this address in the last {EARNINGS_WINDOW_DAYS} days.</EmptyState>
+        <EmptyState>{notCovered ? NOT_COVERED_HINT : `No settlement has paid this address in the last ${EARNINGS_WINDOW_DAYS} days.`}</EmptyState>
       </div>
     );
   }

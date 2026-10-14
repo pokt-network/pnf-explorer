@@ -11,7 +11,9 @@ import { getGatewayTraffic, getActorRaw } from '@/lib/data/roles';
 import type { GatewayRoleView as GatewayView } from '@/lib/data/roles';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, formatPoktCompact, formatCompact } from '@/lib/format';
-import { absoluteUtc, agoFromBlocks } from '@/lib/time';
+import { agoFromBlocks } from '@/lib/time';
+import { SinceNote } from '@/components/ui/SinceNote';
+import { NOT_COVERED_HINT } from '@/lib/data/window';
 import { parsePage } from '@/lib/paging';
 
 /**
@@ -34,7 +36,7 @@ async function TrafficPanel({ network, view, currentHeight }: { network: Network
   if (t.totals.claims === 0) {
     return (
       <div className="card flush-top">
-        <EmptyState>No settled claims from applications delegated to this gateway yet.</EmptyState>
+        <EmptyState>{t.notCovered ? NOT_COVERED_HINT : 'No settled claims from applications delegated to this gateway yet.'}</EmptyState>
       </div>
     );
   }
@@ -51,12 +53,7 @@ async function TrafficPanel({ network, view, currentHeight }: { network: Network
               Inferred: the signing gateway is not recorded on-chain, so this is the traffic of the apps authorized to route through
               this gateway, each settlement counted for the apps delegated to it at that block.
             </div>
-            {t.dataSince != null ? (
-              <div className="muted" style={{ marginTop: 4 }}>
-                Settlements since {absoluteUtc(t.dataSince)}
-                {t.gaps.length > 0 ? ` · not indexed: ${t.gaps.map((g) => `${absoluteUtc(g.from)} – ${absoluteUtc(g.to)}`).join(', ')}` : ''}
-              </div>
-            ) : null}
+            <SinceNote c={t} />
           </div>
         </div>
       </div>
