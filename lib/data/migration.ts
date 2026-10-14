@@ -6,7 +6,10 @@ import { MORSE_CLAIMABLE_ACCOUNTS, MORSE_CLAIM_SUMMARY } from '@/lib/queries/mig
 export interface MorseClaimableAccountRow {
   /** Morse address (hex, lowercased by the indexer) — or a Morse module account name. */
   id: string;
-  /** Shannon address the claim minted to (for a supplier claim, its operator). */
+  /**
+   * Shannon address the claim minted to. For a supplier claim the chain records the operator; the indexer has it for
+   * most of them but NULL in 59 rows and the owner in 18 (mainnet, 2026-10-14; being fixed in pocketdex).
+   */
   shannonDestAddress: string | null;
   claimed: boolean;
   /** Claim height. */
@@ -18,30 +21,33 @@ export interface MorseClaimableAccountRow {
   applicationStakeAmount: string;
 }
 
-/** One side (claimed or not) of the Morse claimable accounts: how many, and what they hold (upokt). */
-export interface MorseClaimSide {
-  accounts: string;
+/** What one side (claimed or not) of the Morse claimable accounts holds, upokt. */
+export interface MorseClaimAmounts {
   unstakedBalanceUpokt: string;
   supplierStakeUpokt: string;
   applicationStakeUpokt: string;
 }
 
 export interface MorseClaimSummary {
-  claimed: MorseClaimSide;
-  unclaimed: MorseClaimSide;
+  claimedAccounts: string;
+  claimed: MorseClaimAmounts;
+  unclaimed: MorseClaimAmounts;
 }
 
-const NO_ACCOUNTS: MorseClaimSide = { accounts: '0', unstakedBalanceUpokt: '0', supplierStakeUpokt: '0', applicationStakeUpokt: '0' };
+const NOTHING: MorseClaimAmounts = { unstakedBalanceUpokt: '0', supplierStakeUpokt: '0', applicationStakeUpokt: '0' };
 
 /**
  * `?address=` → list filter. A `pokt1…` address matches the claim destination; anything else matches the Morse
- * address or its output (custodial) address. Both case-insensitive, like poktscan's /migration.
+ * address or its output (custodial) address. Any input case is accepted, like poktscan's /migration, but matched
+ * exactly against how each column is stored — ids and destinations lowercase, output addresses uppercase (mainnet,
+ * 2026-10-14) — instead of lower() on every row. Still a scan of the 57,762 rows (the output address and the
+ * destination have no index): ~15–20 ms on the database.
  */
 export function morseAccountFilter(address: string | undefined) {
   const q = address?.trim();
   if (!q) return undefined;
-  if (q.startsWith('pokt1')) return { shannonDestAddress: { equalToInsensitive: q } };
-  return { or: [{ id: { equalToInsensitive: q } }, { morseOutputAddress: { equalToInsensitive: q } }] };
+  if (/^pokt1/i.test(q)) return { shannonDestAddress: { equalTo: q.toLowerCase() } };
+  return { or: [{ id: { equalTo: q.toLowerCase() } }, { morseOutputAddress: { equalTo: q.toUpperCase() } }] };
 }
 
 // ---- list ----
@@ -57,23 +63,19 @@ export async function getMorseClaimableAccounts(network: NetworkId, limit: numbe
 
 // ---- summary ----
 export async function getMorseClaimSummary(network: NetworkId): Promise<MorseClaimSummary> {
-  const data = await gqlFetch<{ getMorseClaimSummaryList: ({ claimed: boolean } & MorseClaimSide)[] | null }>(
+  const data = await gqlFetch<{ getMorseClaimSummaryList: ({ claimed: boolean; accounts: string } & MorseClaimAmounts)[] | null }>(
     network,
     MORSE_CLAIM_SUMMARY,
     undefined,
     { revalidate: 30 },
   );
   const rows = data.getMorseClaimSummaryList ?? [];
-  const side = (claimed: boolean): MorseClaimSide => {
-    const r = rows.find((row) => row.claimed === claimed);
-    return r
-      ? {
-          accounts: r.accounts,
-          unstakedBalanceUpokt: r.unstakedBalanceUpokt,
-          supplierStakeUpokt: r.supplierStakeUpokt,
-          applicationStakeUpokt: r.applicationStakeUpokt,
-        }
-      : NO_ACCOUNTS;
+  const claimed = rows.find((r) => r.claimed);
+  const unclaimed = rows.find((r) => !r.claimed);
+  const amounts = (row: typeof claimed): MorseClaimAmounts => {
+    if (!row) return NOTHING;
+    const { unstakedBalanceUpokt, supplierStakeUpokt, applicationStakeUpokt } = row;
+    return { unstakedBalanceUpokt, supplierStakeUpokt, applicationStakeUpokt };
   };
-  return { claimed: side(true), unclaimed: side(false) };
+  return { claimedAccounts: claimed?.accounts ?? '0', claimed: amounts(claimed), unclaimed: amounts(unclaimed) };
 }
