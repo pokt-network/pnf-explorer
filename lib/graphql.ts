@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { getNetwork, type NetworkId } from './networks';
 import { DataError } from './errors';
 
@@ -37,11 +38,14 @@ export async function gqlFetch<T>(
   if (opts.cache || (opts.revalidate !== false && typeof opts.revalidate !== 'number')) {
     return settle(await postGraphql<T>(network, query, variables, opts.cache, opts.signal), opts.partial);
   }
-  // The same read already on its way (generateMetadata and the page, or two panels asking alike) shares that request:
-  // unstable_cache does not join a miss in flight, where Next's fetch cache did. A call with an abort signal goes its own
-  // way (still through the cache) and nobody joins it: its abort must reject it alone.
+  // The same read already on its way in this render (generateMetadata and the page, or two panels asking alike) shares
+  // that request: unstable_cache does not join a miss in flight, where Next's fetch cache did. Only within one render:
+  // the read that joins does not register its revalidate on its own route (unstable_cache does that for the call that
+  // runs), so a prerendered page that joined another route's read could keep its HTML for good. A call with an abort
+  // signal goes its own way (still through the cache) and nobody joins it: its abort must reject it alone.
   if (opts.signal) return cachedRead<T>(network, query, variables, opts);
   const key = JSON.stringify([network, query, variables ?? null, opts.revalidate, opts.partial ?? null]);
+  const inflight = renderReads();
   const pending = inflight.get(key);
   if (pending) return pending as Promise<T>;
   const read = cachedRead<T>(network, query, variables, opts).finally(() => inflight.delete(key));
@@ -49,8 +53,12 @@ export async function gqlFetch<T>(
   return read;
 }
 
-/** Cached reads in flight, by network, query, variables and options; each removed once it settles. */
-const inflight = new Map<string, Promise<unknown>>();
+/**
+ * The current render's cached reads in flight, by network, query, variables and options; each removed once it settles.
+ * React's `cache` keeps one Map per server render (its request scope) and makes a new one on every call outside a render,
+ * where nothing is shared. Joiners get the same object: callers copy before they change a result.
+ */
+const renderReads = cache(() => new Map<string, Promise<unknown>>());
 
 async function cachedRead<T>(network: NetworkId, query: string, variables: Record<string, unknown> | undefined, opts: GqlOptions): Promise<T> {
   // loaded here, on the server-only path: a client component that imports gqlFetch (live polling, no-store) does not

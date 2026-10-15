@@ -293,7 +293,8 @@ export async function getServiceDifficulty(network: NetworkId, id: string, limit
   // the row after a page that ends it — is read from the next chunk, from the last row read.
   const want = limit + 1;
   const within = offset % DIFFICULTY_CHUNK;
-  const rows = await read(cursor, Math.min(want, DIFFICULTY_CHUNK - within), within);
+  // a copy: the rows from the next chunk are appended to it, and a read shared in flight hands the same array to others
+  const rows = [...(await read(cursor, Math.min(want, DIFFICULTY_CHUNK - within), within))];
   if (rows.length < want && within + rows.length === DIFFICULTY_CHUNK && rows.length > 0) {
     const last = rows[rows.length - 1];
     rows.push(...(await read({ beforeHeight: String(last.height), beforeServiceId: last.serviceId ?? id }, want - rows.length, 0)));
