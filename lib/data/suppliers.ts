@@ -32,7 +32,7 @@ export async function fleetPage<T, X>(
 
 type FleetRow = { supplierId: string; ownerId: string | null; stakeUpokt: string | null; stakeStatus: string | null; serviceCount: string | null };
 
-/** Active (Staked) suppliers, ordered by stake desc (then id). Offset-paginated over the keyset mode. ISR 30s. */
+/** Active (Staked) suppliers, ordered by stake desc (then id), one request per page (see fleetPage). ISR 30s. */
 export async function getSupplierList(network: NetworkId, limit: number, offset: number) {
   const { rows, extra: totalCount } = await fleetPage<FleetRow, number>(
     (rowLimit, first, skip) =>

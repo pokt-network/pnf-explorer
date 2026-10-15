@@ -129,17 +129,13 @@ export async function getTransaction(
 ): Promise<TxDetail | null> {
   const hash = HEX64.test(id) ? id.toUpperCase() : id;
   type TxRow = Omit<TxDetail, 'block'> & { blockId: string };
-  // First fetch with a short TTL; if it lands far below head we could cache harder, but a
-  // single round-trip keeps it simple — bury-immutability is applied on the next render.
+  // A short TTL: the height is not known before the row is read, and a hash not indexed yet answers null, which must not
+  // stick. The row itself never changes once found. A second read at `false` to keep it for good would be another
+  // request on every cold page, since each revalidate policy is its own cache entry.
   const data = await gqlFetch<{ transaction: TxRow | null }>(network, TRANSACTION_DETAIL, { id: hash }, { revalidate: 15 });
-  let row = data.transaction;
+  const row = data.transaction;
   if (!row) return null;
-  // Re-key cache by burial once we know the height (cheap; same query, immutable revalidate).
   const rev = revalidateForHeight(Number(row.blockId), targetHeight);
-  if (rev === false) {
-    const fixed = await gqlFetch<{ transaction: TxRow | null }>(network, TRANSACTION_DETAIL, { id: hash }, { revalidate: false });
-    row = fixed.transaction ?? row;
-  }
   // The block's time is a second read. Cached for good like the row only when the block is buried AND at or below the
   // indexer's last processed height, so its row is written whole and has its time; otherwise 15 s, since a tip tx may
   // be indexed before its block row is committed (timestamp null meanwhile) and that answer must not stick.

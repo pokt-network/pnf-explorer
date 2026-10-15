@@ -62,8 +62,9 @@ export type TxNode = Omit<BlockTx, 'block'> & { blockId: string };
 export async function getBlockTimes(network: NetworkId, heights: (string | number)[], revalidate: number | false = 15): Promise<Map<string, string>> {
   const ids = [...new Set(heights.map(String))];
   if (ids.length === 0) return new Map();
-  // A block row still being written answers without its time, and that answer is cached as long as asked: callers ask
-  // 15 s, and `false` (for good) only for heights at or below the indexer's last processed height, written whole.
+  // A block row still being written answers without its time, and that answer is cached for the caller's revalidate
+  // (each policy its own entry): callers ask 15 s, and `false` (for good) only for heights at or below the indexer's last
+  // processed height, written whole.
   // A failed read drops the times (the rows show "pending"), not the page, and is logged as a failure.
   try {
     const data = await gqlFetch<{ blocks: { nodes: { height: string; timestamp: string }[] } }>(
