@@ -32,11 +32,12 @@ export async function ServiceSuppliersPanel({ network, id, page }: { network: Ne
             <tr>
               <th>Supplier</th>
               <th className="num">Stake</th>
-              <th>Endpoint</th>
+              <th>Endpoint domains</th>
             </tr>
           </thead>
           <tbody>
             {data.nodes.map((s) => {
+              // The fleet function gives each supplier's endpoint root domains for this service, not the URLs.
               const endpoint = s.endpoints?.[0]?.url ?? (s.domains?.length ? s.domains.join(', ') : null);
               return (
                 <tr key={s.supplierId}>

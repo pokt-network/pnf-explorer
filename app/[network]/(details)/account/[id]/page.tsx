@@ -113,7 +113,7 @@ export default async function AccountDetailPage({
       const view = await getSupplierRole(network, id).catch(() => null);
       body =
         view && profile.supplier ? (
-          <SupplierRoleView network={network} view={view} legacy={profile.supplier} currentHeight={currentHeight} pinHeight={fallback.metadata?.lastProcessedHeight ?? null} earnPage={sp.earn} tab={Array.isArray(sp.tab) ? sp.tab[0] : sp.tab} />
+          <SupplierRoleView network={network} view={view} legacy={profile.supplier} currentHeight={currentHeight} earnPage={sp.earn} tab={Array.isArray(sp.tab) ? sp.tab[0] : sp.tab} />
         ) : (
           <RoleUnavailable what="supplier" />
         );

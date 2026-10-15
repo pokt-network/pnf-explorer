@@ -460,7 +460,6 @@ export function SupplierRoleView({
   view,
   legacy,
   currentHeight,
-  pinHeight,
   earnPage,
   tab,
 }: {
@@ -469,8 +468,6 @@ export function SupplierRoleView({
   /** Shape the existing Traffic panel already consumes. */
   legacy: SupplierRole;
   currentHeight: number | null;
-  /** The indexer's last processed height as the page read it (the Traffic tab's gateway lookup reads at it). */
-  pinHeight: number | null;
   earnPage: string | undefined;
   /** The `?tab=` value. Traffic and Earnings are rendered only while active: their queries are the
    *  costliest of the page and most visits never open them. */
@@ -479,7 +476,7 @@ export function SupplierRoleView({
   const active = selectTab(SUPPLIER_TABS, tab);
   const content: Record<SupplierTab, Pick<TabDef, 'badge' | 'panel'>> = {
     svc: { badge: view.services.length || undefined, panel: <ServicesPanel view={view} currentHeight={currentHeight} /> },
-    traffic: { panel: active === 'traffic' ? <SupplierTrafficPanel network={network} supplier={legacy} currentHeight={currentHeight} pinHeight={pinHeight} /> : null },
+    traffic: { panel: active === 'traffic' ? <SupplierTrafficPanel network={network} supplier={legacy} currentHeight={currentHeight} /> : null },
     earn: { panel: active === 'earn' ? <EarningsPanel network={network} view={view} page={parsePage(earnPage)} /> : null },
     hist: { badge: (!view.notCovered && view.slashCount) || undefined, panel: <HistoryPanel network={network} id={view.id} /> },
     raw: { panel: <RawPanel network={network} id={view.id} /> },

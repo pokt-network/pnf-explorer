@@ -54,9 +54,9 @@ async function OwnedServicesPanel({ network, address, page }: { network: Network
                 <td>{s.name ?? <span className="dim">—</span>}</td>
                 <td className="num mono">{formatNumber(s.computeUnitsPerRelay)}</td>
                 <td className="num mono">
-                  {s.supplierCount === 0 ? <span className="dim">0</span> : formatNumber(s.supplierCount)}
+                  {s.supplierCount == null ? <span className="dim">—</span> : s.supplierCount === 0 ? <span className="dim">0</span> : formatNumber(s.supplierCount)}
                 </td>
-                <td className="num mono">{s.appCount === 0 ? <span className="dim">0</span> : formatNumber(s.appCount)}</td>
+                <td className="num mono">{s.appCount == null ? <span className="dim">—</span> : s.appCount === 0 ? <span className="dim">0</span> : formatNumber(s.appCount)}</td>
               </tr>
             ))}
           </tbody>

@@ -14,7 +14,6 @@ import {
   GATEWAY_ROLE,
   GATEWAY_TRAFFIC,
   SERVICE_OWNER_ROLE,
-  SERVICE_OWNER_COUNTS,
   REVSHARE_INCOME_AMOUNTS,
 } from '@/lib/queries/roles';
 
@@ -463,9 +462,13 @@ export interface OwnedServiceRow {
   id: string;
   name: string | null;
   computeUnitsPerRelay: string | number | null;
-  supplierCount: number;
-  appCount: number;
+  /** Null when unknown (see getOwnedServices). */
+  supplierCount: number | null;
+  appCount: number | null;
 }
+
+/** Summary rows asked for an owner's services (all of them, with counts). */
+const OWNER_COUNT_LIMIT = 1000;
 
 export async function getOwnedServices(network: NetworkId, id: string, limit: number, offset: number) {
   const d = await gqlFetch<{
@@ -477,29 +480,25 @@ export async function getOwnedServices(network: NetworkId, id: string, limit: nu
         computeUnitsPerRelay: string | number | null;
       }[];
     };
-  }>(network, SERVICE_OWNER_ROLE, { id, limit, offset }, { revalidate: 60 });
-  const nodes = d.services?.nodes ?? [];
-  // The page's supplier configs and application rows per service (a service with neither has no summary row: 0).
-  const counts =
-    nodes.length === 0
-      ? []
-      : ((
-          await gqlFetch<{ getServiceSummaryList: { serviceId: string; suppliers: string | null; applications: string | null }[] | null }>(
-            network,
-            SERVICE_OWNER_COUNTS,
-            { services: nodes.map((s) => s.id) },
-            { revalidate: 60 },
-          )
-        ).getServiceSummaryList ?? []);
+    counts: { serviceId: string; suppliers: string | null; applications: string | null }[] | null;
+  }>(network, SERVICE_OWNER_ROLE, { id, ids: [id], limit, offset, countLimit: OWNER_COUNT_LIMIT }, { revalidate: 60 });
+  const counts = d.counts ?? [];
   const countBy = new Map(counts.map((c) => [c.serviceId, c]));
+  // A service with no supplier config and no application has no summary row (0), unless the answer filled the rows
+  // asked for: then a missing service is unknown. (Rows asked explicitly; a server limit below it would read as complete.)
+  const complete = counts.length < OWNER_COUNT_LIMIT;
+  const count = (sid: string, k: 'suppliers' | 'applications') => {
+    const c = countBy.get(sid);
+    return c ? Number(c[k] ?? 0) : complete ? 0 : null;
+  };
   return {
     totalCount: d.services?.totalCount ?? 0,
-    nodes: nodes.map((s) => ({
+    nodes: (d.services?.nodes ?? []).map((s) => ({
       id: s.id,
       name: s.name,
       computeUnitsPerRelay: s.computeUnitsPerRelay,
-      supplierCount: Number(countBy.get(s.id)?.suppliers ?? 0),
-      appCount: Number(countBy.get(s.id)?.applications ?? 0),
+      supplierCount: count(s.id, 'suppliers'),
+      appCount: count(s.id, 'applications'),
     })),
   };
 }

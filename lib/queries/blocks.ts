@@ -90,29 +90,18 @@ export const BLOCK_BY_HASH = /* GraphQL */ `
   }
 `;
 
-// A block's metadata record and the ids of the supply rows in force at it: both are their own entities.
+// A block's metadata record and the supply in force at it (getBlockSuppliesList: one row per denom with its amount).
+// `$supplyHeight` is the same height, typed for the function.
 export const BLOCK_EXTRAS = /* GraphQL */ `
-  query blockExtras($height: BigFloat!) {
+  query blockExtras($height: BigFloat!, $supplyHeight: BigInt!) {
     metadata: blockMetadatum(id: $height) {
       header
       lastCommit
       blockId
     }
-    blockSupplies(filter: { blockId: { equalTo: $height } }) {
-      nodes {
-        supplyId
-      }
-    }
-  }
-`;
-
-export const SUPPLIES_BY_ID = /* GraphQL */ `
-  query suppliesById($ids: [String!]!) {
-    supplies(filter: { id: { in: $ids } }) {
-      nodes {
-        denom
-        amount
-      }
+    supplies: getBlockSuppliesList(height: $supplyHeight) {
+      denom
+      amount
     }
   }
 `;

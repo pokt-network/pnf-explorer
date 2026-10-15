@@ -166,9 +166,9 @@ export const GATEWAY_TRAFFIC = /* GraphQL */ `
 
 // ---- service owner ----
 // Paginated: the PNF service-owner wallet owns 138 services, well past a sane inline list. The page's supplier and
-// application counts come from the service summary function (SERVICE_OWNER_COUNTS).
+// application counts come from the service summary function over the services the address owns, in the same document.
 export const SERVICE_OWNER_ROLE = /* GraphQL */ `
-  query serviceOwnerRole($id: String!, $limit: Int!, $offset: Int!) {
+  query serviceOwnerRole($id: String!, $ids: [String], $limit: Int!, $offset: Int!, $countLimit: Int!) {
     services(filter: { ownerId: { equalTo: $id } }, orderBy: ID_ASC, first: $limit, offset: $offset) {
       totalCount
       nodes {
@@ -177,12 +177,7 @@ export const SERVICE_OWNER_ROLE = /* GraphQL */ `
         computeUnitsPerRelay
       }
     }
-  }
-`;
-
-export const SERVICE_OWNER_COUNTS = /* GraphQL */ `
-  query serviceOwnerCounts($services: [String]) {
-    getServiceSummaryList(services: $services) {
+    counts: getServiceSummaryList(owners: $ids, first: $countLimit) {
       serviceId
       suppliers
       applications

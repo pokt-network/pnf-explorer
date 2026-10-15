@@ -22,13 +22,10 @@ export async function SupplierTrafficPanel({
   network,
   supplier,
   currentHeight,
-  pinHeight,
 }: {
   network: NetworkId;
   supplier: SupplierRole;
   currentHeight: number | null;
-  /** The indexer's last processed height, as the page read it: the one height the gateway lookup reads at. */
-  pinHeight: number | null;
 }) {
   const configured = supplier.serviceConfigs.nodes.map((c) => c.serviceId);
   if (configured.length === 0) {
@@ -37,7 +34,7 @@ export async function SupplierTrafficPanel({
 
   let routing: Awaited<ReturnType<typeof getSupplierRouting>>;
   try {
-    routing = await getSupplierRouting(network, supplier.id, pinHeight);
+    routing = await getSupplierRouting(network, supplier.id);
   } catch {
     return <div className="card flush-top"><EmptyState>Couldn’t load traffic right now.</EmptyState></div>;
   }
@@ -69,11 +66,8 @@ export async function SupplierTrafficPanel({
       ? lagging
         ? coveredEmpty(routing.coverage, `0 of ${configured.length} services have settled claims`)
         : `Staked but idle — 0 of ${configured.length} services have settled claims.`
-      : `${activeCount} of ${configured.length} services receiving traffic` +
-        (routing.gatewaysUnavailable
-          ? ''
-          : ` · routed via ${gateways.length} gateway${gateways.length === 1 ? '' : 's'}` +
-            (HOME_GATEWAYS.length && homeMatches ? ` · ${homeMatches} via your gateway` : ''));
+      : `${activeCount} of ${configured.length} services receiving traffic · routed via ${gateways.length} gateway${gateways.length === 1 ? '' : 's'}` +
+        (HOME_GATEWAYS.length && homeMatches ? ` · ${homeMatches} via your gateway` : '');
 
   return (
     <div className="card flush-top">
@@ -82,11 +76,6 @@ export async function SupplierTrafficPanel({
           <div className="k">Traffic</div>
           <div className="v">
             {summary}
-            {routing.gatewaysUnavailable ? (
-              <div className="muted" style={{ marginTop: 4 }}>
-                Couldn’t load the routing gateways right now.
-              </div>
-            ) : null}
             {lagging ? (
               <div className="muted" style={{ marginTop: 4 }}>
                 Settlements indexed until {absoluteUtc(routing.coverage.dataUntil!)}; newer ones are not covered yet.

@@ -5,7 +5,6 @@ import type { NetworkId } from '@/lib/networks';
 import {
   ACCOUNT_LIST,
   ACCOUNT_SUMMARY,
-  ACCOUNT_SUMMARY_HEIGHTS,
   ACCOUNT_ROLES,
   OWNED_OPERATORS,
   APP_DELEGATED_GATEWAYS,
@@ -165,34 +164,26 @@ export async function getAccountList(network: NetworkId, limit: number, offset: 
 export async function getAccountSummary(network: NetworkId): Promise<AccountSummary> {
   // Rounded down to the minute, so the request (and with it the fetch-cache key) stays the same for that long.
   const now = new Date(Math.floor(Date.now() / 60_000) * 60_000);
-  // Start of today (UTC), -30d, -90d. The newest block BEFORE each is wanted, and getHeightAt answers at-or-before,
-  // so it is asked for the millisecond before.
-  const before = (ms: number) => new Date(ms - 1).toISOString();
-  const todayDate = before(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const monthDate = before(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const last90Date = before(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-  // A balance updated since a date is one whose last-updated height is past the newest block before it (-1: the chain
-  // is younger than the date, so every balance counts). A date past the indexed tip has no answer yet: unknown, not 0.
-  type At = { height: string | null; beyondTip: boolean | null } | null;
-  const h = await gqlFetch<{ today: At; month: At; last90: At }>(network, ACCOUNT_SUMMARY_HEIGHTS, { todayDate, monthDate, last90Date }, { revalidate: 15 });
-  const known = (a: At) => !a?.beyondTip;
-  const height = (a: At) => a?.height ?? '-1';
+  // Start of today (UTC), -30d, -90d, in one request with the accounts that hold a balance.
+  const times = [
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    now.getTime() - 30 * 24 * 60 * 60 * 1000,
+    now.getTime() - 90 * 24 * 60 * 60 * 1000,
+  ];
   const data = await gqlFetch<{
     accountsWithBalance: { totalCount: number };
-    todayAccounts: { totalCount: number };
-    monthAccounts: { totalCount: number };
-    last90DaysAccounts: { totalCount: number };
-  }>(
-    network,
-    ACCOUNT_SUMMARY,
-    { todayHeight: height(h.today), monthHeight: height(h.month), last90Height: height(h.last90) },
-    { revalidate: 15 },
-  );
+    active: { sinceTime: string; beyondTip: boolean | null; accounts: string | null }[] | null;
+  }>(network, ACCOUNT_SUMMARY, { sinceTimes: times.map((t) => new Date(t).toISOString()) }, { revalidate: 15 });
+  // Matched by time, not by position. A date past the indexed tip has no count yet: unknown, not 0.
+  const active = (t: number) => {
+    const row = (data.active ?? []).find((r) => Date.parse(r.sinceTime) === t);
+    return row && !row.beyondTip && row.accounts != null ? Number(row.accounts) : null;
+  };
   return {
     accountsWithBalance: data.accountsWithBalance?.totalCount ?? null,
-    todayAccounts: known(h.today) ? (data.todayAccounts?.totalCount ?? null) : null,
-    monthAccounts: known(h.month) ? (data.monthAccounts?.totalCount ?? null) : null,
-    last90DaysAccounts: known(h.last90) ? (data.last90DaysAccounts?.totalCount ?? null) : null,
+    todayAccounts: active(times[0]),
+    monthAccounts: active(times[1]),
+    last90DaysAccounts: active(times[2]),
   };
 }
 

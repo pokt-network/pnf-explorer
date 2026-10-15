@@ -15,38 +15,17 @@ export const ACCOUNT_LIST = /* GraphQL */ `
   }
 `;
 
-// The newest block before each date (getHeightAt: the last indexed block at or before the time asked, so the caller asks
-// for the millisecond before the date): a balance changed since the date when its last-updated height is past it.
-export const ACCOUNT_SUMMARY_HEIGHTS = /* GraphQL */ `
-  query accountSummaryHeights($todayDate: Datetime!, $monthDate: Datetime!, $last90Date: Datetime!) {
-    today: getHeightAt(atTime: $todayDate) {
-      height
-      beyondTip
-    }
-    month: getHeightAt(atTime: $monthDate) {
-      height
-      beyondTip
-    }
-    last90: getHeightAt(atTime: $last90Date) {
-      height
-      beyondTip
-    }
-  }
-`;
-
+// Accounts with a balance, and those active since each date (getActiveAccountsList: the live upokt balances last
+// updated in a block at or after it; `accounts` null when `beyondTip`, the date being past the indexed tip).
 export const ACCOUNT_SUMMARY = /* GraphQL */ `
-  query accountSummary($todayHeight: BigFloat!, $monthHeight: BigFloat!, $last90Height: BigFloat!) {
+  query accountSummary($sinceTimes: [Datetime]!) {
     accountsWithBalance: balances(filter: { amount: { greaterThan: "0" } }) {
       totalCount
     }
-    todayAccounts: balances(filter: { lastUpdatedBlockId: { greaterThan: $todayHeight }, denom: { equalTo: "upokt" } }) {
-      totalCount
-    }
-    monthAccounts: balances(filter: { lastUpdatedBlockId: { greaterThan: $monthHeight }, denom: { equalTo: "upokt" } }) {
-      totalCount
-    }
-    last90DaysAccounts: balances(filter: { lastUpdatedBlockId: { greaterThan: $last90Height }, denom: { equalTo: "upokt" } }) {
-      totalCount
+    active: getActiveAccountsList(sinceTimes: $sinceTimes) {
+      sinceTime
+      beyondTip
+      accounts
     }
   }
 `;

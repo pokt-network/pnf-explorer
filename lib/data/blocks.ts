@@ -2,7 +2,7 @@ import { gqlFetch } from '@/lib/graphql';
 import { rpcFetch } from '@/lib/lcd';
 import { INDEXER_LAG_THRESHOLD } from '@/lib/config';
 import type { NetworkId } from '@/lib/networks';
-import { BLOCK_BY_HASH, BLOCK_BY_HEIGHT, BLOCK_EXTRAS, BLOCK_LIST, BLOCK_SUMMARY, BLOCK_TIMES, SUPPLIES_BY_ID } from '@/lib/queries/blocks';
+import { BLOCK_BY_HASH, BLOCK_BY_HEIGHT, BLOCK_EXTRAS, BLOCK_LIST, BLOCK_SUMMARY, BLOCK_TIMES } from '@/lib/queries/blocks';
 import { TRANSACTIONS_BY_HEIGHT } from '@/lib/queries/transactions';
 import type { FallbackDecision } from '@/lib/types';
 import { unwrapRange } from '@/lib/data/range';
@@ -82,14 +82,9 @@ export async function withBlocks(network: NetworkId, nodes: TxNode[], revalidate
 async function getBlockExtras(network: NetworkId, height: string, revalidate: number | false) {
   const data = await gqlFetch<{
     metadata: { header: unknown; lastCommit: unknown; blockId: unknown } | null;
-    blockSupplies: { nodes: { supplyId: string }[] };
-  }>(network, BLOCK_EXTRAS, { height }, { revalidate });
-  const ids = data.blockSupplies.nodes.map((n) => n.supplyId);
-  const supplies =
-    ids.length === 0
-      ? []
-      : (await gqlFetch<{ supplies: { nodes: { denom: string; amount: string }[] } }>(network, SUPPLIES_BY_ID, { ids }, { revalidate })).supplies.nodes;
-  return { metadata: data.metadata, supplies: { nodes: supplies.map((supply) => ({ supply })) } };
+    supplies: { denom: string; amount: string }[] | null;
+  }>(network, BLOCK_EXTRAS, { height, supplyHeight: height }, { revalidate });
+  return { metadata: data.metadata, supplies: { nodes: (data.supplies ?? []).map((supply) => ({ supply })) } };
 }
 
 /** The supply rows in force at a block (the home page's fallback for the total supply). */

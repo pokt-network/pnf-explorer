@@ -59,29 +59,26 @@ export const SERVICE_BY_ID = /* GraphQL */ `
   }
 `;
 
-// Staked suppliers serving the service, largest stake first (fleet function); the pager's total is the summary's
-// staked count. Their endpoints come from SERVICE_SUPPLIER_CONFIGS over the page's ids.
+// Staked suppliers serving the service, largest stake first (fleet function, keyset mode: lib/data/suppliers.ts
+// fleetPage), with the root domains of their endpoints for it; the pager's total is the summary's staked count.
 export const SERVICE_SUPPLIERS = /* GraphQL */ `
-  query serviceSuppliers($id: String!, $limit: Int!, $offset: Int!) {
-    getSupplierFleetList(services: [$id], stakeStatuses: ["Staked"], first: $limit, offset: $offset) {
+  query serviceSuppliers($id: String!, $rowLimit: Int!, $afterStakeUpokt: BigFloat, $afterSupplierId: String, $limit: Int!, $offset: Int!) {
+    getSupplierFleetList(
+      services: [$id]
+      stakeStatuses: ["Staked"]
+      rowLimit: $rowLimit
+      afterStakeUpokt: $afterStakeUpokt
+      afterSupplierId: $afterSupplierId
+      first: $limit
+      offset: $offset
+    ) {
       supplierId
       stakeUpokt
       stakeStatus
+      serviceDomains
     }
     summary: getServiceSummaryList(services: [$id]) {
       stakedSuppliers
-    }
-  }
-`;
-
-export const SERVICE_SUPPLIER_CONFIGS = /* GraphQL */ `
-  query serviceSupplierConfigs($id: String!, $ids: [String!]) {
-    supplierServiceConfigs(filter: { serviceId: { equalTo: $id }, supplierId: { in: $ids } }) {
-      nodes {
-        supplierId
-        domains
-        endpoints
-      }
     }
   }
 `;

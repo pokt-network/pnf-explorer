@@ -1,13 +1,13 @@
 import { gqlFetch } from '@/lib/graphql';
 import { lcdFetch } from '@/lib/lcd';
 import { firstPerId } from '@/lib/data/range';
+import { fleetPage } from '@/lib/data/suppliers';
 import type { NetworkId } from '@/lib/networks';
 import {
   SERVICES_LIST,
   SERVICE_ACTIVE_SUPPLIER_COUNTS,
   SERVICE_BY_ID,
   SERVICE_SUPPLIERS,
-  SERVICE_SUPPLIER_CONFIGS,
   SERVICE_APPLICATIONS,
   SERVICE_DIFFICULTY,
 } from '@/lib/queries/services';
@@ -190,32 +190,27 @@ export interface ServiceSupplierRow {
   supplier: { stakeAmount: string | null; stakeStatus: string | null } | null;
 }
 
-/** Active (Staked) suppliers serving this service, largest stake first, with their endpoints for it. */
+/** Active (Staked) suppliers serving this service, largest stake first, with the root domains of their endpoints for it. */
 export async function getServiceSuppliers(network: NetworkId, id: string, limit: number, offset: number) {
-  const data = await gqlFetch<{
-    getSupplierFleetList: { supplierId: string; stakeUpokt: string | null; stakeStatus: string | null }[] | null;
-    summary: { stakedSuppliers: string | null }[] | null;
-  }>(network, SERVICE_SUPPLIERS, { id, limit, offset }, { revalidate: 60 });
-  const fleet = firstPerId(data.getSupplierFleetList ?? [], (s) => s.supplierId);
-  const configs =
-    fleet.length === 0
-      ? []
-      : (
-          await gqlFetch<{ supplierServiceConfigs: { nodes: Omit<ServiceSupplierRow, 'supplier'>[] } }>(
-            network,
-            SERVICE_SUPPLIER_CONFIGS,
-            { id, ids: fleet.map((s) => s.supplierId) },
-            { revalidate: 60 },
-          )
-        ).supplierServiceConfigs.nodes;
-  const configBy = new Map(configs.map((c) => [c.supplierId, c]));
+  type Row = { supplierId: string; stakeUpokt: string | null; stakeStatus: string | null; serviceDomains: string[] | null };
+  const { rows, extra: totalCount } = await fleetPage<Row, number>(
+    (cursor, rowLimit, first, skip) =>
+      gqlFetch<{ getSupplierFleetList: Row[] | null; summary: { stakedSuppliers: string | null }[] | null }>(
+        network,
+        SERVICE_SUPPLIERS,
+        { id, ...cursor, rowLimit, limit: first, offset: skip },
+        { revalidate: 60 },
+      ).then((d) => ({ rows: d.getSupplierFleetList ?? [], extra: Number(d.summary?.[0]?.stakedSuppliers ?? 0) })),
+    limit,
+    offset,
+  );
   return {
-    totalCount: Number(data.summary?.[0]?.stakedSuppliers ?? 0),
-    nodes: fleet.map(
+    totalCount,
+    nodes: firstPerId(rows, (s) => s.supplierId).map(
       (s): ServiceSupplierRow => ({
         supplierId: s.supplierId,
-        domains: configBy.get(s.supplierId)?.domains ?? null,
-        endpoints: configBy.get(s.supplierId)?.endpoints ?? null,
+        domains: s.serviceDomains,
+        endpoints: null,
         supplier: { stakeAmount: s.stakeUpokt, stakeStatus: s.stakeStatus },
       }),
     ),
