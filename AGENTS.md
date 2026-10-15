@@ -22,7 +22,7 @@ Next.js (App Router) + TypeScript + plain CSS. Analytics/dashboards are explicit
 - **Indexer-vs-fallback (§2):** every detail page + the live badge use `_metadata` via
   `getUseRpcData()` (lag > `INDEXER_LAG_THRESHOLD`=5 or `!indexerHealthy` → LCD/RPC). Always-LCD
   content: tx Messages/Events/Raw, validator Delegators.
-- **Caching (§3):** Next fetch cache + ISR only. NO db/snapshot/cron. Per-call `revalidate`.
+- **Caching (§3):** Next data cache (`unstable_cache` in `lib/graphql.ts`, validated data only, one entry per revalidate policy; errors and partial answers held 15 s per process) + ISR only. NO db/snapshot/cron. Per-call `revalidate`.
 - **No invented GraphQL fields.** Use the verified queries. `upokt→POKT` via one shared util (÷1e6).
 - StakeStatus enum is `Staked/Unstaking/Unstaked` for ALL actors incl. validators (NOT Bonded/Unbonding).
   This governs how you READ the indexer. It is NOT what validators render — see below.
