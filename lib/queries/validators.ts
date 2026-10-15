@@ -22,10 +22,11 @@ export const VALIDATORS_LIST = /* GraphQL */ `
 `;
 
 // Note: signerId is the VALOPER (poktvaloper…) and its balances are empty. The pokt1 operator
-// account is signerPoktPrefixId (verified live) — use THAT for the signer link, signer balance
-// (SIGNER_BALANCES), and the address tx/transfer tab filters.
+// account is signerPoktPrefixId (verified live) — use THAT for the signer link, signer balance,
+// and the address tx/transfer tab filters. `$account` is that address derived from the valoper id
+// (lib/bech32.ts), so the signer's balances come in the same request.
 export const VALIDATOR_BY_ID = /* GraphQL */ `
-  query validatorById($id: String!) {
+  query validatorById($id: String!, $account: String!) {
     validator(id: $id) {
       id
       signerId
@@ -37,12 +38,7 @@ export const VALIDATOR_BY_ID = /* GraphQL */ `
       stakeAmount
       stakeStatus
     }
-  }
-`;
-
-export const SIGNER_BALANCES = /* GraphQL */ `
-  query signerBalances($account: String!) {
-    balances(filter: { accountId: { equalTo: $account } }) {
+    signerBalances: balances(filter: { accountId: { equalTo: $account } }) {
       nodes {
         amount
         denom

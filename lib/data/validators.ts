@@ -4,10 +4,10 @@ import { lcdFetch } from '@/lib/lcd';
 import { getMetadata } from '@/lib/metadata';
 import type { NetworkId } from '@/lib/networks';
 import { validatorMoniker } from '@/lib/validator';
+import { withPrefix } from '@/lib/bech32';
 import {
   VALIDATORS_LIST,
   VALIDATOR_BY_ID,
-  SIGNER_BALANCES,
   VALIDATOR_UPTIME,
   VALIDATOR_REWARDS,
 } from '@/lib/queries/validators';
@@ -52,8 +52,11 @@ export interface ValidatorBalance {
 
 export interface ValidatorDetail extends ValidatorRow {
   // The pokt1 operator account (signerId is the valoper; its balances are empty). This is the
-  // address to use for the signer link, balance (getSignerBalances), and tx/transfer tab filters.
+  // address to use for the signer link, balance, and tx/transfer tab filters.
   signerPoktPrefixId?: string | null;
+  /** The signer account's balances, read with the validator; null when the address derived from the id is not
+   *  `signerPoktPrefixId` (unknown, never an empty list that would read as no balance). */
+  signerBalances: ValidatorBalance[] | null;
 }
 
 export interface UptimeResult {
@@ -251,24 +254,17 @@ export async function getValidatorList(network: NetworkId, limit: number, offset
 // ---- detail ----
 /** Resolve a validator by its valoper id. Returns null (→ notFound) when absent. */
 export async function getValidator(network: NetworkId, id: string): Promise<ValidatorDetail | null> {
-  const data = await gqlFetch<{ validator: ValidatorDetail | null }>(
+  // The signer's pokt1 address is the valoper's bytes under the account prefix, so its balances join this request.
+  const account = withPrefix(id, 'pokt');
+  const data = await gqlFetch<{ validator: Omit<ValidatorDetail, 'signerBalances'> | null; signerBalances: { nodes: ValidatorBalance[] } }>(
     network,
     VALIDATOR_BY_ID,
-    { id },
+    { id, account: account ?? '' },
     { revalidate: 30 },
   );
-  return data.validator ?? null;
-}
-
-/**
- * The signer account's balances (the closed schema has no nested relation), read by the page alongside its other
- * reads. Null when the read fails or there is no account: unknown, never an empty list that would read as no balance.
- */
-export async function getSignerBalances(network: NetworkId, account: string | null | undefined): Promise<ValidatorBalance[] | null> {
-  if (!account) return null;
-  return gqlFetch<{ balances: { nodes: ValidatorBalance[] } }>(network, SIGNER_BALANCES, { account }, { revalidate: 30 })
-    .then((b) => b.balances.nodes)
-    .catch(() => null);
+  const v = data.validator;
+  if (!v) return null;
+  return { ...v, signerBalances: account && account === v.signerPoktPrefixId ? data.signerBalances.nodes : null };
 }
 
 /** Read the validator's hex consensus address (`ed25519Id`) — needed to key the uptime query. */
