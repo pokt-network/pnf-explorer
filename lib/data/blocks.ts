@@ -119,7 +119,7 @@ export async function getBlockList(network: NetworkId, limit: number, offset: nu
 }
 
 export async function getBlockSummary(network: NetworkId) {
-  const end = new Date(roundedNow()); // a stable fetch-cache key for the minute
+  const end = new Date(roundedNow()); // a stable cache key for the minute
   const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
   const data = await gqlFetch<{ latest: { nodes: { height: string }[] }; stats: unknown }>(
     network,

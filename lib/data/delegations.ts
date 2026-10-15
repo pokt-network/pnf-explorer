@@ -176,7 +176,7 @@ export interface SettlementRow {
 /**
  * One page of the address's income per UTC day and validator over the earnings window, newest first:
  * the exact amounts the chain paid it (the money catalog's day rows, the same read as
- * getDelegationEarnings, so the fetch cache serves both), from every validator it was paid by,
+ * getDelegationEarnings, so the cache serves both), from every validator it was paid by,
  * including ones it has since left. Days it was not paid are left out.
  */
 export async function getDelegationSettlements(
@@ -329,7 +329,7 @@ export async function getDelegationEarnings(
       const h = await gqlFetch<{ getDelegatorIncomeJson: unknown }>(
         network,
         DELEGATION_FIRST_HOUR,
-        // Bounded by the request, not the covered window, so the fetch-cache key does not move with coverage.
+        // Bounded by the request, not the covered window, so the cache key does not move with coverage.
         { delegators: [address], rangeStart: new Date(Math.max(firstDay, requestedStart)).toISOString(), rangeEnd: new Date(Math.min(firstDay + 86_400_000, requestedEnd)).toISOString() },
         { revalidate: 60 },
       );

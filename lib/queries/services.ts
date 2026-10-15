@@ -9,7 +9,7 @@
 // 8746 configs vs 4063 currently Staked).
 
 // List of services (263 on mainnet, measured 2026-10-06), ordered by display name. Active-supplier counts are fetched
-// separately (one grouped query) and cached 12h — see lib/data/services.ts.
+// separately (getServiceSummaryList over every service) and cached 12h — see lib/data/services.ts.
 export const SERVICES_LIST = /* GraphQL */ `
   query servicesList($limit: Int!, $offset: Int!) {
     services(first: $limit, offset: $offset, orderBy: NAME_ASC) {

@@ -20,7 +20,7 @@ import {
 // Role-view data layer (ROLE-VIEWS-DESIGN.md). Each fetcher backs ONE role of an address; the page
 // calls only the active role's fetcher. Amounts stay strings (upokt) — formatting is the UI's job.
 
-/** Connection cap on the indexer. The owner fleet's operator table is truncated to this and labelled. */
+/** The UI's cap on rows read for one table (the indexer's is 1000). The owner fleet's operator table is truncated to this and labelled. */
 export const CONNECTION_CAP = 100;
 
 // ---- shared shapes ----

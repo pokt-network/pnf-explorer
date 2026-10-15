@@ -192,7 +192,7 @@ export const SERVICE_OWNER_ROLE = /* GraphQL */ `
 // (global mint). Lifetime here is the span the catalog covers (its `range`).
 //
 // There is no supplier-id join: narrowing to the current page's suppliers put per-page values in the
-// fetch cache key, so paginating recomputed the whole aggregate. The figure is a lifetime total,
+// cache key, so paginating recomputed the whole aggregate. The figure is a lifetime total,
 // which is both cheaper and the more meaningful number.
 export const REVSHARE_INCOME_AMOUNTS = /* GraphQL */ `
   query revShareIncomeAmounts($recipients: [String]) {

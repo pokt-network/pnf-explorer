@@ -85,7 +85,7 @@ export function hasChainTotal(filter: TxFilterKey): boolean {
  * (`chainTotal`, null otherwise — the list then shows no total and pages by its next row).
  */
 export async function getTransactionsSummary(network: NetworkId, filter: TxFilterKey) {
-  const end = new Date(roundedNow()); // a stable fetch-cache key for the minute
+  const end = new Date(roundedNow()); // a stable cache key for the minute
   const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
   const chainKey = CHAIN_TOTAL[filter];
   const data = await gqlFetch<{

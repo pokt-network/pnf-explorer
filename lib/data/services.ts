@@ -191,14 +191,9 @@ export async function getService(network: NetworkId, id: string): Promise<Servic
   };
 }
 
-export interface ServiceEndpoint {
-  url?: string;
-  rpcType?: number;
-}
 export interface ServiceSupplierRow {
   supplierId: string;
   domains: string[] | null;
-  endpoints: ServiceEndpoint[] | null;
   supplier: { stakeAmount: string | null; stakeStatus: string | null } | null;
 }
 
@@ -222,7 +217,6 @@ export async function getServiceSuppliers(network: NetworkId, id: string, limit:
       (s): ServiceSupplierRow => ({
         supplierId: s.supplierId,
         domains: s.serviceDomains,
-        endpoints: null,
         supplier: { stakeAmount: s.stakeUpokt, stakeStatus: s.stakeStatus },
       }),
     ),

@@ -22,7 +22,7 @@ export interface HomeSummary {
  * ecosystem-standard throughput shown by PoktScan (on-chain "claimed" totals are ~2.5x lower).
  */
 export async function getHomeSummary(network: NetworkId): Promise<HomeSummary> {
-  const end = new Date(roundedNow()); // a stable fetch-cache key for the minute
+  const end = new Date(roundedNow()); // a stable cache key for the minute
   const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
   // getTotalSupplyByDay returns one row per UTC day; span ~2 days so a row always exists and
   // take the latest. (The function may not have computed today's row early in the UTC day.)

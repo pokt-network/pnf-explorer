@@ -50,7 +50,7 @@ export async function SupplierTrafficPanel({
     .map((serviceId) => {
       // One settlement-catalog read gives relays, amounts, last height and routing per service.
       const traffic = routing.byService[serviceId] ?? null;
-      return { serviceId, traffic, earned: traffic, relays: traffic?.relays ?? null };
+      return { serviceId, traffic, relays: traffic?.relays ?? null };
     })
     .sort((a, b) => (b.relays ?? -1) - (a.relays ?? -1) || a.serviceId.localeCompare(b.serviceId));
   // Only the configured services count as receiving traffic: settled claims on a service no longer in the config
@@ -105,7 +105,7 @@ export async function SupplierTrafficPanel({
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ serviceId, traffic, earned: e, relays }) => {
+            {rows.map(({ serviceId, traffic, relays }) => {
               const agoBlocks = traffic && traffic.lastBlock != null && currentHeight != null ? currentHeight - traffic.lastBlock : null;
               return (
                 <tr key={serviceId}>
@@ -122,10 +122,10 @@ export async function SupplierTrafficPanel({
                     )}
                   </td>
                   <td className="num mono">{relays != null ? formatNumber(relays) : <span className="dim">—</span>}</td>
-                  <td className="num mono">{e ? `${formatPokt(e.claimedUpokt)} POKT` : <span className="dim">—</span>}</td>
-                  <td className="num mono">{e ? `${formatPokt(e.settledUpokt)} POKT` : <span className="dim">—</span>}</td>
+                  <td className="num mono">{traffic ? `${formatPokt(traffic.claimedUpokt)} POKT` : <span className="dim">—</span>}</td>
+                  <td className="num mono">{traffic ? `${formatPokt(traffic.settledUpokt)} POKT` : <span className="dim">—</span>}</td>
                   <td className="num mono">
-                    {e && e.overservicedUpokt !== '0' ? <span className="out">{formatPokt(e.overservicedUpokt)} POKT</span> : <span className="dim">—</span>}
+                    {traffic && traffic.overservicedUpokt !== '0' ? <span className="out">{formatPokt(traffic.overservicedUpokt)} POKT</span> : <span className="dim">—</span>}
                   </td>
                   <td>
                     {traffic && traffic.lastBlock != null ? (

@@ -164,7 +164,7 @@ export async function getAccountList(network: NetworkId, limit: number, offset: 
 }
 
 export async function getAccountSummary(network: NetworkId): Promise<AccountSummary> {
-  const now = new Date(roundedNow()); // a stable fetch-cache key for the minute
+  const now = new Date(roundedNow()); // a stable cache key for the minute
   // Start of today (UTC), -30d, -90d, in one request with the accounts that hold a balance.
   const times = [
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),

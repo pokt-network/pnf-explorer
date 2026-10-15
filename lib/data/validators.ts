@@ -430,7 +430,7 @@ const dayOf = (ms: number) => Math.floor(ms / DAY_MS) * DAY_MS;
 
 /**
  * Per-validator windows from the trailing-window catalog call, for every validator: the detail card
- * needs the network's latest settlement for `inactive`, and it shares the list's fetch-cache entries.
+ * needs the network's latest settlement for `inactive`, and it shares the list's cache entries.
  * Also the span the catalog covered, and the window a rate is measured against: the covered part of
  * the trailing window, gaps excluded (null: nothing in it is covered).
  */
@@ -438,7 +438,7 @@ async function getRewardsWindows(
   network: NetworkId,
   days: number,
 ): Promise<{ windows: Map<string, RewardsWindow>; coverage: CoveredRange | null; window: CoveredWindow | null; coveredDays: number }> {
-  // The window ends on the hour: the requests — and their fetch-cache keys — then change once an
+  // The window ends on the hour: the requests — and their cache keys — then change once an
   // hour, so only the first visitor after the hour pays for the cold reads (revalidate still
   // refreshes them every 5 minutes). Both reads give up after REWARDS_TIMEOUT_MS: the callers render
   // no rate rather than wait.
@@ -487,7 +487,7 @@ async function getRewardsWindows(
   // and last day by hour — one call per distinct day, in parallel — so the span runs from the hour
   // of its first settlement to the hour of its last. A day whose re-read fails keeps its midnight edges.
   // The re-reads are bounded by the hour-aligned request, not by the covered window, so their
-  // fetch-cache keys do not move with the catalog's coverage; their rows are clipped to it below.
+  // cache keys do not move with the catalog's coverage; their rows are clipped to it below.
   const edgeDays = new Set<number>();
   for (const w of out.values()) {
     edgeDays.add(dayOf(w.firstAt));
