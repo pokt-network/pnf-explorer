@@ -296,11 +296,11 @@ export async function getAccountProfile(network: NetworkId, id: string): Promise
 export async function getOwnedOperators(network: NetworkId, id: string, limit: number, offset: number) {
   type Row = { supplierId: string; stakeStatus: string | null; stakeUpokt: string | null; serviceCount: string | null };
   const { rows, extra: totalCount } = await fleetPage<Row, number>(
-    (cursor, rowLimit, first, skip) =>
+    (rowLimit, first, skip) =>
       gqlFetch<{ getSupplierFleetList: Row[] | null; suppliers: { totalCount: number } }>(
         network,
         OWNED_OPERATORS,
-        { id, ids: [id], ...cursor, rowLimit, limit: first, offset: skip },
+        { id, ids: [id], rowLimit, limit: first, offset: skip },
         { revalidate: 30 },
       ).then((d) => ({ rows: d.getSupplierFleetList ?? [], extra: d.suppliers.totalCount })),
     limit,

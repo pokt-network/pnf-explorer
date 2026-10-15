@@ -35,7 +35,7 @@ export async function AccountRoleView({
   const updatedHeight = balance?.lastUpdatedBlock?.height ?? null;
   const [counts, updatedAt] = await Promise.all([
     addressTabCounts(network, address),
-    updatedHeight ? getBlockTimes(network, [updatedHeight], 30).then((t) => t.get(updatedHeight) ?? null).catch(() => null) : null,
+    updatedHeight ? getBlockTimes(network, [updatedHeight]).then((t) => t.get(updatedHeight) ?? null).catch(() => null) : null,
   ]);
   const rawData = profile.account ?? { id: address, balances: { nodes: [] } };
 

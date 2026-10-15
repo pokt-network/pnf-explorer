@@ -58,16 +58,14 @@ export const SERVICE_BY_ID = /* GraphQL */ `
   }
 `;
 
-// Staked suppliers serving the service, largest stake first (fleet function, keyset mode: lib/data/suppliers.ts
-// fleetPage), with the root domains of their endpoints for it; the pager's total is the summary's staked count.
+// Staked suppliers serving the service, largest stake first (fleet function, paged by lib/data/suppliers.ts fleetPage),
+// with the root domains of their endpoints for it; the pager's total is the summary's staked count.
 export const SERVICE_SUPPLIERS = /* GraphQL */ `
-  query serviceSuppliers($id: String!, $rowLimit: Int, $afterStakeUpokt: BigFloat, $afterSupplierId: String, $limit: Int!, $offset: Int!) {
+  query serviceSuppliers($id: String!, $rowLimit: Int, $limit: Int!, $offset: Int!) {
     getSupplierFleetList(
       services: [$id]
       stakeStatuses: ["Staked"]
       rowLimit: $rowLimit
-      afterStakeUpokt: $afterStakeUpokt
-      afterSupplierId: $afterSupplierId
       first: $limit
       offset: $offset
     ) {

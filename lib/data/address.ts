@@ -13,7 +13,7 @@ export interface Transfer {
   amounts: unknown; // [{denom, amount}] upokt
   denom: string;
   /** The timestamp is null while the block row is not committed (getBlockTimes). */
-  block: { height: string; timestamp: string | null } | null;
+  block: { height: string; timestamp: string | null };
   transactionId: string;
 }
 

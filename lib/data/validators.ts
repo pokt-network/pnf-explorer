@@ -256,15 +256,16 @@ export async function getValidatorList(network: NetworkId, limit: number, offset
 export async function getValidator(network: NetworkId, id: string): Promise<ValidatorDetail | null> {
   // The signer's pokt1 address is the valoper's bytes under the account prefix, so its balances join this request.
   const account = withPrefix(id, 'pokt');
-  const data = await gqlFetch<{ validator: Omit<ValidatorDetail, 'signerBalances'> | null; signerBalances: { nodes: ValidatorBalance[] } }>(
+  // A failed balance read leaves the balance unknown (logged), not the page; any other error still fails it.
+  const data = await gqlFetch<{ validator: Omit<ValidatorDetail, 'signerBalances'> | null; signerBalances: { nodes: ValidatorBalance[] } | null }>(
     network,
     VALIDATOR_BY_ID,
     { id, account: account ?? '' },
-    { revalidate: 30 },
+    { revalidate: 30, partial: ['signerBalances'] },
   );
   const v = data.validator;
   if (!v) return null;
-  return { ...v, signerBalances: account && account === v.signerPoktPrefixId ? data.signerBalances.nodes : null };
+  return { ...v, signerBalances: account && account === v.signerPoktPrefixId && data.signerBalances ? data.signerBalances.nodes : null };
 }
 
 /** Read the validator's hex consensus address (`ed25519Id`) — needed to key the uptime query. */

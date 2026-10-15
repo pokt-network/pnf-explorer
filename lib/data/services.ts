@@ -74,13 +74,13 @@ export async function getServiceList(network: NetworkId, limit: number, offset: 
   return data.services;
 }
 
-/**
- * Active (Staked) supplier count per service id, every service from the service summary function. 12h ISR —
- * these move slowly. Map keyed by id; missing ids → 0. Null when the read failed or hit its page cap.
- */
 /** The query limit of both endpoints: a function list without `first` returns at most this many rows. */
 const SUMMARY_LIMIT = 1000;
 
+/**
+ * Active (Staked) supplier count per service id, every service from the service summary function. 12h ISR —
+ * these move slowly. Map keyed by id; missing ids → 0. Null when the read failed or filled the query limit.
+ */
 export async function getServiceActiveSupplierCounts(network: NetworkId): Promise<Map<string, number> | null> {
   try {
     const data = await gqlFetch<{ getServiceSummaryList: { serviceId: string; stakedSuppliers: string | null }[] | null }>(
@@ -206,11 +206,11 @@ export interface ServiceSupplierRow {
 export async function getServiceSuppliers(network: NetworkId, id: string, limit: number, offset: number) {
   type Row = { supplierId: string; stakeUpokt: string | null; stakeStatus: string | null; serviceDomains: string[] | null };
   const { rows, extra: totalCount } = await fleetPage<Row, number>(
-    (cursor, rowLimit, first, skip) =>
+    (rowLimit, first, skip) =>
       gqlFetch<{ getSupplierFleetList: Row[] | null; summary: { stakedSuppliers: string | null }[] | null }>(
         network,
         SERVICE_SUPPLIERS,
-        { id, ...cursor, rowLimit, limit: first, offset: skip },
+        { id, rowLimit, limit: first, offset: skip },
         { revalidate: 60 },
       ).then((d) => ({ rows: d.getSupplierFleetList ?? [], extra: Number(d.summary?.[0]?.stakedSuppliers ?? 0) })),
     limit,

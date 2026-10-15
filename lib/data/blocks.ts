@@ -41,7 +41,7 @@ export interface BlockTx {
   code: number;
   // The height is the row's own; the timestamp is null transiently for a tip tx whose block row is not committed yet
   // (see getBlockTimes).
-  block: { timestamp: string | null; height: string } | null;
+  block: { timestamp: string | null; height: string };
   gasUsed: string | null;
   gasWanted: string | null;
   signerAddress: string | null;
@@ -59,20 +59,22 @@ export type TxNode = Omit<BlockTx, 'block'> & { blockId: string };
  * on settlement blocks), so a fresh row can carry a height with no block yet. Callers render that as pending.
  * Lists carry the height alone; this is the second read that puts the time next to it.
  */
-export async function getBlockTimes(network: NetworkId, heights: (string | number)[], revalidate = 15): Promise<Map<string, string>> {
+export async function getBlockTimes(network: NetworkId, heights: (string | number)[], revalidate: number | false = 15): Promise<Map<string, string>> {
   const ids = [...new Set(heights.map(String))];
   if (ids.length === 0) return new Map();
-  // Never cached for good, nor longer than 15 s: a block row still being written answers without its time, and that
-  // answer must not stick. A failed read drops the times (the rows show "pending"), not the page.
+  // A block row still being written answers without its time, and that answer is cached as long as asked: callers ask
+  // 15 s, and `false` (for good) only for heights at or below the indexer's last processed height, written whole.
+  // A failed read drops the times (the rows show "pending"), not the page, and is logged as a failure.
   try {
     const data = await gqlFetch<{ blocks: { nodes: { height: string; timestamp: string }[] } }>(
       network,
       BLOCK_TIMES,
       { heights: ids, limit: ids.length },
-      { revalidate: Math.min(revalidate, 15) },
+      { revalidate },
     );
     return new Map(data.blocks.nodes.map((b) => [String(b.height), b.timestamp]));
-  } catch {
+  } catch (e) {
+    console.error(`Block times read failed for ${ids.length} height(s): ${(e as Error).message}`);
     return new Map();
   }
 }

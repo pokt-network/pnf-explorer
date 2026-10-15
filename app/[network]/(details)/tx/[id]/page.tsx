@@ -179,7 +179,7 @@ export default async function TxDetailPage({ params }: { params: Promise<{ netwo
   const hashCanonical = HEX64.test(id) ? id.toUpperCase() : id;
 
   // Indexer header + always-LCD body, in parallel.
-  const [tx, lcd] = await Promise.all([getTransaction(network, id, target), getTxFromLcd(network, hashCanonical)]);
+  const [tx, lcd] = await Promise.all([getTransaction(network, id, target, fallback.metadata?.lastProcessedHeight ?? null), getTxFromLcd(network, hashCanonical)]);
 
   // Nothing to render: indexer has no tx and the LCD couldn't supply a header (404 or down).
   // (Both LCD and RPC tx-indexing are currently disabled on this Sauron node, so in practice

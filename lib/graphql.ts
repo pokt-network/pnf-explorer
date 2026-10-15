@@ -9,6 +9,9 @@ export interface GqlOptions {
   /** Override fetch cache mode (e.g. 'no-store' for client polling / live heartbeat). */
   cache?: RequestCache;
   signal?: AbortSignal;
+  /** Top-level fields (aliases) whose errors are tolerated: the answer comes back with them null and the error is
+   *  logged. An error on any other field still throws. */
+  partial?: string[];
 }
 
 /**
@@ -64,9 +67,14 @@ export async function gqlFetch<T>(
     );
   }
 
-  const json = (await res.json()) as { data?: T; errors?: { message: string }[] };
+  const json = (await res.json()) as { data?: T; errors?: { message: string; path?: (string | number)[] }[] };
   if (json.errors?.length) {
-    throw new DataError(json.errors.map((e) => e.message).join('; '), 'graphql');
+    const tolerated = opts.partial ?? [];
+    const fatal = json.errors.filter((e) => !(e.path && tolerated.includes(String(e.path[0]))));
+    if (fatal.length > 0 || json.data == null) {
+      throw new DataError(json.errors.map((e) => e.message).join('; '), 'graphql');
+    }
+    console.error(`Indexer partial answer, ${json.errors.map((e) => `${(e.path ?? []).join('.')}: ${e.message}`).join('; ')}`);
   }
   return json.data as T;
 }

@@ -43,7 +43,7 @@ export interface TxDetail {
   code: number;
   codespace: string | null;
   /** The timestamp is null while the block row is not committed (getBlockTimes). */
-  block: { timestamp: string | null; height: string } | null;
+  block: { timestamp: string | null; height: string };
   gasUsed: string | null;
   gasWanted: string | null;
   signerAddress: string | null;
@@ -119,8 +119,14 @@ function revalidateForHeight(height: number | null, targetHeight: number | null)
 /**
  * Indexer tx header. The indexer stores hashes UPPERCASE and is case-sensitive, so we
  * normalize before querying (a lowercased hash otherwise returns null → false 404).
+ * `processedHeight` is the indexer's lastProcessedHeight: blocks at or below it are written whole.
  */
-export async function getTransaction(network: NetworkId, id: string, targetHeight: number | null): Promise<TxDetail | null> {
+export async function getTransaction(
+  network: NetworkId,
+  id: string,
+  targetHeight: number | null,
+  processedHeight: number | null,
+): Promise<TxDetail | null> {
   const hash = HEX64.test(id) ? id.toUpperCase() : id;
   type TxRow = Omit<TxDetail, 'block'> & { blockId: string };
   // First fetch with a short TTL; if it lands far below head we could cache harder, but a
@@ -134,10 +140,12 @@ export async function getTransaction(network: NetworkId, id: string, targetHeigh
     const fixed = await gqlFetch<{ transaction: TxRow | null }>(network, TRANSACTION_DETAIL, { id: hash }, { revalidate: false });
     row = fixed.transaction ?? row;
   }
-  // The block's time is a second read, cached 15 s at most (getBlockTimes): a tip tx may be indexed before its block
-  // row is committed, and its time then comes later (timestamp null meanwhile).
+  // The block's time is a second read. Cached for good like the row only when the block is buried AND at or below the
+  // indexer's last processed height, so its row is written whole and has its time; otherwise 15 s, since a tip tx may
+  // be indexed before its block row is committed (timestamp null meanwhile) and that answer must not stick.
   const { blockId, ...tx } = row;
-  const timestamp = (await getBlockTimes(network, [blockId])).get(String(blockId)) ?? null;
+  const whole = processedHeight != null && Number(blockId) <= processedHeight;
+  const timestamp = (await getBlockTimes(network, [blockId], rev === false && whole ? false : 15)).get(String(blockId)) ?? null;
   return { ...tx, block: { timestamp, height: String(blockId) } };
 }
 
