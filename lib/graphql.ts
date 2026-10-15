@@ -37,6 +37,20 @@ export async function gqlFetch<T>(
   if (opts.cache || (opts.revalidate !== false && typeof opts.revalidate !== 'number')) {
     return settle(await postGraphql<T>(network, query, variables, opts.cache, opts.signal), opts.partial);
   }
+  // The same read already on its way (generateMetadata and the page, or two panels asking alike) shares that request:
+  // unstable_cache does not join a miss in flight, where Next's fetch cache did.
+  const key = JSON.stringify([network, query, variables ?? null, opts.revalidate, opts.partial ?? null]);
+  const pending = inflight.get(key);
+  if (pending) return pending as Promise<T>;
+  const read = cachedRead<T>(network, query, variables, opts).finally(() => inflight.delete(key));
+  inflight.set(key, read);
+  return read;
+}
+
+/** Cached reads in flight, by network, query, variables and options; each removed once it settles. */
+const inflight = new Map<string, Promise<unknown>>();
+
+async function cachedRead<T>(network: NetworkId, query: string, variables: Record<string, unknown> | undefined, opts: GqlOptions): Promise<T> {
   // loaded here, on the server-only path: a client component that imports gqlFetch (live polling, no-store) does not
   // pull Next's cache runtime into its bundle
   const { unstable_cache } = await import('next/cache');
