@@ -6,6 +6,7 @@ import { DataError } from '@/lib/errors';
 import { TRANSACTIONS_LIST, TRANSACTIONS_SUMMARY, TRANSACTION_DETAIL } from '@/lib/queries/transactions';
 import { getBlockTimes, withBlocks, type TxNode } from '@/lib/data/blocks';
 import { unwrapRange } from '@/lib/data/range';
+import { roundedNow } from '@/lib/data/window';
 
 const HEX64 = /^[0-9a-fA-F]{64}$/;
 
@@ -41,7 +42,8 @@ export interface TxDetail {
   id: string;
   code: number;
   codespace: string | null;
-  block: { timestamp: string; height: string } | null;
+  /** The timestamp is null while the block row is not committed (getBlockTimes). */
+  block: { timestamp: string | null; height: string } | null;
   gasUsed: string | null;
   gasWanted: string | null;
   signerAddress: string | null;
@@ -83,8 +85,7 @@ export function hasChainTotal(filter: TxFilterKey): boolean {
  * (`chainTotal`, null otherwise — the list then shows no total and pages by its next row).
  */
 export async function getTransactionsSummary(network: NetworkId, filter: TxFilterKey) {
-  // Rounded down to the minute, so the request (and with it the fetch-cache key) stays the same for that long.
-  const end = new Date(Math.floor(Date.now() / 60_000) * 60_000);
+  const end = new Date(roundedNow()); // a stable fetch-cache key for the minute
   const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
   const chainKey = CHAIN_TOTAL[filter];
   const data = await gqlFetch<{
@@ -133,10 +134,11 @@ export async function getTransaction(network: NetworkId, id: string, targetHeigh
     const fixed = await gqlFetch<{ transaction: TxRow | null }>(network, TRANSACTION_DETAIL, { id: hash }, { revalidate: false });
     row = fixed.transaction ?? row;
   }
-  // The block's time is a second read; a tip tx may be indexed before its block lands (block null).
+  // The block's time is a second read, cached 15 s at most (getBlockTimes): a tip tx may be indexed before its block
+  // row is committed, and its time then comes later (timestamp null meanwhile).
   const { blockId, ...tx } = row;
-  const timestamp = (await getBlockTimes(network, [blockId], rev)).get(String(blockId));
-  return { ...tx, block: timestamp ? { timestamp, height: String(blockId) } : null };
+  const timestamp = (await getBlockTimes(network, [blockId])).get(String(blockId)) ?? null;
+  return { ...tx, block: { timestamp, height: String(blockId) } };
 }
 
 // ---- ALWAYS-LCD: Messages / Events / Raw (§2, §8.6.1) ----

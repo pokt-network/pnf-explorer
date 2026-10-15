@@ -12,7 +12,8 @@ export interface Transfer {
   recipientId: string;
   amounts: unknown; // [{denom, amount}] upokt
   denom: string;
-  block: { height: string; timestamp: string } | null;
+  /** The timestamp is null while the block row is not committed (getBlockTimes). */
+  block: { height: string; timestamp: string | null } | null;
   transactionId: string;
 }
 
@@ -26,7 +27,7 @@ export async function getAddressTransactions(network: NetworkId, address: string
     { revalidate: 30 },
   );
   if (!withTimes) return { totalCount: data.transactions.totalCount, nodes: [] as BlockTx[] };
-  return { totalCount: data.transactions.totalCount, nodes: await withBlocks(network, data.transactions.nodes, 30) };
+  return { totalCount: data.transactions.totalCount, nodes: await withBlocks(network, data.transactions.nodes) };
 }
 
 /** Native MsgSend transfers where the address is sender or recipient. `withTimes: false`: the total only, no block-time read. */
@@ -38,12 +39,9 @@ export async function getTransfers(network: NetworkId, address: string, limit: n
     { revalidate: 30 },
   );
   if (!withTimes) return { totalCount: data.transfers.totalCount, nodes: [] as Transfer[] };
-  const times = await getBlockTimes(network, data.transfers.nodes.map((n) => n.blockId), 30);
+  const times = await getBlockTimes(network, data.transfers.nodes.map((n) => n.blockId));
   return {
     totalCount: data.transfers.totalCount,
-    nodes: data.transfers.nodes.map(({ blockId, ...t }) => {
-      const timestamp = times.get(String(blockId));
-      return { ...t, block: timestamp ? { height: String(blockId), timestamp } : null };
-    }),
+    nodes: data.transfers.nodes.map(({ blockId, ...t }) => ({ ...t, block: { height: String(blockId), timestamp: times.get(String(blockId)) ?? null } })),
   };
 }

@@ -78,31 +78,26 @@ export async function getServiceList(network: NetworkId, limit: number, offset: 
  * Active (Staked) supplier count per service id, every service from the service summary function. 12h ISR —
  * these move slowly. Map keyed by id; missing ids → 0. Null when the read failed or hit its page cap.
  */
+/** The query limit of both endpoints: a function list without `first` returns at most this many rows. */
+const SUMMARY_LIMIT = 1000;
+
 export async function getServiceActiveSupplierCounts(network: NetworkId): Promise<Map<string, number> | null> {
-  const map = new Map<string, number>();
   try {
-    // Keyset by service id, stepping by the rows returned until a page comes back empty; past the cap the counts
-    // are dropped rather than shown for part of the services.
-    let after = '';
-    for (let page = 0; ; page++) {
-      if (page >= 20) throw new Error('Service counts: page cap reached');
-      const data = await gqlFetch<{ getServiceSummaryList: { serviceId: string; stakedSuppliers: string | null }[] | null }>(
-        network,
-        SERVICE_ACTIVE_SUPPLIER_COUNTS,
-        { after },
-        { revalidate: SERVICES_TTL },
-      );
-      // Done when a page brings no service not already counted (the database may order ids unlike JS strings).
-      const rows = (data.getServiceSummaryList ?? []).filter((r) => !map.has(r.serviceId));
-      if (rows.length === 0) break;
-      for (const r of rows) map.set(r.serviceId, Number(r.stakedSuppliers ?? 0));
-      after = rows.reduce((m, r) => (r.serviceId > m ? r.serviceId : m), after);
-    }
+    const data = await gqlFetch<{ getServiceSummaryList: { serviceId: string; stakedSuppliers: string | null }[] | null }>(
+      network,
+      SERVICE_ACTIVE_SUPPLIER_COUNTS,
+      undefined,
+      { revalidate: SERVICES_TTL },
+    );
+    const rows = data.getServiceSummaryList ?? [];
+    // A function list stops at the query limit (1000 rows on both endpoints, measured 2026-10-15) without saying so:
+    // an answer that fills it may be partial, and partial counts are not shown.
+    if (rows.length >= SUMMARY_LIMIT) return null;
+    return new Map(rows.map((r) => [r.serviceId, Number(r.stakedSuppliers ?? 0)]));
   } catch {
     // Unknown, not 0: the list shows a dash.
     return null;
   }
-  return map;
 }
 
 /**
@@ -160,8 +155,16 @@ export async function getService(network: NetworkId, id: string): Promise<Servic
   const [data, card] = await Promise.all([
     gqlFetch<{
       service: Omit<ServiceDetail, 'latestDiff'> | null;
-      summary: { stakedSuppliers: string | null; suppliers: string | null; stakedApplications: string | null }[] | null;
-      latestDiff: DifficultyRow[] | null;
+      summary:
+        | {
+            stakedSuppliers: string | null;
+            suppliers: string | null;
+            stakedApplications: string | null;
+            numRelaysEma: string | null;
+            targetHashHex: string | null;
+            difficultyUpdatedHeight: string | null;
+          }[]
+        | null;
     }>(network, SERVICE_BY_ID, { id }, { revalidate: 60 }),
     getServiceCard(network, id),
   ]);
@@ -170,7 +173,16 @@ export async function getService(network: NetworkId, id: string): Promise<Servic
   const summary = data.summary?.[0];
   const count = (v: string | null | undefined) => (data.summary ? Number(v ?? 0) : null);
   return {
-    service: { ...data.service, latestDiff: { nodes: (data.latestDiff ?? []).map(toDifficultyPoint) } },
+    // The current difficulty is the summary's newest update (none when the service never had one).
+    service: {
+      ...data.service,
+      latestDiff: {
+        nodes:
+          summary?.difficultyUpdatedHeight != null
+            ? [{ blockId: String(summary.difficultyUpdatedHeight), newNumRelaysEma: summary.numRelaysEma, newTargetHashHexEncoded: summary.targetHashHex }]
+            : [],
+      },
+    },
     activeSuppliers: count(summary?.stakedSuppliers),
     totalSuppliers: count(summary?.suppliers),
     activeApps: count(summary?.stakedApplications),
@@ -253,13 +265,14 @@ function toDifficultyPoint(r: DifficultyRow): ServiceDifficultyPoint {
   };
 }
 
-/** Rows the difficulty function lists per call; a page of the panel always falls inside one such chunk. */
+/** Rows the difficulty function lists per call at most. */
 const DIFFICULTY_CHUNK = 1000;
 
 /**
  * Relay-mining difficulty / EMA update history for this service (newest first). The function pages by
  * cursor, 1000 rows at a time: a page past the first 1000 rows first walks to its chunk (the last row of
- * each earlier chunk). No total: `hasNext` says whether an older page exists.
+ * each earlier chunk), and a page across a chunk's end reads its rest from the next one. No total:
+ * `hasNext` says whether an older page exists. The difficulty function has no offset mode to skip the walk.
  */
 export async function getServiceDifficulty(network: NetworkId, id: string, limit: number, offset: number) {
   type Cursor = { beforeHeight: string | null; beforeServiceId: string | null };
@@ -276,13 +289,14 @@ export async function getServiceDifficulty(network: NetworkId, id: string, limit
     if (!last) return { hasNext: false, nodes: [] as ServiceDifficultyPoint[] };
     cursor = { beforeHeight: String(last.height), beforeServiceId: last.serviceId ?? id };
   }
+  // The page and one row past it (hasNext). Whatever of them lies past the chunk's end — a page that crosses it, or
+  // the row after a page that ends it — is read from the next chunk, from the last row read.
+  const want = limit + 1;
   const within = offset % DIFFICULTY_CHUNK;
-  const rows = await read(cursor, limit + 1, within);
-  let hasNext = rows.length > limit;
-  // The row after a page that ends a chunk lies in the next chunk: probe it from the page's last row.
-  if (!hasNext && rows.length === limit && within + limit >= DIFFICULTY_CHUNK) {
+  const rows = await read(cursor, Math.min(want, DIFFICULTY_CHUNK - within), within);
+  if (rows.length < want && within + rows.length === DIFFICULTY_CHUNK && rows.length > 0) {
     const last = rows[rows.length - 1];
-    hasNext = (await read({ beforeHeight: String(last.height), beforeServiceId: last.serviceId ?? id }, 1, 0)).length > 0;
+    rows.push(...(await read({ beforeHeight: String(last.height), beforeServiceId: last.serviceId ?? id }, want - rows.length, 0)));
   }
-  return { hasNext, nodes: rows.slice(0, limit).map(toDifficultyPoint) };
+  return { hasNext: rows.length > limit, nodes: rows.slice(0, limit).map(toDifficultyPoint) };
 }

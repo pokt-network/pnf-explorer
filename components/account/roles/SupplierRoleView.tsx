@@ -301,13 +301,6 @@ async function HistoryPanel({ network, id }: { network: NetworkId; id: string })
       </div>
     );
   }
-  if (!h) {
-    return (
-      <div className="card flush-top">
-        <EmptyState>No supplier history.</EmptyState>
-      </div>
-    );
-  }
 
   return (
     <>
@@ -478,7 +471,7 @@ export function SupplierRoleView({
     svc: { badge: view.services.length || undefined, panel: <ServicesPanel view={view} currentHeight={currentHeight} /> },
     traffic: { panel: active === 'traffic' ? <SupplierTrafficPanel network={network} supplier={legacy} currentHeight={currentHeight} /> : null },
     earn: { panel: active === 'earn' ? <EarningsPanel network={network} view={view} page={parsePage(earnPage)} /> : null },
-    hist: { badge: (!view.notCovered && view.slashCount) || undefined, panel: <HistoryPanel network={network} id={view.id} /> },
+    hist: { badge: (!view.slashCoverage.notCovered && view.slashCount) || undefined, panel: <HistoryPanel network={network} id={view.id} /> },
     raw: { panel: <RawPanel network={network} id={view.id} /> },
   };
   const tabs: TabDef[] = SUPPLIER_TABS.map((t) => ({ ...t, ...content[t.key] }));
@@ -526,10 +519,10 @@ export function SupplierRoleView({
         <div className="line">
           <div className="k">Slashes</div>
           <div className="v">
-            {view.notCovered ? (
+            {view.slashCoverage.notCovered ? (
               <span className="dim" title={NOT_COVERED_HINT}>—</span>
             ) : view.slashCount === 0 ? (
-              <span className="dim">{coveredEmpty(view, 'Never slashed')}</span>
+              <span className="dim">{coveredEmpty(view.slashCoverage, 'Never slashed')}</span>
             ) : (
               <>
                 {formatNumber(view.slashCount)} <span className="dim">· {formatPokt(view.slashPenaltyUpokt, 6)} POKT penalty total</span>

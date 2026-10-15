@@ -4,6 +4,7 @@ import { HOME_SUMMARY } from '@/lib/queries/home';
 import { sumUpokt } from '@/lib/tx';
 import { getBlockSupplies } from '@/lib/data/blocks';
 import { unwrapRange } from '@/lib/data/range';
+import { roundedNow } from '@/lib/data/window';
 
 export interface HomeSummary {
   /** Economic total supply in upokt (minted + claimable-but-unminted). Number is fine for display. */
@@ -21,8 +22,7 @@ export interface HomeSummary {
  * ecosystem-standard throughput shown by PoktScan (on-chain "claimed" totals are ~2.5x lower).
  */
 export async function getHomeSummary(network: NetworkId): Promise<HomeSummary> {
-  // Rounded down to the minute, so the request (and with it the fetch-cache key) stays the same for that long.
-  const end = new Date(Math.floor(Date.now() / 60_000) * 60_000);
+  const end = new Date(roundedNow()); // a stable fetch-cache key for the minute
   const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
   // getTotalSupplyByDay returns one row per UTC day; span ~2 days so a row always exists and
   // take the latest. (The function may not have computed today's row early in the UTC day.)

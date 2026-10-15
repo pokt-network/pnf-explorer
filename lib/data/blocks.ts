@@ -6,6 +6,7 @@ import { BLOCK_BY_HASH, BLOCK_BY_HEIGHT, BLOCK_EXTRAS, BLOCK_LIST, BLOCK_SUMMARY
 import { TRANSACTIONS_BY_HEIGHT } from '@/lib/queries/transactions';
 import type { FallbackDecision } from '@/lib/types';
 import { unwrapRange } from '@/lib/data/range';
+import { roundedNow } from '@/lib/data/window';
 
 const HEX64 = /^[0-9a-fA-F]{64}$/;
 
@@ -38,8 +39,9 @@ export interface BlockDetail extends BlockRow {
 export interface BlockTx {
   id: string;
   code: number;
-  // Null transiently for a tip tx whose block row is not committed yet (see getBlockTimes).
-  block: { timestamp: string; height: string } | null;
+  // The height is the row's own; the timestamp is null transiently for a tip tx whose block row is not committed yet
+  // (see getBlockTimes).
+  block: { timestamp: string | null; height: string } | null;
   gasUsed: string | null;
   gasWanted: string | null;
   signerAddress: string | null;
@@ -57,25 +59,28 @@ export type TxNode = Omit<BlockTx, 'block'> & { blockId: string };
  * on settlement blocks), so a fresh row can carry a height with no block yet. Callers render that as pending.
  * Lists carry the height alone; this is the second read that puts the time next to it.
  */
-export async function getBlockTimes(network: NetworkId, heights: (string | number)[], revalidate: number | false = 15): Promise<Map<string, string>> {
+export async function getBlockTimes(network: NetworkId, heights: (string | number)[], revalidate = 15): Promise<Map<string, string>> {
   const ids = [...new Set(heights.map(String))];
   if (ids.length === 0) return new Map();
-  const data = await gqlFetch<{ blocks: { nodes: { height: string; timestamp: string }[] } }>(
-    network,
-    BLOCK_TIMES,
-    { heights: ids, limit: ids.length },
-    { revalidate },
-  );
-  return new Map(data.blocks.nodes.map((b) => [String(b.height), b.timestamp]));
+  // Never cached for good, nor longer than 15 s: a block row still being written answers without its time, and that
+  // answer must not stick. A failed read drops the times (the rows show "pending"), not the page.
+  try {
+    const data = await gqlFetch<{ blocks: { nodes: { height: string; timestamp: string }[] } }>(
+      network,
+      BLOCK_TIMES,
+      { heights: ids, limit: ids.length },
+      { revalidate: Math.min(revalidate, 15) },
+    );
+    return new Map(data.blocks.nodes.map((b) => [String(b.height), b.timestamp]));
+  } catch {
+    return new Map();
+  }
 }
 
-/** Transaction rows with `block` filled from their heights (null while the block is not indexed). */
-export async function withBlocks(network: NetworkId, nodes: TxNode[], revalidate: number | false = 15): Promise<BlockTx[]> {
-  const times = await getBlockTimes(network, nodes.map((n) => n.blockId), revalidate);
-  return nodes.map(({ blockId, ...n }) => {
-    const timestamp = times.get(String(blockId));
-    return { ...n, block: timestamp ? { timestamp, height: String(blockId) } : null };
-  });
+/** Transaction rows with `block` filled from their heights; its timestamp is null while the block row is not committed. */
+export async function withBlocks(network: NetworkId, nodes: TxNode[]): Promise<BlockTx[]> {
+  const times = await getBlockTimes(network, nodes.map((n) => n.blockId));
+  return nodes.map(({ blockId, ...n }) => ({ ...n, block: { timestamp: times.get(String(blockId)) ?? null, height: String(blockId) } }));
 }
 
 /** The supply rows in force at a block, and its metadata record. */
@@ -111,8 +116,7 @@ export async function getBlockList(network: NetworkId, limit: number, offset: nu
 }
 
 export async function getBlockSummary(network: NetworkId) {
-  // Rounded down to the minute, so the request (and with it the fetch-cache key) stays the same for that long.
-  const end = new Date(Math.floor(Date.now() / 60_000) * 60_000);
+  const end = new Date(roundedNow()); // a stable fetch-cache key for the minute
   const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
   const data = await gqlFetch<{ latest: { nodes: { height: string }[] }; stats: unknown }>(
     network,
@@ -185,7 +189,7 @@ export async function getBlockTransactions(
   );
   const nodes = timestamp
     ? data.transactions.nodes.map(({ blockId, ...n }): BlockTx => ({ ...n, block: { timestamp, height: String(blockId) } }))
-    : await withBlocks(network, data.transactions.nodes, revalidate);
+    : await withBlocks(network, data.transactions.nodes);
   return { totalCount: data.transactions.totalCount, nodes };
 }
 

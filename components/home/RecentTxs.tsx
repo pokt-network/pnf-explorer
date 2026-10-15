@@ -45,8 +45,8 @@ export async function RecentTxs({ network }: { network: NetworkId }) {
                 <Link href={`/tx/${tx.id}`} className="mono" style={{ fontSize: 13 }}>
                   <Hash value={tx.id} />
                 </Link>
-                <span className="age" title={tx.block ? absoluteUtc(tx.block.timestamp) : undefined}>
-                  {tx.block ? relativeTime(tx.block.timestamp) : 'pending'}
+                <span className="age" title={tx.block?.timestamp ? absoluteUtc(tx.block.timestamp) : undefined}>
+                  {tx.block?.timestamp ? relativeTime(tx.block.timestamp) : 'pending'}
                 </span>
               </div>
               <div className="btm">

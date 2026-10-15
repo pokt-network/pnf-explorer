@@ -5,7 +5,7 @@
 // `rowLimit` rows after the cursor (lib/data/suppliers.ts fleetPage), not every Staked supplier.
 
 export const SUPPLIERS_LIST = /* GraphQL */ `
-  query suppliersList($rowLimit: Int!, $afterStakeUpokt: BigFloat, $afterSupplierId: String, $limit: Int!, $offset: Int!) {
+  query suppliersList($rowLimit: Int, $afterStakeUpokt: BigFloat, $afterSupplierId: String, $limit: Int!, $offset: Int!) {
     getSupplierFleetList(
       stakeStatuses: ["Staked"]
       rowLimit: $rowLimit

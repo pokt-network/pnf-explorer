@@ -137,7 +137,7 @@ export function GatewayRoleView({
     <>
       <RoleStats>
         <SummaryCard label="Stake" dot={DOT.lavender} value={formatPokt(view.stakeAmount)} unit="POKT" />
-        <SummaryCard label="Delegating Apps" dot={DOT.blue} value={formatNumber(view.appCount)} />
+        <SummaryCard label="Delegating Apps" dot={DOT.blue} value={view.appCount != null ? formatNumber(view.appCount) : '—'} />
         <SummaryCard label="Delegations" dot={DOT.mint} value={view.delegationMsgs != null ? formatCompact(view.delegationMsgs) : '—'} />
         <SummaryCard label="Undelegations" dot={DOT.coral} value={view.undelegationMsgs != null ? formatCompact(view.undelegationMsgs) : '—'} />
       </RoleStats>

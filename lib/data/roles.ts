@@ -69,6 +69,8 @@ export interface SupplierRoleView extends Coverage {
   totals: SettlementTotals;
   slashCount: number;
   slashPenaltyUpokt: string;
+  /** What the penalties function covers (the slash figures' own range, not the earnings'). */
+  slashCoverage: Coverage;
 }
 
 interface SupplierRoleResult {
@@ -103,9 +105,8 @@ export async function getSupplierRole(network: NetworkId, id: string): Promise<S
   const configured = d.serviceConfigs?.nodes ?? [];
   const configuredIds = new Set(configured.map((c) => c.serviceId));
   // The penalties function's slashes, every reason summed (its other kinds are expired and discarded claims).
-  const slashes = (unwrapRange<{ kind: string; events: string | null; slashed_upokt: string | null }[]>(d.penalties).data ?? []).filter(
-    (p) => p.kind === 'slashed',
-  );
+  const penalties = unwrapRange<{ kind: string; events: string | null; slashed_upokt: string | null }[]>(d.penalties);
+  const slashes = (penalties.data ?? []).filter((p) => p.kind === 'slashed');
 
   return {
     id: s.id,
@@ -130,6 +131,7 @@ export async function getSupplierRole(network: NetworkId, id: string): Promise<S
     },
     slashCount: slashes.reduce((t, p) => t + Number(p.events ?? 0), 0),
     slashPenaltyUpokt: sumAmount(slashes, (p) => p.slashed_upokt),
+    slashCoverage: coverage(penalties.range),
     ...coverage(settled.range),
   };
 }
@@ -199,7 +201,7 @@ export interface SupplierHistory {
 }
 
 /** Supplier lifecycle for the History tab: stake edits, unstake msgs, slashes. Newest first. */
-export async function getSupplierHistory(network: NetworkId, id: string, limit: number): Promise<SupplierHistory | null> {
+export async function getSupplierHistory(network: NetworkId, id: string, limit: number): Promise<SupplierHistory> {
   type Row = {
     id: string;
     height: string;
@@ -399,7 +401,8 @@ export interface GatewayRoleView {
   stakeAmount: string | null;
   stakeStatus: string | null;
   unstakingEndHeight: string | null;
-  appCount: number;
+  /** The applications delegating to it now; null with the other two when the fleet function has no row for it. */
+  appCount: number | null;
   /** Delegate and undelegate messages the gateway ever received (a re-delegation counts again; a delegation from the
    *  genesis state has no message). Null when the fleet function has no row for it: unknown, not 0. */
   delegationMsgs: number | null;
@@ -424,7 +427,7 @@ export async function getGatewayRole(network: NetworkId, id: string): Promise<Ga
     stakeAmount: g.stakeAmount,
     stakeStatus: g.stakeStatus,
     unstakingEndHeight: g.unstakingEndHeight,
-    appCount: Number(f?.delegatedApplications ?? 0),
+    appCount: f ? Number(f.delegatedApplications ?? 0) : null,
     delegationMsgs: f ? Number(f.delegationsEver ?? 0) : null,
     undelegationMsgs: f ? Number(f.undelegationsEver ?? 0) : null,
   };

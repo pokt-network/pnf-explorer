@@ -26,18 +26,19 @@ export const SERVICES_LIST = /* GraphQL */ `
 
 // Active-supplier count of every service, from the service summary function (the closed schema has no
 // aggregates or filters through a relation): `stakedSuppliers` counts each Staked supplier once,
-// whatever duplicated config ids the indexer holds (see above). Paged by keyset: the services after `after`.
+// whatever duplicated config ids the indexer holds (see above). One call: a filter on the list would run after the
+// function (computing every service again), so lib/data/services.ts refuses an answer that fills the query limit.
 export const SERVICE_ACTIVE_SUPPLIER_COUNTS = /* GraphQL */ `
-  query serviceSupplierCounts($after: String!) {
-    getServiceSummaryList(services: null, filter: { serviceId: { greaterThan: $after } }) {
+  query serviceSupplierCounts {
+    getServiceSummaryList(services: null) {
       serviceId
       stakedSuppliers
     }
   }
 `;
 
-// The service, its supplier/application counts (service summary function) and its current relay-mining difficulty
-// (the newest update).
+// The service, and from the service summary function its supplier/application counts and its current relay-mining
+// difficulty (the newest update: EMA, target hash and its height).
 export const SERVICE_BY_ID = /* GraphQL */ `
   query serviceById($id: String!) {
     service(id: $id) {
@@ -50,11 +51,9 @@ export const SERVICE_BY_ID = /* GraphQL */ `
       stakedSuppliers
       suppliers
       stakedApplications
-    }
-    latestDiff: getRelayMiningDifficultyList(services: [$id], rowLimit: 1) {
-      height
-      newNumRelaysEma
-      newTargetHashHex
+      numRelaysEma
+      targetHashHex
+      difficultyUpdatedHeight
     }
   }
 `;
@@ -62,7 +61,7 @@ export const SERVICE_BY_ID = /* GraphQL */ `
 // Staked suppliers serving the service, largest stake first (fleet function, keyset mode: lib/data/suppliers.ts
 // fleetPage), with the root domains of their endpoints for it; the pager's total is the summary's staked count.
 export const SERVICE_SUPPLIERS = /* GraphQL */ `
-  query serviceSuppliers($id: String!, $rowLimit: Int!, $afterStakeUpokt: BigFloat, $afterSupplierId: String, $limit: Int!, $offset: Int!) {
+  query serviceSuppliers($id: String!, $rowLimit: Int, $afterStakeUpokt: BigFloat, $afterSupplierId: String, $limit: Int!, $offset: Int!) {
     getSupplierFleetList(
       services: [$id]
       stakeStatuses: ["Staked"]

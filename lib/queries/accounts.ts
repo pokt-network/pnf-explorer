@@ -169,10 +169,18 @@ export const REVSHARE_RECIPIENT_CONFIGS = /* GraphQL */ `
 // Owner → operators, paginated. Powers the "Operators" tab for an owner wallet (98 operators in the
 // wild). Active-or-not: NOT filtered to Staked — an owner wants to see unstaking nodes too. One
 // request: the fleet function lists the page (largest stake first, then by id) with each operator's #
-// of services, and the plain list gives the total.
+// of services, and the plain list gives the total. `rowLimit` is the keyset mode on the first 1000 rows
+// (lib/data/suppliers.ts fleetPage), so a big owner's first pages do not compute its whole fleet.
 export const OWNED_OPERATORS = /* GraphQL */ `
-  query ownedOperators($id: String!, $ids: [String], $limit: Int!, $offset: Int!) {
-    getSupplierFleetList(owners: $ids, first: $limit, offset: $offset) {
+  query ownedOperators($id: String!, $ids: [String], $rowLimit: Int, $afterStakeUpokt: BigFloat, $afterSupplierId: String, $limit: Int!, $offset: Int!) {
+    getSupplierFleetList(
+      owners: $ids
+      rowLimit: $rowLimit
+      afterStakeUpokt: $afterStakeUpokt
+      afterSupplierId: $afterSupplierId
+      first: $limit
+      offset: $offset
+    ) {
       supplierId
       stakeStatus
       stakeUpokt

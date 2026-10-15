@@ -1,6 +1,8 @@
 import { gqlFetch } from '@/lib/graphql';
 import { getDelegations } from '@/lib/data/delegations';
 import { firstPerId } from '@/lib/data/range';
+import { fleetPage } from '@/lib/data/suppliers';
+import { roundedNow } from '@/lib/data/window';
 import type { NetworkId } from '@/lib/networks';
 import {
   ACCOUNT_LIST,
@@ -162,8 +164,7 @@ export async function getAccountList(network: NetworkId, limit: number, offset: 
 }
 
 export async function getAccountSummary(network: NetworkId): Promise<AccountSummary> {
-  // Rounded down to the minute, so the request (and with it the fetch-cache key) stays the same for that long.
-  const now = new Date(Math.floor(Date.now() / 60_000) * 60_000);
+  const now = new Date(roundedNow()); // a stable fetch-cache key for the minute
   // Start of today (UTC), -30d, -90d, in one request with the accounts that hold a balance.
   const times = [
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
@@ -293,13 +294,21 @@ export async function getAccountProfile(network: NetworkId, id: string): Promise
 
 /** Owner → operator nodes, paginated (largest stake first, then id). Powers the account "Operators" tab. */
 export async function getOwnedOperators(network: NetworkId, id: string, limit: number, offset: number) {
-  const data = await gqlFetch<{
-    getSupplierFleetList: { supplierId: string; stakeStatus: string | null; stakeUpokt: string | null; serviceCount: string | null }[] | null;
-    suppliers: { totalCount: number };
-  }>(network, OWNED_OPERATORS, { id, ids: [id], limit, offset }, { revalidate: 30 });
+  type Row = { supplierId: string; stakeStatus: string | null; stakeUpokt: string | null; serviceCount: string | null };
+  const { rows, extra: totalCount } = await fleetPage<Row, number>(
+    (cursor, rowLimit, first, skip) =>
+      gqlFetch<{ getSupplierFleetList: Row[] | null; suppliers: { totalCount: number } }>(
+        network,
+        OWNED_OPERATORS,
+        { id, ids: [id], ...cursor, rowLimit, limit: first, offset: skip },
+        { revalidate: 30 },
+      ).then((d) => ({ rows: d.getSupplierFleetList ?? [], extra: d.suppliers.totalCount })),
+    limit,
+    offset,
+  );
   return {
-    totalCount: data.suppliers.totalCount,
-    nodes: firstPerId(data.getSupplierFleetList ?? [], (s) => s.supplierId).map(
+    totalCount,
+    nodes: firstPerId(rows, (s) => s.supplierId).map(
       (s): OwnedOperatorRow => ({ id: s.supplierId, stakeStatus: s.stakeStatus, stakeAmount: s.stakeUpokt, serviceConfigs: { totalCount: Number(s.serviceCount ?? 0) } }),
     ),
   };
