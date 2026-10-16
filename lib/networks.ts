@@ -20,6 +20,8 @@ export interface NetworkConfig {
   short: string;
   /** True for the prefix-less default network (mainnet). */
   isDefault: boolean;
+  /** Seconds between blocks: nothing the indexer holds for the head changes faster, so no read of it is cached for less. */
+  blockSeconds: number;
   /** GraphQL indexer (public — the browser polls it, so this is a NEXT_PUBLIC value). */
   graphql: string;
   /** Cosmos LCD/REST base (server-side only). */
@@ -36,6 +38,7 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
     label: 'Mainnet',
     short: 'Mainnet',
     isDefault: true,
+    blockSeconds: 60,
     graphql: process.env.NEXT_PUBLIC_GRAPHQL_URL ?? 'https://data.pocket.network/graphql',
     lcd: process.env.SAURON_LCD_URL ?? 'https://sauron-api.infra.pocket.network',
     rpc: process.env.SAURON_RPC_URL ?? 'https://sauron-rpc.infra.pocket.network',
@@ -45,6 +48,7 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
     label: 'Beta TestNet',
     short: 'Beta',
     isDefault: false,
+    blockSeconds: 30,
     graphql: process.env.NEXT_PUBLIC_GRAPHQL_URL_BETA ?? 'https://data.beta.pocket.network/graphql',
     lcd: process.env.SAURON_LCD_URL_BETA ?? 'https://sauron-api.beta.infra.pocket.network',
     rpc: process.env.SAURON_RPC_URL_BETA ?? 'https://sauron-rpc.beta.infra.pocket.network',

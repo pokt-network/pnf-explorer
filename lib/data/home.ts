@@ -1,5 +1,5 @@
 import { gqlFetch } from '@/lib/graphql';
-import type { NetworkId } from '@/lib/networks';
+import { NETWORKS, type NetworkId } from '@/lib/networks';
 import { HOME_SUMMARY } from '@/lib/queries/home';
 import { sumUpokt } from '@/lib/tx';
 import { getBlockSupplies } from '@/lib/data/blocks';
@@ -16,7 +16,7 @@ export interface HomeSummary {
 }
 
 /**
- * Network summary cards (§6 home): supply + 24h relays/CU + staked-actor count. ISR 15s.
+ * Network summary cards (§6 home): supply + 24h relays/CU + staked-actor count. Revalidated every block time.
  * NOTE: relays24h/cu24h are the ESTIMATED (relay-mining difficulty-scaled) totals — the block
  * statistics' estimated_relays/estimated_compute_units — so the figures match the
  * ecosystem-standard throughput shown by PoktScan (on-chain "claimed" totals are ~2.5x lower).
@@ -47,7 +47,7 @@ export async function getHomeSummary(network: NetworkId): Promise<HomeSummary> {
       supplyStartDate: supplyStart.toISOString(),
       supplyEndDate: end.toISOString(),
     },
-    { revalidate: 15 },
+    { revalidate: NETWORKS[network].blockSeconds },
   );
 
   const lb = data.lastBlock.nodes[0];
@@ -56,7 +56,15 @@ export async function getHomeSummary(network: NetworkId): Promise<HomeSummary> {
   // already-minted on-chain supply (the last block's supply rows) if getTotalSupplyByDay is unavailable.
   const supplyRows = data.supply ?? [];
   const latestSupply = supplyRows.length ? supplyRows[supplyRows.length - 1]?.total_supply : null;
-  const lbSupplies = latestSupply == null && lb ? await getBlockSupplies(network, lb.height).catch(() => []) : [];
+  let lbSupplies: Awaited<ReturnType<typeof getBlockSupplies>> = [];
+  if (latestSupply == null && lb) {
+    try {
+      lbSupplies = await getBlockSupplies(network, lb.height);
+    } catch (e) {
+      // Supply unknown, not the page; logged, and gqlFetch holds the failure instead of caching it.
+      console.error(`Home supply fallback failed at block ${lb.height}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
   const fallback = lbSupplies.length ? Number(sumUpokt(lbSupplies.map((n) => n.supply))) : null;
   const supplyUpokt = latestSupply != null ? Number(latestSupply) : fallback;
   const stats = unwrapRange<{ estimated_relays: string | null; estimated_compute_units: string | null }[]>(data.window).data?.[0];

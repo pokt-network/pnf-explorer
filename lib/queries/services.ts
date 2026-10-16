@@ -27,10 +27,10 @@ export const SERVICES_LIST = /* GraphQL */ `
 // Active-supplier count of every service, from the service summary function (the closed schema has no
 // aggregates or filters through a relation): `stakedSuppliers` counts each Staked supplier once,
 // whatever duplicated config ids the indexer holds (see above). One call: a filter on the list would run after the
-// function (computing every service again), so lib/data/services.ts refuses an answer that fills the query limit.
+// function (computing every service again), so lib/data/services.ts pages it with first/offset until a page is short.
 export const SERVICE_ACTIVE_SUPPLIER_COUNTS = /* GraphQL */ `
-  query serviceSupplierCounts {
-    getServiceSummaryList(services: null) {
+  query serviceSupplierCounts($first: Int!, $offset: Int!) {
+    getServiceSummaryList(services: null, first: $first, offset: $offset) {
       serviceId
       stakedSuppliers
     }

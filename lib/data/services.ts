@@ -78,20 +78,25 @@ const SUMMARY_LIMIT = 1000;
 
 /**
  * Active (Staked) supplier count per service id, every service from the service summary function. 12h ISR —
- * these move slowly. Map keyed by id; missing ids → 0. Null when the read failed or filled the query limit.
+ * these move slowly. Map keyed by id; missing ids → 0. Null when a read failed. A function list stops at the query limit
+ * (1000 rows on both endpoints, measured 2026-10-15) without saying so, so it is read page by page until one is short.
  */
 export async function getServiceActiveSupplierCounts(network: NetworkId): Promise<Map<string, number> | null> {
   try {
-    const data = await gqlFetch<{ getServiceSummaryList: { serviceId: string; stakedSuppliers: string | null }[] | null }>(
-      network,
-      SERVICE_ACTIVE_SUPPLIER_COUNTS,
-      undefined,
-      { revalidate: SERVICES_TTL },
-    );
-    const rows = data.getServiceSummaryList ?? [];
-    // A function list stops at the query limit (1000 rows on both endpoints, measured 2026-10-15) without saying so:
-    // an answer that fills it may be partial, and partial counts are not shown.
-    if (rows.length >= SUMMARY_LIMIT) return null;
+    const rows: { serviceId: string; stakedSuppliers: string | null }[] = [];
+    for (let page = 0; page < 20; page++) {
+      const data = await gqlFetch<{ getServiceSummaryList: typeof rows | null }>(
+        network,
+        SERVICE_ACTIVE_SUPPLIER_COUNTS,
+        { first: SUMMARY_LIMIT, offset: page * SUMMARY_LIMIT },
+        { revalidate: SERVICES_TTL },
+      );
+      const got = data.getServiceSummaryList ?? [];
+      rows.push(...got);
+      if (got.length < SUMMARY_LIMIT) break;
+      // 20 full pages is not a network this page was built for: unknown rather than a partial count.
+      if (page === 19) return null;
+    }
     return new Map(rows.map((r) => [r.serviceId, Number(r.stakedSuppliers ?? 0)]));
   } catch {
     // Unknown, not 0: the list shows a dash.

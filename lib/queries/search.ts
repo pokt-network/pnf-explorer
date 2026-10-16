@@ -1,15 +1,4 @@
-// Global-search queries — verbatim from assets/api-index/_shared.md.
-
-export const SEARCH_VALIDATOR_BY_ADDRESS = /* GraphQL */ `
-  query searchValidatorByAddress($address: String!) {
-    validator(id: $address) {
-      id
-      stakeAmount
-      stakeDenom
-      stakeStatus
-    }
-  }
-`;
+// Global-search queries.
 
 export const SEARCH_BY_HASH = /* GraphQL */ `
   query searchByHash($hash: String!) {
@@ -25,17 +14,6 @@ export const SEARCH_BY_HASH = /* GraphQL */ `
       id
       code
       amountOfMessages
-    }
-  }
-`;
-
-export const SEARCH_BY_HEIGHT = /* GraphQL */ `
-  query searchByHeight($height: BigFloat!) {
-    block(id: $height) {
-      height: id
-      hash
-      timestamp
-      totalTxs
     }
   }
 `;
