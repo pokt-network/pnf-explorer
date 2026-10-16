@@ -27,7 +27,7 @@ export interface GqlOptions {
  * only once its callback has returned: a callback that throws (errors in the body, a non-2xx status, a network error)
  * stores nothing. One request per cache miss, as before. An answer whose only errors are on `partial` fields is returned
  * to the caller but not cached either. A failed or partial answer is held for 15 s per process and then asked again, so a
- * read that keeps failing costs one request per 15 s window (see holds). Outside a Next server (a script, a unit test)
+ * read that keeps failing costs one request per 15 s window (see holds); meanwhile a cached answer is served. Outside a Next server (a script, a unit test)
  * there is no cache to keep it in, and the call goes straight out.
  */
 export async function gqlFetch<T>(
@@ -66,15 +66,18 @@ async function cachedRead<T>(network: NetworkId, query: string, variables: Recor
   // pull Next's cache runtime into its bundle
   const { unstable_cache } = await import('next/cache');
   const holdKey = JSON.stringify([network, query, variables ?? null, opts.partial ?? null]);
-  const held = holds.get(holdKey);
-  if (held && held.until > Date.now()) {
-    if (held.kind === 'partial') return held.data as T;
-    const { message, kind, status, denyReason } = held.error;
-    throw new DataError(message, kind, status, denyReason);
-  }
-  if (held) holds.delete(holdKey);
   const cached = unstable_cache(
     async (n: NetworkId, q: string, v: Record<string, unknown> | null) => {
+      // A held answer is given only where there is no answer to serve: this callback runs on a cache miss, or to rebuild a
+      // stale entry in the background, where Next swallows the throw and keeps serving the stale one. A held partial
+      // answer is thrown as such, so that it reaches the caller and is not stored.
+      const held = holds.get(holdKey);
+      if (held && held.until > Date.now()) {
+        if (held.kind === 'partial') throw new PartialAnswer(held.data);
+        const { message, kind, status, denyReason } = held.error;
+        throw new DataError(message, kind, status, denyReason);
+      }
+      if (held) holds.delete(holdKey);
       try {
         const data = complete(await postGraphql<T>(n, q, v ?? undefined, 'no-store', opts.signal), opts.partial);
         holds.delete(holdKey);
@@ -111,8 +114,8 @@ const HOLD_MS = 15_000;
 /**
  * Failed and partial answers by read (network, query, variables, partial), each until its window ends. Per process and
  * apart from unstable_cache, so the cache stores only complete answers and a held answer registers no revalidate on the
- * route. Within the window an error is thrown again even where a stale complete answer is cached: an error page for at
- * most 15 s, where the fetch cache served the error for the read's whole TTL.
+ * route. Within the window a cache miss is given the held error (or partial answer), and a request with a cached answer,
+ * stale included, gets that answer: the fetch cache served the error for the read's whole TTL.
  */
 const holds = new Map<string, { until: number } & ({ kind: 'partial'; data: unknown } | { kind: 'error'; error: DataError })>();
 
