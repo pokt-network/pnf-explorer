@@ -171,7 +171,7 @@ export const REVSHARE_RECIPIENT_CONFIGS = /* GraphQL */ `
 // wild). Active-or-not: NOT filtered to Staked — an owner wants to see unstaking nodes too. One
 // request: the fleet function lists the page (largest stake first, then by id) with each operator's #
 // of services, and the plain list gives the total. `rowLimit` and `rowOffset` limit the function to the rows of the page
-// (lib/data/suppliers.ts fleetPage), so a big owner's pages do not compute its whole fleet.
+//, so a big owner's pages do not compute its whole fleet.
 export const OWNED_OPERATORS = /* GraphQL */ `
   query ownedOperators($id: String!, $ids: [String], $rowLimit: Int, $rowOffset: Int) {
     getSupplierFleetList(

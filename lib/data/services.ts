@@ -1,7 +1,6 @@
 import { gqlFetch } from '@/lib/graphql';
 import { lcdFetch } from '@/lib/lcd';
 import { firstPerId } from '@/lib/data/range';
-import { fleetPage } from '@/lib/data/suppliers';
 import type { NetworkId } from '@/lib/networks';
 import {
   SERVICES_LIST,
@@ -200,20 +199,15 @@ export interface ServiceSupplierRow {
 /** Active (Staked) suppliers serving this service, largest stake first, with the root domains of their endpoints for it. */
 export async function getServiceSuppliers(network: NetworkId, id: string, limit: number, offset: number) {
   type Row = { supplierId: string; stakeUpokt: string | null; stakeStatus: string | null; serviceDomains: string[] | null };
-  const { rows, extra: totalCount } = await fleetPage<Row, number>(
-    (rowLimit, rowOffset) =>
-      gqlFetch<{ getSupplierFleetList: Row[] | null; summary: { stakedSuppliers: string | null }[] | null }>(
-        network,
-        SERVICE_SUPPLIERS,
-        { id, rowLimit, rowOffset },
-        { revalidate: 60 },
-      ).then((d) => ({ rows: d.getSupplierFleetList ?? [], extra: Number(d.summary?.[0]?.stakedSuppliers ?? 0) })),
-    limit,
-    offset,
+  const data = await gqlFetch<{ getSupplierFleetList: Row[] | null; summary: { stakedSuppliers: string | null }[] | null }>(
+    network,
+    SERVICE_SUPPLIERS,
+    { id, rowLimit: limit, rowOffset: offset },
+    { revalidate: 60 },
   );
   return {
-    totalCount,
-    nodes: firstPerId(rows, (s) => s.supplierId).map(
+    totalCount: Number(data.summary?.[0]?.stakedSuppliers ?? 0),
+    nodes: firstPerId(data.getSupplierFleetList ?? [], (s) => s.supplierId).map(
       (s): ServiceSupplierRow => ({
         supplierId: s.supplierId,
         domains: s.serviceDomains,

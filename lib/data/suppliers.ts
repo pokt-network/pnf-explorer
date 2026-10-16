@@ -11,37 +11,19 @@ export interface SupplierRow {
   serviceConfigs: { totalCount: number };
 }
 
-/**
- * Rows [offset, offset + limit) of a fleet-function list in its order (stake desc, then id), in ONE request at any
- * depth: `rowLimit` and `rowOffset` make the function compute only that page. `read` returns the rows and whatever else
- * its document carries.
- */
-export async function fleetPage<T, X>(
-  read: (rowLimit: number, rowOffset: number) => Promise<{ rows: T[]; extra: X }>,
-  limit: number,
-  offset: number,
-): Promise<{ rows: T[]; extra: X }> {
-  return read(limit, offset);
-}
-
 type FleetRow = { supplierId: string; ownerId: string | null; stakeUpokt: string | null; stakeStatus: string | null; serviceCount: string | null };
 
-/** Active (Staked) suppliers, ordered by stake desc (then id), one request per page (see fleetPage). ISR 30s. */
+/** Active (Staked) suppliers, ordered by stake desc (then id), one request per page at any depth (`rowLimit`/`rowOffset`). ISR 30s. */
 export async function getSupplierList(network: NetworkId, limit: number, offset: number) {
-  const { rows, extra: totalCount } = await fleetPage<FleetRow, number>(
-    (rowLimit, rowOffset) =>
-      gqlFetch<{ getSupplierFleetList: FleetRow[] | null; suppliers: { totalCount: number } }>(
-        network,
-        SUPPLIERS_LIST,
-        { rowLimit, rowOffset },
-        { revalidate: 30 },
-      ).then((d) => ({ rows: d.getSupplierFleetList ?? [], extra: d.suppliers.totalCount })),
-    limit,
-    offset,
+  const data = await gqlFetch<{ getSupplierFleetList: FleetRow[] | null; suppliers: { totalCount: number } }>(
+    network,
+    SUPPLIERS_LIST,
+    { rowLimit: limit, rowOffset: offset },
+    { revalidate: 30 },
   );
   return {
-    totalCount,
-    nodes: firstPerId(rows, (s) => s.supplierId).map(
+    totalCount: data.suppliers.totalCount,
+    nodes: firstPerId(data.getSupplierFleetList ?? [], (s) => s.supplierId).map(
       (s): SupplierRow => ({
         id: s.supplierId,
         ownerId: s.ownerId,

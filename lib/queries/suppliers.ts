@@ -2,7 +2,7 @@
 // there are 10,808 supplier records but ~4,082 currently staked; the rest are long-unstaked noise.
 // id is the operator pokt1 address (links to /account). One request: the fleet function lists the page (largest stake
 // first, then by id) with each supplier's # of services, and the plain list gives the total. `rowLimit` and
-// `rowOffset` make the function compute only the rows of the page, at any depth (lib/data/suppliers.ts fleetPage).
+// `rowOffset` make the function compute only the rows of the page, at any depth.
 
 export const SUPPLIERS_LIST = /* GraphQL */ `
   query suppliersList($rowLimit: Int, $rowOffset: Int) {

@@ -14,7 +14,6 @@ import { getValidatorList, getValidatorChainStates } from '@/lib/data/validators
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, formatPoktCompact, formatCompact, truncate } from '@/lib/format';
 import { UPOKT_PER_POKT } from '@/lib/config';
-import { relativeTime, absoluteUtc } from '@/lib/time';
 import { validatorMoniker, formatCommission, deriveValidatorState } from '@/lib/validator';
 import { parsePage } from '@/lib/paging';
 import { NOT_COVERED_HINT, START_UNKNOWN_HINT, STILL_PROCESSING, stillProcessingHint, windowLabel } from '@/lib/data/window';
@@ -264,7 +263,6 @@ async function SettlementsPanel({
           <thead>
             <tr>
               <th>Day (UTC)</th>
-              <th>Age</th>
               <th>Validator</th>
               <th className="num">Received</th>
             </tr>
@@ -277,7 +275,6 @@ async function SettlementsPanel({
                   {/* The window starts inside its oldest day: that row covers the day from then on only. */}
                   {r.partialFrom ? <span className="dim"> since {r.partialFrom.slice(11, 16)} UTC</span> : null}
                 </td>
-                <td title={absoluteUtc(r.day)}>{relativeTime(r.day)}</td>
                 <td>
                   {r.validatorAddress ? (
                     <Link href={`/validator/${r.validatorAddress}`}>

@@ -59,14 +59,14 @@ export async function getHomeSummary(network: NetworkId): Promise<HomeSummary> {
   const lbSupplies = latestSupply == null && lb ? await getBlockSupplies(network, lb.height).catch(() => []) : [];
   const fallback = lbSupplies.length ? Number(sumUpokt(lbSupplies.map((n) => n.supply))) : null;
   const supplyUpokt = latestSupply != null ? Number(latestSupply) : fallback;
-  const window = unwrapRange<{ estimated_relays: string | null; estimated_compute_units: string | null }[]>(data.window).data?.[0];
+  const stats = unwrapRange<{ estimated_relays: string | null; estimated_compute_units: string | null }[]>(data.window).data?.[0];
 
   const stakedActors = lb ? Number(lb.stakedSuppliers) + Number(lb.stakedApps) + Number(lb.stakedGateways) : null;
 
   return {
     supplyUpokt,
-    relays24h: window?.estimated_relays ?? null,
-    cu24h: window?.estimated_compute_units ?? null,
+    relays24h: stats?.estimated_relays ?? null,
+    cu24h: stats?.estimated_compute_units ?? null,
     stakedActors,
     latestHeight: lb?.height ?? null,
   };

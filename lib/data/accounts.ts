@@ -1,7 +1,6 @@
 import { gqlFetch } from '@/lib/graphql';
 import { getDelegations } from '@/lib/data/delegations';
 import { firstPerId } from '@/lib/data/range';
-import { fleetPage } from '@/lib/data/suppliers';
 import { roundedNow } from '@/lib/data/window';
 import type { NetworkId } from '@/lib/networks';
 import {
@@ -296,20 +295,15 @@ export async function getAccountProfile(network: NetworkId, id: string): Promise
 /** Owner → operator nodes, paginated (largest stake first, then id). Powers the account "Operators" tab. */
 export async function getOwnedOperators(network: NetworkId, id: string, limit: number, offset: number) {
   type Row = { supplierId: string; stakeStatus: string | null; stakeUpokt: string | null; serviceCount: string | null };
-  const { rows, extra: totalCount } = await fleetPage<Row, number>(
-    (rowLimit, rowOffset) =>
-      gqlFetch<{ getSupplierFleetList: Row[] | null; suppliers: { totalCount: number } }>(
-        network,
-        OWNED_OPERATORS,
-        { id, ids: [id], rowLimit, rowOffset },
-        { revalidate: 30 },
-      ).then((d) => ({ rows: d.getSupplierFleetList ?? [], extra: d.suppliers.totalCount })),
-    limit,
-    offset,
+  const data = await gqlFetch<{ getSupplierFleetList: Row[] | null; suppliers: { totalCount: number } }>(
+    network,
+    OWNED_OPERATORS,
+    { id, ids: [id], rowLimit: limit, rowOffset: offset },
+    { revalidate: 30 },
   );
   return {
-    totalCount,
-    nodes: firstPerId(rows, (s) => s.supplierId).map(
+    totalCount: data.suppliers.totalCount,
+    nodes: firstPerId(data.getSupplierFleetList ?? [], (s) => s.supplierId).map(
       (s): OwnedOperatorRow => ({ id: s.supplierId, stakeStatus: s.stakeStatus, stakeAmount: s.stakeUpokt, serviceConfigs: { totalCount: Number(s.serviceCount ?? 0) } }),
     ),
   };

@@ -58,7 +58,7 @@ export const SERVICE_BY_ID = /* GraphQL */ `
   }
 `;
 
-// Staked suppliers serving the service, largest stake first (fleet function, paged by lib/data/suppliers.ts fleetPage),
+// Staked suppliers serving the service, largest stake first (fleet function),
 // with the root domains of their endpoints for it; the pager's total is the summary's staked count.
 export const SERVICE_SUPPLIERS = /* GraphQL */ `
   query serviceSuppliers($id: String!, $rowLimit: Int, $rowOffset: Int) {

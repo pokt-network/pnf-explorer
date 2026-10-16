@@ -2,7 +2,7 @@ import { gqlFetch } from '@/lib/graphql';
 import { rpcFetch } from '@/lib/lcd';
 import { INDEXER_LAG_THRESHOLD } from '@/lib/config';
 import type { NetworkId } from '@/lib/networks';
-import { BLOCK_BY_HASH, BLOCK_BY_HEIGHT, BLOCK_EXTRAS, BLOCK_LIST, BLOCK_SUMMARY } from '@/lib/queries/blocks';
+import { BLOCK_BY_HASH, BLOCK_BY_HEIGHT, BLOCK_LIST, BLOCK_SUPPLIES, BLOCK_SUMMARY } from '@/lib/queries/blocks';
 import { TRANSACTIONS_BY_HEIGHT } from '@/lib/queries/transactions';
 import type { FallbackDecision } from '@/lib/types';
 import { unwrapRange } from '@/lib/data/range';
@@ -58,18 +58,10 @@ export function withBlocks(nodes: TxNode[]): BlockTx[] {
   return nodes.map(({ blockId, blockTime, ...n }) => ({ ...n, block: { timestamp: blockTime, height: String(blockId) } }));
 }
 
-/** The supply rows in force at a block, and its metadata record. */
-async function getBlockExtras(network: NetworkId, height: string, revalidate: number | false) {
-  const data = await gqlFetch<{
-    metadata: { header: unknown; lastCommit: unknown; blockId: unknown } | null;
-    supplies: { denom: string; amount: string }[] | null;
-  }>(network, BLOCK_EXTRAS, { height, supplyHeight: height }, { revalidate });
-  return { metadata: data.metadata, supplies: { nodes: (data.supplies ?? []).map((supply) => ({ supply })) } };
-}
-
 /** The supply rows in force at a block (the home page's fallback for the total supply). */
 export async function getBlockSupplies(network: NetworkId, height: string): Promise<SupplyNode[]> {
-  return (await getBlockExtras(network, height, 15)).supplies.nodes;
+  const data = await gqlFetch<{ supplies: { denom: string; amount: string }[] | null }>(network, BLOCK_SUPPLIES, { height }, { revalidate: 15 });
+  return (data.supplies ?? []).map((supply) => ({ supply }));
 }
 
 /** Immutable once buried ≥ threshold below head; short TTL near the tip (§3). */
