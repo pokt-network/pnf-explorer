@@ -489,7 +489,7 @@ export async function getOwnedServices(network: NetworkId, id: string, limit: nu
   const countBy = new Map(counts.map((c) => [c.serviceId, c]));
   // A service with no supplier config and no application has no summary row (0), unless the answer filled the rows
   // asked for: then a missing service is unknown. (Rows asked explicitly; a server limit below it would read as complete.)
-  const complete = counts.length < OWNER_COUNT_LIMIT;
+  const complete = d.counts != null && counts.length < OWNER_COUNT_LIMIT; // no answer at all is unknown, not 0
   const count = (sid: string, k: 'suppliers' | 'applications') => {
     const c = countBy.get(sid);
     return c ? Number(c[k] ?? 0) : complete ? 0 : null;
