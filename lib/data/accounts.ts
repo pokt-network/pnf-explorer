@@ -191,14 +191,14 @@ export async function getAccountSummary(network: NetworkId): Promise<AccountSumm
 /** Economic total supply (upokt) — the per-account share denominator. Best-effort; null on failure. */
 export async function getTotalSupplyUpokt(network: NetworkId): Promise<number | null> {
   try {
-    const end = new Date();
+    const end = new Date(roundedNow()); // a stable cache key for the minute
     // ~2-day window so a daily row always exists; take the latest (see getHomeSummary).
     const start = new Date(end.getTime() - 48 * 60 * 60 * 1000);
     const data = await gqlFetch<{ supply: { total_supply: number | null }[] | null }>(
       network,
       TOTAL_SUPPLY,
       { startDate: start.toISOString(), endDate: end.toISOString() },
-      { revalidate: 15 },
+      { revalidate: 60 }, // one daily row: no reason to ask more than once per block
     );
     const rows = data.supply ?? [];
     const latest = rows.length ? rows[rows.length - 1]?.total_supply : null;
