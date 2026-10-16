@@ -65,7 +65,7 @@ export default async function BlockDetailPage({
   // Transactions tab — paged via `?page=` at this height (indexer only; RPC tx decoding is out of scope).
   let txs: Awaited<ReturnType<typeof getBlockTransactions>> | null = null;
   if (!fromRpc && block.totalTxs > 0) {
-    txs = await getBlockTransactions(network, block.height, TX_TAB_LIMIT, (page - 1) * TX_TAB_LIMIT, target, block.timestamp);
+    txs = await getBlockTransactions(network, block.height, TX_TAB_LIMIT, (page - 1) * TX_TAB_LIMIT, target);
   }
 
   const supplyUpokt = block.supplies?.nodes?.length ? sumUpokt(block.supplies.nodes.map((n) => n.supply)) : null;

@@ -52,6 +52,7 @@ export const ACCOUNT_ROLES = /* GraphQL */ `
         amount
         denom
         lastUpdatedBlockId
+        lastUpdatedTime
       }
     }
     supplier(id: $id) {
@@ -169,15 +170,14 @@ export const REVSHARE_RECIPIENT_CONFIGS = /* GraphQL */ `
 // Owner → operators, paginated. Powers the "Operators" tab for an owner wallet (98 operators in the
 // wild). Active-or-not: NOT filtered to Staked — an owner wants to see unstaking nodes too. One
 // request: the fleet function lists the page (largest stake first, then by id) with each operator's #
-// of services, and the plain list gives the total. `rowLimit` limits the function to the rows up to the page within the
-// first 1000 rows (lib/data/suppliers.ts fleetPage), so a big owner's first pages do not compute its whole fleet.
+// of services, and the plain list gives the total. `rowLimit` and `rowOffset` limit the function to the rows of the page
+// (lib/data/suppliers.ts fleetPage), so a big owner's pages do not compute its whole fleet.
 export const OWNED_OPERATORS = /* GraphQL */ `
-  query ownedOperators($id: String!, $ids: [String], $rowLimit: Int, $limit: Int!, $offset: Int!) {
+  query ownedOperators($id: String!, $ids: [String], $rowLimit: Int, $rowOffset: Int) {
     getSupplierFleetList(
       owners: $ids
       rowLimit: $rowLimit
-      first: $limit
-      offset: $offset
+      rowOffset: $rowOffset
     ) {
       supplierId
       stakeStatus

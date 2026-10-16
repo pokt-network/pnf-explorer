@@ -9,7 +9,6 @@ import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, formatUpokt } from '@/lib/format';
 import { relativeTime, absoluteUtc } from '@/lib/time';
 import { parsePage } from '@/lib/paging';
-import { getBlockTimes } from '@/lib/data/blocks';
 
 /**
  * The wallet actor — liquid balance and the address's own transaction history. Everything staked
@@ -31,12 +30,8 @@ export async function AccountRoleView({
   transfersPage: string | undefined;
 }) {
   const balance = profile.account?.balances?.nodes?.find((b) => b.denom === 'upokt') ?? profile.account?.balances?.nodes?.[0] ?? null;
-  // The balance's block time is read here, the one view that shows it; a failed read only drops the age.
-  const updatedHeight = balance?.lastUpdatedBlock?.height ?? null;
-  const [counts, updatedAt] = await Promise.all([
-    addressTabCounts(network, address),
-    updatedHeight ? getBlockTimes(network, [updatedHeight]).then((t) => t.get(updatedHeight) ?? null).catch(() => null) : null,
-  ]);
+  const updatedAt = balance?.lastUpdatedTime ?? null;
+  const counts = await addressTabCounts(network, address);
   const rawData = profile.account ?? { id: address, balances: { nodes: [] } };
 
   const tabs: TabDef[] = [

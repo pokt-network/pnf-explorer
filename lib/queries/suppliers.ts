@@ -1,16 +1,15 @@
 // Supplier list query (post-MVP scope expansion). Suppliers list shows ACTIVE (Staked) only —
 // there are 10,808 supplier records but ~4,082 currently staked; the rest are long-unstaked noise.
 // id is the operator pokt1 address (links to /account). One request: the fleet function lists the page (largest stake
-// first, then by id) with each supplier's # of services, and the plain list gives the total. Within the first 1000 rows
-// `rowLimit` makes the function compute only the rows up to the page (lib/data/suppliers.ts fleetPage).
+// first, then by id) with each supplier's # of services, and the plain list gives the total. `rowLimit` and
+// `rowOffset` make the function compute only the rows of the page, at any depth (lib/data/suppliers.ts fleetPage).
 
 export const SUPPLIERS_LIST = /* GraphQL */ `
-  query suppliersList($rowLimit: Int, $limit: Int!, $offset: Int!) {
+  query suppliersList($rowLimit: Int, $rowOffset: Int) {
     getSupplierFleetList(
       stakeStatuses: ["Staked"]
       rowLimit: $rowLimit
-      first: $limit
-      offset: $offset
+      rowOffset: $rowOffset
     ) {
       supplierId
       ownerId

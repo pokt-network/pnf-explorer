@@ -61,13 +61,12 @@ export const SERVICE_BY_ID = /* GraphQL */ `
 // Staked suppliers serving the service, largest stake first (fleet function, paged by lib/data/suppliers.ts fleetPage),
 // with the root domains of their endpoints for it; the pager's total is the summary's staked count.
 export const SERVICE_SUPPLIERS = /* GraphQL */ `
-  query serviceSuppliers($id: String!, $rowLimit: Int, $limit: Int!, $offset: Int!) {
+  query serviceSuppliers($id: String!, $rowLimit: Int, $rowOffset: Int) {
     getSupplierFleetList(
       services: [$id]
       stakeStatuses: ["Staked"]
       rowLimit: $rowLimit
-      first: $limit
-      offset: $offset
+      rowOffset: $rowOffset
     ) {
       supplierId
       stakeUpokt
@@ -94,18 +93,11 @@ export const SERVICE_APPLICATIONS = /* GraphQL */ `
   }
 `;
 
-// Relay-mining difficulty history, newest first: the function lists at most `rowLimit` (1000) rows per call, from the
-// row before `beforeHeight`/`beforeServiceId` on; `first`/`offset` page inside them.
+// Relay-mining difficulty history, newest first: the function skips `rowOffset` rows of its order and lists the next
+// `rowLimit` (at most 1000), so a page at any depth is one call.
 export const SERVICE_DIFFICULTY = /* GraphQL */ `
-  query serviceDifficulty($id: String!, $rowLimit: Int!, $beforeHeight: BigInt, $beforeServiceId: String, $limit: Int!, $offset: Int!) {
-    getRelayMiningDifficultyList(
-      services: [$id]
-      rowLimit: $rowLimit
-      beforeHeight: $beforeHeight
-      beforeServiceId: $beforeServiceId
-      first: $limit
-      offset: $offset
-    ) {
+  query serviceDifficulty($id: String!, $rowLimit: Int!, $rowOffset: Int!) {
+    getRelayMiningDifficultyList(services: [$id], rowLimit: $rowLimit, rowOffset: $rowOffset, first: $rowLimit) {
       height
       serviceId
       prevNumRelaysEma

@@ -1,5 +1,5 @@
 // Transaction queries — from assets/api-index/{_shared,list-txs}.md, reading each row's `blockId` instead of the nested
-// block (the indexer's closed schema has no relations; lib/data/blocks.ts withBlocks adds the time).
+// block (the indexer's closed schema has no relations; each row's computed `blockTime` is its block's time, null while the block row is not committed).
 // `transactionsByHeight`/`transactionsByAddress` are the same shape, filtered via $filter:
 //   at-height  → { blockId: { equalTo: <height> } }
 //   by-address → { signerAddress: { equalTo: <addr> } }
@@ -10,6 +10,7 @@ const TX_NODES = /* GraphQL */ `
     id
     code
     blockId
+    blockTime
     gasUsed
     gasWanted
     signerAddress
@@ -57,6 +58,7 @@ export const TRANSACTION_DETAIL = /* GraphQL */ `
       code
       codespace
       blockId
+      blockTime
       gasUsed
       gasWanted
       signerAddress
@@ -85,6 +87,7 @@ export const TRANSFERS_LIST = /* GraphQL */ `
         amounts
         denom
         blockId
+        blockTime
         transactionId
       }
     }

@@ -11,23 +11,17 @@ export interface SupplierRow {
   serviceConfigs: { totalCount: number };
 }
 
-/** Rows `rowLimit` may ask for at most. */
-const FLEET_ROW_LIMIT = 1000;
-
 /**
- * Rows [offset, offset + limit) of a fleet-function list in its order (stake desc, then id), in ONE request either way.
- * Within the first 1000 rows `rowLimit` makes the function compute only the rows up to the page's end, and
- * first/offset pick the page from them; past them the offset mode (no `rowLimit`) computes the whole list on the
- * server once, which costs less than walking a cursor one call per 1000 rows (measured, fleet-paging-probe.txt:
- * /suppliers page 183 is 1 call / ~1.5 s against 5 calls / ~4 s). `read` returns the rows and whatever else its
- * document carries.
+ * Rows [offset, offset + limit) of a fleet-function list in its order (stake desc, then id), in ONE request at any
+ * depth: `rowLimit` and `rowOffset` make the function compute only that page. `read` returns the rows and whatever else
+ * its document carries.
  */
 export async function fleetPage<T, X>(
-  read: (rowLimit: number | null, first: number, skip: number) => Promise<{ rows: T[]; extra: X }>,
+  read: (rowLimit: number, rowOffset: number) => Promise<{ rows: T[]; extra: X }>,
   limit: number,
   offset: number,
 ): Promise<{ rows: T[]; extra: X }> {
-  return read(offset + limit <= FLEET_ROW_LIMIT ? offset + limit : null, limit, offset);
+  return read(limit, offset);
 }
 
 type FleetRow = { supplierId: string; ownerId: string | null; stakeUpokt: string | null; stakeStatus: string | null; serviceCount: string | null };
@@ -35,11 +29,11 @@ type FleetRow = { supplierId: string; ownerId: string | null; stakeUpokt: string
 /** Active (Staked) suppliers, ordered by stake desc (then id), one request per page (see fleetPage). ISR 30s. */
 export async function getSupplierList(network: NetworkId, limit: number, offset: number) {
   const { rows, extra: totalCount } = await fleetPage<FleetRow, number>(
-    (rowLimit, first, skip) =>
+    (rowLimit, rowOffset) =>
       gqlFetch<{ getSupplierFleetList: FleetRow[] | null; suppliers: { totalCount: number } }>(
         network,
         SUPPLIERS_LIST,
-        { rowLimit, limit: first, offset: skip },
+        { rowLimit, rowOffset },
         { revalidate: 30 },
       ).then((d) => ({ rows: d.getSupplierFleetList ?? [], extra: d.suppliers.totalCount })),
     limit,

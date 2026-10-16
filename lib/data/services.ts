@@ -201,11 +201,11 @@ export interface ServiceSupplierRow {
 export async function getServiceSuppliers(network: NetworkId, id: string, limit: number, offset: number) {
   type Row = { supplierId: string; stakeUpokt: string | null; stakeStatus: string | null; serviceDomains: string[] | null };
   const { rows, extra: totalCount } = await fleetPage<Row, number>(
-    (rowLimit, first, skip) =>
+    (rowLimit, rowOffset) =>
       gqlFetch<{ getSupplierFleetList: Row[] | null; summary: { stakedSuppliers: string | null }[] | null }>(
         network,
         SERVICE_SUPPLIERS,
-        { id, rowLimit, limit: first, offset: skip },
+        { id, rowLimit, rowOffset },
         { revalidate: 60 },
       ).then((d) => ({ rows: d.getSupplierFleetList ?? [], extra: Number(d.summary?.[0]?.stakedSuppliers ?? 0) })),
     limit,
@@ -259,39 +259,17 @@ function toDifficultyPoint(r: DifficultyRow): ServiceDifficultyPoint {
   };
 }
 
-/** Rows the difficulty function lists per call at most. */
-const DIFFICULTY_CHUNK = 1000;
-
 /**
- * Relay-mining difficulty / EMA update history for this service (newest first). The function pages by
- * cursor, 1000 rows at a time: a page past the first 1000 rows first walks to its chunk (the last row of
- * each earlier chunk), and a page across a chunk's end reads its rest from the next one. No total:
- * `hasNext` says whether an older page exists. The difficulty function has no offset mode to skip the walk.
+ * Relay-mining difficulty / EMA update history for this service (newest first), the page and one row past it in
+ * one call (`rowOffset`). No total: `hasNext` says whether an older page exists.
  */
 export async function getServiceDifficulty(network: NetworkId, id: string, limit: number, offset: number) {
-  type Cursor = { beforeHeight: string | null; beforeServiceId: string | null };
-  let cursor: Cursor = { beforeHeight: null, beforeServiceId: null };
-  const read = (c: Cursor, first: number, skip: number) =>
-    gqlFetch<{ getRelayMiningDifficultyList: DifficultyRow[] | null }>(
-      network,
-      SERVICE_DIFFICULTY,
-      { id, rowLimit: DIFFICULTY_CHUNK, ...c, limit: first, offset: skip },
-      { revalidate: 60 },
-    ).then((d) => d.getRelayMiningDifficultyList ?? []);
-  for (let chunk = 0; chunk < Math.floor(offset / DIFFICULTY_CHUNK); chunk++) {
-    const last = (await read(cursor, 1, DIFFICULTY_CHUNK - 1))[0];
-    if (!last) return { hasNext: false, nodes: [] as ServiceDifficultyPoint[] };
-    cursor = { beforeHeight: String(last.height), beforeServiceId: last.serviceId ?? id };
-  }
-  // The page and one row past it (hasNext). Whatever of them lies past the chunk's end — a page that crosses it, or
-  // the row after a page that ends it — is read from the next chunk, from the last row read.
-  const want = limit + 1;
-  const within = offset % DIFFICULTY_CHUNK;
-  // a copy: the rows from the next chunk are appended to it, and a read shared in flight hands the same array to others
-  const rows = [...(await read(cursor, Math.min(want, DIFFICULTY_CHUNK - within), within))];
-  if (rows.length < want && within + rows.length === DIFFICULTY_CHUNK && rows.length > 0) {
-    const last = rows[rows.length - 1];
-    rows.push(...(await read({ beforeHeight: String(last.height), beforeServiceId: last.serviceId ?? id }, want - rows.length, 0)));
-  }
+  const data = await gqlFetch<{ getRelayMiningDifficultyList: DifficultyRow[] | null }>(
+    network,
+    SERVICE_DIFFICULTY,
+    { id, rowLimit: limit + 1, rowOffset: offset },
+    { revalidate: 60 },
+  );
+  const rows = data.getRelayMiningDifficultyList ?? [];
   return { hasNext: rows.length > limit, nodes: rows.slice(0, limit).map(toDifficultyPoint) };
 }

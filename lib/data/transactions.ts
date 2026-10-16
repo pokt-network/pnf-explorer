@@ -1,10 +1,9 @@
 import { gqlFetch } from '@/lib/graphql';
 import { lcdFetch } from '@/lib/lcd';
-import { INDEXER_LAG_THRESHOLD } from '@/lib/config';
 import type { NetworkId } from '@/lib/networks';
 import { DataError } from '@/lib/errors';
 import { TRANSACTIONS_LIST, TRANSACTIONS_SUMMARY, TRANSACTION_DETAIL } from '@/lib/queries/transactions';
-import { getBlockTimes, withBlocks, type TxNode } from '@/lib/data/blocks';
+import { withBlocks, type TxNode } from '@/lib/data/blocks';
 import { unwrapRange } from '@/lib/data/range';
 import { roundedNow } from '@/lib/data/window';
 
@@ -42,7 +41,7 @@ export interface TxDetail {
   id: string;
   code: number;
   codespace: string | null;
-  /** The timestamp is null while the block row is not committed (getBlockTimes). */
+  /** The timestamp is null while the block row is not committed. */
   block: { timestamp: string | null; height: string };
   gasUsed: string | null;
   gasWanted: string | null;
@@ -63,7 +62,7 @@ export async function getTransactionsList(network: NetworkId, limit: number, off
     { limit, offset, filter: FILTERS[filter], withCount },
     { revalidate: 15 },
   );
-  return { totalCount: data.transactions.totalCount, nodes: await withBlocks(network, data.transactions.nodes) };
+  return { totalCount: data.transactions.totalCount, nodes: withBlocks(data.transactions.nodes) };
 }
 
 interface TxSums {
@@ -110,39 +109,21 @@ export async function getTransactionsSummary(network: NetworkId, filter: TxFilte
 }
 
 // ---- detail (indexer header) ----
-/** Immutable once the tx's block is buried ≥ threshold below head; short TTL near the tip (§3). */
-function revalidateForHeight(height: number | null, targetHeight: number | null): number | false {
-  if (height != null && targetHeight != null && targetHeight - height >= INDEXER_LAG_THRESHOLD) return false;
-  return 15;
-}
-
 /**
  * Indexer tx header. The indexer stores hashes UPPERCASE and is case-sensitive, so we
  * normalize before querying (a lowercased hash otherwise returns null → false 404).
- * `processedHeight` is the indexer's lastProcessedHeight: blocks at or below it are written whole.
+ * The block's time is the row's own `blockTime`, null while the block row is not committed.
  */
-export async function getTransaction(
-  network: NetworkId,
-  id: string,
-  targetHeight: number | null,
-  processedHeight: number | null,
-): Promise<TxDetail | null> {
+export async function getTransaction(network: NetworkId, id: string): Promise<TxDetail | null> {
   const hash = HEX64.test(id) ? id.toUpperCase() : id;
-  type TxRow = Omit<TxDetail, 'block'> & { blockId: string };
+  type TxRow = Omit<TxDetail, 'block'> & { blockId: string; blockTime: string | null };
   // A short TTL: the height is not known before the row is read, and a hash not indexed yet answers null, which must not
-  // stick. The row itself never changes once found. A second read at `false` to keep it for good would be another
-  // request on every cold page, since each revalidate policy is its own cache entry.
+  // stick.
   const data = await gqlFetch<{ transaction: TxRow | null }>(network, TRANSACTION_DETAIL, { id: hash }, { revalidate: 15 });
   const row = data.transaction;
   if (!row) return null;
-  const rev = revalidateForHeight(Number(row.blockId), targetHeight);
-  // The block's time is a second read. Cached for good like the row only when the block is buried AND at or below the
-  // indexer's last processed height, so its row is written whole and has its time; otherwise 15 s, since a tip tx may
-  // be indexed before its block row is committed (timestamp null meanwhile) and that answer must not stick.
-  const { blockId, ...tx } = row;
-  const whole = processedHeight != null && Number(blockId) <= processedHeight;
-  const timestamp = (await getBlockTimes(network, [blockId], rev === false && whole ? false : 15)).get(String(blockId)) ?? null;
-  return { ...tx, block: { timestamp, height: String(blockId) } };
+  const { blockId, blockTime, ...tx } = row;
+  return { ...tx, block: { timestamp: blockTime, height: String(blockId) } };
 }
 
 // ---- ALWAYS-LCD: Messages / Events / Raw (§2, §8.6.1) ----

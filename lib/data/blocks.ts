@@ -2,7 +2,7 @@ import { gqlFetch } from '@/lib/graphql';
 import { rpcFetch } from '@/lib/lcd';
 import { INDEXER_LAG_THRESHOLD } from '@/lib/config';
 import type { NetworkId } from '@/lib/networks';
-import { BLOCK_BY_HASH, BLOCK_BY_HEIGHT, BLOCK_EXTRAS, BLOCK_LIST, BLOCK_SUMMARY, BLOCK_TIMES } from '@/lib/queries/blocks';
+import { BLOCK_BY_HASH, BLOCK_BY_HEIGHT, BLOCK_EXTRAS, BLOCK_LIST, BLOCK_SUMMARY } from '@/lib/queries/blocks';
 import { TRANSACTIONS_BY_HEIGHT } from '@/lib/queries/transactions';
 import type { FallbackDecision } from '@/lib/types';
 import { unwrapRange } from '@/lib/data/range';
@@ -40,7 +40,7 @@ export interface BlockTx {
   id: string;
   code: number;
   // The height is the row's own; the timestamp is null transiently for a tip tx whose block row is not committed yet
-  // (see getBlockTimes).
+  // (the row's blockTime).
   block: { timestamp: string | null; height: string };
   gasUsed: string | null;
   gasWanted: string | null;
@@ -50,40 +50,12 @@ export interface BlockTx {
   amountSentByDenom: unknown;
 }
 
-/** A transaction row as the indexer lists it: its block's height, without the block (see withBlocks). */
-export type TxNode = Omit<BlockTx, 'block'> & { blockId: string };
+/** A transaction row as the indexer lists it: its block's height and time (null while the block row is not committed). */
+export type TxNode = Omit<BlockTx, 'block'> & { blockId: string; blockTime: string | null };
 
-/**
- * The timestamp of each height asked for, keyed by height. A height whose block row is not visible yet is
- * absent: the indexer commits a block's transactions, transfers and balances before its blocks row (~30-40 s
- * on settlement blocks), so a fresh row can carry a height with no block yet. Callers render that as pending.
- * Lists carry the height alone; this is the second read that puts the time next to it.
- */
-export async function getBlockTimes(network: NetworkId, heights: (string | number)[], revalidate: number | false = 15): Promise<Map<string, string>> {
-  const ids = [...new Set(heights.map(String))];
-  if (ids.length === 0) return new Map();
-  // A block row still being written answers without its time, and that answer is cached for the caller's revalidate
-  // (each policy its own entry): callers ask 15 s, and `false` (for good) only for heights at or below the indexer's last
-  // processed height, written whole.
-  // A failed read drops the times (the rows show "pending"), not the page, and is logged as a failure.
-  try {
-    const data = await gqlFetch<{ blocks: { nodes: { height: string; timestamp: string }[] } }>(
-      network,
-      BLOCK_TIMES,
-      { heights: ids, limit: ids.length },
-      { revalidate },
-    );
-    return new Map(data.blocks.nodes.map((b) => [String(b.height), b.timestamp]));
-  } catch (e) {
-    console.error(`Block times read failed for ${ids.length} height(s): ${(e as Error).message}`);
-    return new Map();
-  }
-}
-
-/** Transaction rows with `block` filled from their heights; its timestamp is null while the block row is not committed. */
-export async function withBlocks(network: NetworkId, nodes: TxNode[]): Promise<BlockTx[]> {
-  const times = await getBlockTimes(network, nodes.map((n) => n.blockId));
-  return nodes.map(({ blockId, ...n }) => ({ ...n, block: { timestamp: times.get(String(blockId)) ?? null, height: String(blockId) } }));
+/** Transaction rows with `block` filled from their own height and time. */
+export function withBlocks(nodes: TxNode[]): BlockTx[] {
+  return nodes.map(({ blockId, blockTime, ...n }) => ({ ...n, block: { timestamp: blockTime, height: String(blockId) } }));
 }
 
 /** The supply rows in force at a block, and its metadata record. */
@@ -150,38 +122,37 @@ export async function resolveBlock(network: NetworkId, idParam: string, fallback
     return getBlockFromRpc(network, idParam);
   }
 
-  // The metadata record and supply rows are extras: a failed read renders the block without them, and a
-  // height past the indexed tip has none to read.
-  const tip = fallback.metadata?.lastProcessedHeight ?? null;
-  const extrasOf = (height: string, revalidate: number | false) =>
-    tip != null && Number(height) > tip ? Promise.resolve(null) : getBlockExtras(network, height, revalidate).catch(() => null);
+  // The metadata record and supply rows ride in the block's own read as extras: a failed read of them renders the block without.
+  type Extras = { metadata: { header: unknown; lastCommit: unknown; blockId: unknown }[] | null; supplies: { denom: string; amount: string }[] | null };
+  const extrasOf = (d: Extras) => ({ metadata: d.metadata?.[0] ?? null, supplies: { nodes: (d.supplies ?? []).map((supply) => ({ supply })) } });
+  const partial = ['metadata', 'supplies'];
 
   if (isHeight) {
     const revalidate = revalidateForHeight(Number(idParam), target);
-    const [data, extras] = await Promise.all([
-      gqlFetch<{ block: BlockDetail | null }>(network, BLOCK_BY_HEIGHT, { height: idParam }, { revalidate }),
-      extrasOf(idParam, revalidate),
-    ]);
-    return data.block ? { ...data.block, ...extras, source: 'indexer' } : null;
+    const data = await gqlFetch<{ block: BlockDetail | null } & Extras>(
+      network,
+      BLOCK_BY_HEIGHT,
+      { height: idParam, supplyHeight: idParam },
+      { revalidate, partial },
+    );
+    return data.block ? { ...data.block, ...extrasOf(data), source: 'indexer' } : null;
   }
 
   if (HEX64.test(idParam)) {
-    const data = await gqlFetch<{ blocks: { nodes: BlockDetail[] } }>(network, BLOCK_BY_HASH, { hash: idParam }, { revalidate: 15 });
+    const data = await gqlFetch<{ blocks: { nodes: BlockDetail[] } } & Extras>(network, BLOCK_BY_HASH, { hash: idParam }, { revalidate: 15, partial });
     const node = data.blocks.nodes[0];
-    return node ? { ...node, ...(await extrasOf(node.height, 15)), source: 'indexer' } : null;
+    return node ? { ...node, ...extrasOf(data), source: 'indexer' } : null;
   }
 
   return null;
 }
 
-/** `timestamp`: the block's time when the caller already has it (the block page), saving the block-time read. */
 export async function getBlockTransactions(
   network: NetworkId,
   height: string,
   limit: number,
   offset: number,
   targetHeight: number | null,
-  timestamp?: string,
 ) {
   const revalidate = revalidateForHeight(Number(height), targetHeight);
   const data = await gqlFetch<{ transactions: { nodes: TxNode[]; totalCount: number } }>(
@@ -190,10 +161,7 @@ export async function getBlockTransactions(
     { limit, offset, filter: { blockId: { equalTo: Number(height) } } },
     { revalidate },
   );
-  const nodes = timestamp
-    ? data.transactions.nodes.map(({ blockId, ...n }): BlockTx => ({ ...n, block: { timestamp, height: String(blockId) } }))
-    : await withBlocks(network, data.transactions.nodes);
-  return { totalCount: data.transactions.totalCount, nodes };
+  return { totalCount: data.transactions.totalCount, nodes: withBlocks(data.transactions.nodes) };
 }
 
 // ---- RPC fallback (Tendermint) — partial; indexer-only metrics are unavailable here (§2) ----

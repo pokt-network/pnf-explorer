@@ -40,7 +40,7 @@ export const BLOCK_SUMMARY = /* GraphQL */ `
 `;
 
 export const BLOCK_BY_HEIGHT = /* GraphQL */ `
-  query blockByHeight($height: BigFloat!) {
+  query blockByHeight($height: BigFloat!, $supplyHeight: BigInt!) {
     block(id: $height) {
       hash
       height: id
@@ -59,6 +59,16 @@ export const BLOCK_BY_HEIGHT = /* GraphQL */ `
       stakedSuppliersTokens
       stakedGatewaysTokens
       size
+    }
+    # The metadata record and supply rows ride along: a failure on them leaves the block (gqlFetch partial).
+    metadata: getBlockMetadataList(height: $supplyHeight) {
+      header
+      lastCommit
+      blockId
+    }
+    supplies: getBlockSuppliesList(height: $supplyHeight) {
+      denom
+      amount
     }
   }
 `;
@@ -87,6 +97,15 @@ export const BLOCK_BY_HASH = /* GraphQL */ `
         size
       }
     }
+    metadata: getBlockMetadataList(hash: $hash) {
+      header
+      lastCommit
+      blockId
+    }
+    supplies: getBlockSuppliesList(hash: $hash) {
+      denom
+      amount
+    }
   }
 `;
 
@@ -102,18 +121,6 @@ export const BLOCK_EXTRAS = /* GraphQL */ `
     supplies: getBlockSuppliesList(height: $supplyHeight) {
       denom
       amount
-    }
-  }
-`;
-
-// The timestamp of each height asked for: a list row carries its block's height, not the block.
-export const BLOCK_TIMES = /* GraphQL */ `
-  query blockTimes($heights: [BigFloat!]!, $limit: Int!) {
-    blocks(filter: { id: { in: $heights } }, first: $limit) {
-      nodes {
-        height: id
-        timestamp
-      }
     }
   }
 `;
