@@ -28,7 +28,10 @@ const SECTIONS: { heading: string; links: { href: string; label: string }[] }[] 
   },
   {
     heading: 'Network',
-    links: [{ href: '/params', label: 'Parameters' }],
+    links: [
+      { href: '/params', label: 'Parameters' },
+      { href: '/migration', label: 'Morse Migration' },
+    ],
   },
 ];
 

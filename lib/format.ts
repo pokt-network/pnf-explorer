@@ -64,6 +64,11 @@ export function formatUpokt(upokt: Numeric): string {
   return groupThousands(toBigInt(upokt).toString());
 }
 
+/** True for a zero amount (upokt or any integer scalar; a fractional part is ignored, like toBigInt). */
+export function isZero(v: Numeric): boolean {
+  return toBigInt(v) === BigInt(0);
+}
+
 /** Plain integer/number with thousands separators. */
 export function formatNumber(v: Numeric): string {
   if (typeof v === 'number' && !Number.isInteger(v)) {
