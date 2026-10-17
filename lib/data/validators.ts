@@ -4,6 +4,7 @@ import { lcdFetch } from '@/lib/lcd';
 import { getMetadata } from '@/lib/metadata';
 import type { NetworkId } from '@/lib/networks';
 import { validatorMoniker } from '@/lib/validator';
+import { withPrefix } from '@/lib/bech32';
 import {
   VALIDATORS_LIST,
   VALIDATOR_BY_ID,
@@ -42,7 +43,6 @@ export interface ValidatorRow {
   stakeDenom: string | null;
   stakeAmount: string | null;
   stakeStatus: string | null;
-  signer?: { id: string } | null;
 }
 
 export interface ValidatorBalance {
@@ -51,10 +51,12 @@ export interface ValidatorBalance {
 }
 
 export interface ValidatorDetail extends ValidatorRow {
-  // The pokt1 operator account (signerId is the valoper; signer.balances is empty). This is the
+  // The pokt1 operator account (signerId is the valoper; its balances are empty). This is the
   // address to use for the signer link, balance, and tx/transfer tab filters.
   signerPoktPrefixId?: string | null;
-  signerPoktPrefix?: { id: string; balances?: { nodes: ValidatorBalance[] } } | null;
+  /** The signer account's balances, read with the validator; null when the address derived from the id is not
+   *  `signerPoktPrefixId` (unknown, never an empty list that would read as no balance). */
+  signerBalances: ValidatorBalance[] | null;
 }
 
 export interface UptimeResult {
@@ -252,13 +254,18 @@ export async function getValidatorList(network: NetworkId, limit: number, offset
 // ---- detail ----
 /** Resolve a validator by its valoper id. Returns null (→ notFound) when absent. */
 export async function getValidator(network: NetworkId, id: string): Promise<ValidatorDetail | null> {
-  const data = await gqlFetch<{ validator: ValidatorDetail | null }>(
+  // The signer's pokt1 address is the valoper's bytes under the account prefix, so its balances join this request.
+  const account = withPrefix(id, 'pokt');
+  // A failed balance read leaves the balance unknown (logged), not the page; any other error still fails it.
+  const data = await gqlFetch<{ validator: Omit<ValidatorDetail, 'signerBalances'> | null; signerBalances: { nodes: ValidatorBalance[] } | null }>(
     network,
     VALIDATOR_BY_ID,
-    { id },
-    { revalidate: 30 },
+    { id, account: account ?? '' },
+    { revalidate: 30, partial: ['signerBalances'] },
   );
-  return data.validator ?? null;
+  const v = data.validator;
+  if (!v) return null;
+  return { ...v, signerBalances: account && account === v.signerPoktPrefixId && data.signerBalances ? data.signerBalances.nodes : null };
 }
 
 /** Read the validator's hex consensus address (`ed25519Id`) — needed to key the uptime query. */
@@ -423,7 +430,7 @@ const dayOf = (ms: number) => Math.floor(ms / DAY_MS) * DAY_MS;
 
 /**
  * Per-validator windows from the trailing-window catalog call, for every validator: the detail card
- * needs the network's latest settlement for `inactive`, and it shares the list's fetch-cache entries.
+ * needs the network's latest settlement for `inactive`, and it shares the list's cache entries.
  * Also the span the catalog covered, and the window a rate is measured against: the covered part of
  * the trailing window, gaps excluded (null: nothing in it is covered).
  */
@@ -431,7 +438,7 @@ async function getRewardsWindows(
   network: NetworkId,
   days: number,
 ): Promise<{ windows: Map<string, RewardsWindow>; coverage: CoveredRange | null; window: CoveredWindow | null; coveredDays: number }> {
-  // The window ends on the hour: the requests — and their fetch-cache keys — then change once an
+  // The window ends on the hour: the requests — and their cache keys — then change once an
   // hour, so only the first visitor after the hour pays for the cold reads (revalidate still
   // refreshes them every 5 minutes). Both reads give up after REWARDS_TIMEOUT_MS: the callers render
   // no rate rather than wait.
@@ -480,7 +487,7 @@ async function getRewardsWindows(
   // and last day by hour — one call per distinct day, in parallel — so the span runs from the hour
   // of its first settlement to the hour of its last. A day whose re-read fails keeps its midnight edges.
   // The re-reads are bounded by the hour-aligned request, not by the covered window, so their
-  // fetch-cache keys do not move with the catalog's coverage; their rows are clipped to it below.
+  // cache keys do not move with the catalog's coverage; their rows are clipped to it below.
   const edgeDays = new Set<number>();
   for (const w of out.values()) {
     edgeDays.add(dayOf(w.firstAt));

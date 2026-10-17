@@ -1,4 +1,5 @@
-// Block queries — verbatim from assets/api-index/{list-blocks,detail-block}.md.
+// Block queries — from assets/api-index/{list-blocks,detail-block}.md, without the nested relations (`supplies`,
+// `metadata`) the indexer's closed schema drops: those are read as their own entities below.
 
 export const BLOCK_LIST = /* GraphQL */ `
   query blockList($limit: Int!, $offset: Int!, $withCount: Boolean = true) {
@@ -19,14 +20,6 @@ export const BLOCK_LIST = /* GraphQL */ `
         totalComputedUnits: totalEstimatedComputedUnits
         proposerAddress
         size
-        supplies {
-          nodes {
-            supply {
-              denom
-              amount
-            }
-          }
-        }
       }
       # A count over every block: skipped where the total is not shown.
       totalCount @include(if: $withCount)
@@ -35,31 +28,19 @@ export const BLOCK_LIST = /* GraphQL */ `
 `;
 
 export const BLOCK_SUMMARY = /* GraphQL */ `
-  query blockSummary($startDate: Datetime!, $endDate: Datetime!) {
-    avgs: blocks(
-      filter: { timestamp: { greaterThanOrEqualTo: $startDate, lessThanOrEqualTo: $endDate } }
-      orderBy: ID_DESC
-      first: 1
-    ) {
+  query blockSummary($rangeStart: Datetime!, $rangeEnd: Datetime!) {
+    latest: blocks(orderBy: ID_DESC, first: 1) {
       nodes {
         height: id
-        totalTxs
-      }
-      aggregates {
-        average {
-          timeToBlock
-          size
-        }
-        sum {
-          totalTxs
-        }
       }
     }
+    # Sums and averages over the window come from the block statistics function, not block aggregates.
+    stats: getBlockStatsJson(rangeStart: $rangeStart, rangeEnd: $rangeEnd)
   }
 `;
 
 export const BLOCK_BY_HEIGHT = /* GraphQL */ `
-  query blockByHeight($height: BigFloat!) {
+  query blockByHeight($height: BigFloat!, $supplyHeight: BigInt!) {
     block(id: $height) {
       hash
       height: id
@@ -78,19 +59,16 @@ export const BLOCK_BY_HEIGHT = /* GraphQL */ `
       stakedSuppliersTokens
       stakedGatewaysTokens
       size
-      supplies {
-        nodes {
-          supply {
-            denom
-            amount
-          }
-        }
-      }
-      metadata {
-        header
-        lastCommit
-        blockId
-      }
+    }
+    # The metadata record and supply rows ride along: a failure on them leaves the block (gqlFetch partial).
+    metadata: getBlockMetadataList(height: $supplyHeight) {
+      header
+      lastCommit
+      blockId
+    }
+    supplies: getBlockSuppliesList(height: $supplyHeight) {
+      denom
+      amount
     }
   }
 `;
@@ -117,20 +95,26 @@ export const BLOCK_BY_HASH = /* GraphQL */ `
         stakedSuppliersTokens
         stakedGatewaysTokens
         size
-        supplies {
-          nodes {
-            supply {
-              denom
-              amount
-            }
-          }
-        }
-        metadata {
-          header
-          lastCommit
-          blockId
-        }
       }
+    }
+    metadata: getBlockMetadataList(hash: $hash) {
+      header
+      lastCommit
+      blockId
+    }
+    supplies: getBlockSuppliesList(hash: $hash) {
+      denom
+      amount
+    }
+  }
+`;
+
+// The supply in force at a block (getBlockSuppliesList: one row per denom with its amount).
+export const BLOCK_SUPPLIES = /* GraphQL */ `
+  query blockSupplies($height: BigInt!) {
+    supplies: getBlockSuppliesList(height: $height) {
+      denom
+      amount
     }
   }
 `;

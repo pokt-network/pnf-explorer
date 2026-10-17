@@ -2,12 +2,13 @@ import { NetLink as Link } from '@/components/shell/NetLink';
 import { Hash } from '@/components/ui/Hash';
 import { EmptyState } from '@/components/ui/states';
 import { getSupplierRouting } from '@/lib/data/suppliers';
-import { getSupplierServiceEarningsCovered } from '@/lib/data/roles';
 import type { SupplierRole } from '@/lib/data/accounts';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt } from '@/lib/format';
 import { absoluteUtc, agoFromBlocks } from '@/lib/time';
 import { HOME_GATEWAYS } from '@/lib/config';
+import { NOT_COVERED_HINT } from '@/lib/data/window';
+import { coveredEmpty } from '@/components/ui/SinceNote';
 
 /**
  * Supplier Traffic tab — the "configured vs. actually-served" view. Lists every configured service
@@ -15,7 +16,7 @@ import { HOME_GATEWAYS } from '@/lib/config';
  * (reconstructed from claims→app→delegation; the signing gateway isn't on-chain, so this is the
  * authorized-routing inference). Idle services (staked, zero claims) render as a first-class state.
  * Relays, claimed, settled and overserviced come from the settlement catalog (the same figures as the owner fleet
- * table); status, last settled and routing from the claim events.
+ * table); status, last settled and routing from its per-application rows (getSupplierRouting).
  */
 export async function SupplierTrafficPanel({
   network,
@@ -32,26 +33,24 @@ export async function SupplierTrafficPanel({
   }
 
   let routing: Awaited<ReturnType<typeof getSupplierRouting>>;
-  // A failed catalog read falls back to the claim events' relays and says the amounts are missing, instead of failing the tab.
-  const earningsRead = getSupplierServiceEarningsCovered(network, supplier.id).catch(() => null);
   try {
     routing = await getSupplierRouting(network, supplier.id);
   } catch {
     return <div className="card flush-top"><EmptyState>Couldn’t load traffic right now.</EmptyState></div>;
   }
 
-  const earnings = await earningsRead;
-  const earned = new Map((earnings?.rows ?? []).map((e) => [e.serviceId, e]));
+  if (routing.coverage.notCovered) {
+    return <div className="card flush-top"><EmptyState>{NOT_COVERED_HINT}</EmptyState></div>;
+  }
+  // Past the catalog's end a service without settlements is not covered yet, rather than idle.
+  const lagging = routing.coverage.dataUntil != null;
 
   // Active services first (by the relays shown), then idle (alphabetical).
   const rows = configured
     .map((serviceId) => {
+      // One settlement-catalog read gives relays, amounts, last height and routing per service.
       const traffic = routing.byService[serviceId] ?? null;
-      const e = earned.get(serviceId) ?? null;
-      // The catalog's relays when it has the service; the claim events' when it has none (read failed, or settlements
-      // newer than its coverage), so an active service never sorts or shows as idle.
-      const relays = e?.relays ?? traffic?.relays ?? null;
-      return { serviceId, traffic, earned: e, relays };
+      return { serviceId, traffic, relays: traffic?.relays ?? null };
     })
     .sort((a, b) => (b.relays ?? -1) - (a.relays ?? -1) || a.serviceId.localeCompare(b.serviceId));
   // Only the configured services count as receiving traffic: settled claims on a service no longer in the config
@@ -61,10 +60,12 @@ export async function SupplierTrafficPanel({
   // Gateways of the configured services only, like the service count.
   const gateways = [...new Set(rows.flatMap((r) => r.traffic?.gateways ?? []))];
   const homeMatches = gateways.filter((g) => HOME_GATEWAYS.includes(g)).length;
-  const gaps = (earnings?.gaps ?? []).map((g) => `${absoluteUtc(g.from)} – ${absoluteUtc(g.to)}`).join(', ');
+  const gaps = routing.coverage.gaps.map((g) => `${absoluteUtc(g.from)} – ${absoluteUtc(g.to)}`).join(', ');
   const summary =
     activeCount === 0
-      ? `Staked but idle — 0 of ${configured.length} services have settled claims.`
+      ? lagging
+        ? coveredEmpty(routing.coverage, `0 of ${configured.length} services have settled claims`)
+        : `Staked but idle — 0 of ${configured.length} services have settled claims.`
       : `${activeCount} of ${configured.length} services receiving traffic · routed via ${gateways.length} gateway${gateways.length === 1 ? '' : 's'}` +
         (HOME_GATEWAYS.length && homeMatches ? ` · ${homeMatches} via your gateway` : '');
 
@@ -75,13 +76,14 @@ export async function SupplierTrafficPanel({
           <div className="k">Traffic</div>
           <div className="v">
             {summary}
-            {earnings == null ? (
+            {lagging ? (
               <div className="muted" style={{ marginTop: 4 }}>
-                Couldn’t load claimed, settled and overserviced amounts right now; relays are from the claim events.
+                Settlements indexed until {absoluteUtc(routing.coverage.dataUntil!)}; newer ones are not covered yet.
               </div>
-            ) : earnings.dataSince != null ? (
+            ) : null}
+            {routing.coverage.dataSince != null ? (
               <div className="muted" style={{ marginTop: 4 }}>
-                Relays and amounts: settlements since {absoluteUtc(earnings.dataSince)}
+                Relays and amounts: settlements since {absoluteUtc(routing.coverage.dataSince)}
                 {gaps ? ` · not indexed: ${gaps}` : ''}
               </div>
             ) : null}
@@ -103,8 +105,8 @@ export async function SupplierTrafficPanel({
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ serviceId, traffic, earned: e, relays }) => {
-              const agoBlocks = traffic && currentHeight != null ? currentHeight - traffic.lastBlock : null;
+            {rows.map(({ serviceId, traffic, relays }) => {
+              const agoBlocks = traffic && traffic.lastBlock != null && currentHeight != null ? currentHeight - traffic.lastBlock : null;
               return (
                 <tr key={serviceId}>
                   <td>
@@ -113,18 +115,20 @@ export async function SupplierTrafficPanel({
                   <td>
                     {traffic ? (
                       <span className="statuspill sm s-ok">Active</span>
+                    ) : lagging ? (
+                      <span className="dim" title={NOT_COVERED_HINT}>—</span>
                     ) : (
                       <span className="muted">Idle</span>
                     )}
                   </td>
                   <td className="num mono">{relays != null ? formatNumber(relays) : <span className="dim">—</span>}</td>
-                  <td className="num mono">{e ? `${formatPokt(e.claimedUpokt)} POKT` : <span className="dim">—</span>}</td>
-                  <td className="num mono">{e ? `${formatPokt(e.settledUpokt)} POKT` : <span className="dim">—</span>}</td>
+                  <td className="num mono">{traffic ? `${formatPokt(traffic.claimedUpokt)} POKT` : <span className="dim">—</span>}</td>
+                  <td className="num mono">{traffic ? `${formatPokt(traffic.settledUpokt)} POKT` : <span className="dim">—</span>}</td>
                   <td className="num mono">
-                    {e && e.overservicedUpokt !== '0' ? <span className="out">{formatPokt(e.overservicedUpokt)} POKT</span> : <span className="dim">—</span>}
+                    {traffic && traffic.overservicedUpokt !== '0' ? <span className="out">{formatPokt(traffic.overservicedUpokt)} POKT</span> : <span className="dim">—</span>}
                   </td>
                   <td>
-                    {traffic ? (
+                    {traffic && traffic.lastBlock != null ? (
                       <>
                         <Link href={`/block/${traffic.lastBlock}`}>{formatNumber(traffic.lastBlock)}</Link>
                         {agoBlocks != null ? <span className="dim"> · {agoFromBlocks(agoBlocks)}</span> : null}

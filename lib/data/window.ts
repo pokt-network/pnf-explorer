@@ -41,7 +41,7 @@ export function windowLabel(days: number): string {
 /**
  * `[now − days, now)` for the money catalog functions (getDelegatorIncomeJson, getValidatorRewardsJson),
  * which take the window as timestamps and resolve the blocks themselves. `now` is rounded down to
- * `stepSeconds` so the request — and with it the fetch-cache key — stays the same for that long.
+ * `stepSeconds` so the request — and with it the cache key — stays the same for that long.
  *
  * The catalog raises for a range that starts before its first written settlement (mainnet: March
  * 2026 as of 2026-10-06, moving toward genesis; beta: genesis). Once pocketdex's range contract is
@@ -49,7 +49,15 @@ export function windowLabel(days: number): string {
  * 30-day window starts well inside it either way.
  */
 export function trailingRange(days: number, stepSeconds: number): { rangeStart: string; rangeEnd: string } {
-  const step = stepSeconds * 1000;
-  const end = Math.floor(Date.now() / step) * step;
+  const end = roundedNow(stepSeconds);
   return { rangeStart: new Date(end - days * 86_400_000).toISOString(), rangeEnd: new Date(end).toISOString() };
+}
+
+/**
+ * Now, rounded down to `stepSeconds`: a request built from it (and with it the cache key) stays the same for
+ * that long, so `revalidate` applies instead of every render asking anew.
+ */
+export function roundedNow(stepSeconds = 60): number {
+  const step = stepSeconds * 1000;
+  return Math.floor(Date.now() / step) * step;
 }

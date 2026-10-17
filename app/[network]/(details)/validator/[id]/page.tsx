@@ -50,10 +50,6 @@ export default async function ValidatorDetailPage({
   // The operator account is the pokt1-prefixed address, NOT signerId (which is the valoper).
   const operator = validator.signerPoktPrefixId ?? validator.signerId;
 
-  // Signer balance (upokt) lives on signerPoktPrefix (signer.balances is empty).
-  const signerBalances = validator.signerPoktPrefix?.balances?.nodes ?? [];
-  const signerBalance = signerBalances.find((b) => b.denom === 'upokt') ?? signerBalances[0] ?? null;
-
   // Parallelize the tab data that the page needs to seed badges + the always-LCD/uptime panels.
   // Unbonding is Cosmos-side (LCD) and only relevant while the validator is Unstaking.
   const [counts, uptime, delegators, chain, unbonding] = await Promise.all([
@@ -65,6 +61,9 @@ export default async function ValidatorDetailPage({
     getValidatorChainStates(network),
     validator.stakeStatus === 'Unstaking' ? getValidatorUnbonding(network, validator.id) : Promise.resolve(null),
   ]);
+  // Signer balance (upokt) lives on the pokt1 account (the valoper's balances are empty), read with the validator.
+  const signerBalances = validator.signerBalances;
+  const signerBalance = signerBalances?.find((b) => b.denom === 'upokt') ?? signerBalances?.[0] ?? null;
 
   const chainEntry = chain.byValoper.get(validator.id);
   const state = deriveValidatorState(chainEntry, chain.ok);

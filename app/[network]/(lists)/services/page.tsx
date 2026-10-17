@@ -36,7 +36,7 @@ export default async function ServicesPage({
   const sign = dir === 'asc' ? 1 : -1;
   const sorted = [...all].sort((a, b) => {
     if (sort === 'cu') return sign * (Number(a.computeUnitsPerRelay ?? 0) - Number(b.computeUnitsPerRelay ?? 0));
-    if (sort === 'suppliers') return sign * (a.activeSuppliers - b.activeSuppliers);
+    if (sort === 'suppliers') return sign * ((a.activeSuppliers ?? -1) - (b.activeSuppliers ?? -1));
     return sign * (a.name ?? a.id).localeCompare(b.name ?? b.id);
   });
 
@@ -91,7 +91,7 @@ export default async function ServicesPage({
                   </td>
                   <td className="mono dim">{s.id}</td>
                   <td className="num">{s.computeUnitsPerRelay != null ? formatNumber(s.computeUnitsPerRelay) : '—'}</td>
-                  <td className="num">{formatNumber(s.activeSuppliers)}</td>
+                  <td className="num">{s.activeSuppliers != null ? formatNumber(s.activeSuppliers) : <span className="dim" title="Couldn’t load the supplier counts right now.">—</span>}</td>
                   <td className="mono">
                     {s.ownerId ? <Hash value={s.ownerId} href={`/account/${s.ownerId}`} /> : <span className="dim">—</span>}
                   </td>

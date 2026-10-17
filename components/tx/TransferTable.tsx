@@ -29,7 +29,7 @@ export function TransferTable({ transfers, address, empty = 'No transfers for th
             return (
               <tr key={t.id}>
                 <td>
-                  <Hash value={t.transaction.id} href={`/tx/${t.transaction.id}`} />
+                  <Hash value={t.transactionId} href={`/tx/${t.transactionId}`} />
                 </td>
                 <td>
                   <span className={`dirtag ${out ? 'dir-out' : 'dir-in'}`}>{out ? 'OUT' : 'IN'}</span>
@@ -38,7 +38,7 @@ export function TransferTable({ transfers, address, empty = 'No transfers for th
                   <Hash value={counterparty} href={`/account/${counterparty}`} />
                 </td>
                 <td>
-                  {t.block ? <Link href={`/block/${t.block.height}`}>{formatNumber(t.block.height)}</Link> : <span className="dim">—</span>}
+                  <Link href={`/block/${t.block.height}`}>{formatNumber(t.block.height)}</Link>
                 </td>
                 <td className={`num mono ${out ? 'out' : 'in'}`} title={`${formatUpokt(upokt)} upokt`}>
                   {out ? '−' : '+'}

@@ -1,5 +1,6 @@
 import { gqlFetch } from '@/lib/graphql';
 import { lcdFetch } from '@/lib/lcd';
+import { firstPerId } from '@/lib/data/range';
 import type { NetworkId } from '@/lib/networks';
 import {
   SERVICES_LIST,
@@ -15,8 +16,8 @@ import {
 const SERVICES_TTL = 12 * 60 * 60;
 
 // Services data layer (indexer, plus one LCD read for the on-chain metadata card —
-// getServiceCard). "Active" counts/lists filter to currently-Staked suppliers/apps —
-// see lib/queries/services.ts for why a filtered totalCount is the distinct count.
+// getServiceCard). "Active" counts/lists filter to currently-Staked suppliers/apps, from the
+// service summary and fleet functions — see lib/queries/services.ts.
 
 export interface ServiceDifficultyPoint {
   blockId: string;
@@ -30,7 +31,6 @@ export interface ServiceDetail {
   name: string | null;
   computeUnitsPerRelay: string | null;
   ownerId: string | null;
-  owner: { id: string } | null;
   latestDiff: { nodes: ServiceDifficultyPoint[] };
 }
 
@@ -55,7 +55,8 @@ export interface ServiceListRow {
 }
 
 export interface ServiceListRowWithCount extends ServiceListRow {
-  activeSuppliers: number;
+  /** Null when the counts could not be read (failed, or the walk hit its cap): unknown, not 0. */
+  activeSuppliers: number | null;
 }
 
 // The indexer caps connection page size at 1000 (verified 2026-10-06: `services(first: 1000)` returns all 263 mainnet services).
@@ -72,24 +73,35 @@ export async function getServiceList(network: NetworkId, limit: number, offset: 
   return data.services;
 }
 
+/** The query limit of both endpoints: a function list without `first` returns at most this many rows. */
+const SUMMARY_LIMIT = 1000;
+
 /**
- * Active (Staked) supplier count per service id, every service in one grouped query. 12h ISR —
- * these move slowly. Map keyed by id; missing ids → 0.
+ * Active (Staked) supplier count per service id, every service from the service summary function. 12h ISR —
+ * these move slowly. Map keyed by id; missing ids → 0. Null when a read failed. A function list stops at the query limit
+ * (1000 rows on both endpoints, measured 2026-10-15) without saying so, so it is read page by page until one is short.
  */
-export async function getServiceActiveSupplierCounts(network: NetworkId): Promise<Map<string, number>> {
-  const map = new Map<string, number>();
+export async function getServiceActiveSupplierCounts(network: NetworkId): Promise<Map<string, number> | null> {
   try {
-    const data = await gqlFetch<{
-      supplierServiceConfigs: { groupedAggregates: { keys: string[] | null; distinctCount: { id: string | null } | null }[] | null } | null;
-    }>(network, SERVICE_ACTIVE_SUPPLIER_COUNTS, {}, { revalidate: SERVICES_TTL });
-    for (const g of data.supplierServiceConfigs?.groupedAggregates ?? []) {
-      const id = g.keys?.[0];
-      if (id) map.set(id, Number(g.distinctCount?.id ?? 0));
+    const rows: { serviceId: string; stakedSuppliers: string | null }[] = [];
+    for (let page = 0; page < 20; page++) {
+      const data = await gqlFetch<{ getServiceSummaryList: typeof rows | null }>(
+        network,
+        SERVICE_ACTIVE_SUPPLIER_COUNTS,
+        { first: SUMMARY_LIMIT, offset: page * SUMMARY_LIMIT },
+        { revalidate: SERVICES_TTL },
+      );
+      const got = data.getServiceSummaryList ?? [];
+      rows.push(...got);
+      if (got.length < SUMMARY_LIMIT) break;
+      // 20 full pages is not a network this page was built for: unknown rather than a partial count.
+      if (page === 19) return null;
     }
+    return new Map(rows.map((r) => [r.serviceId, Number(r.stakedSuppliers ?? 0)]));
   } catch {
-    /* counts unset → rows render 0 */
+    // Unknown, not 0: the list shows a dash.
+    return null;
   }
-  return map;
 }
 
 /**
@@ -106,7 +118,8 @@ export async function getAllServicesWithCounts(network: NetworkId): Promise<Serv
     if (nodes.length === 0 || all.length >= totalCount) break;
   }
   const counts = await countsP;
-  return all.map((n) => ({ ...n, activeSuppliers: counts.get(n.id) ?? 0 }));
+  // A service missing from a complete read has no Staked supplier (0); with no read at all the count is unknown.
+  return all.map((n) => ({ ...n, activeSuppliers: counts ? (counts.get(n.id) ?? 0) : null }));
 }
 
 /**
@@ -145,44 +158,68 @@ function cardDescription(card: Record<string, unknown> | null): string | null {
 export async function getService(network: NetworkId, id: string): Promise<ServiceSummary | null> {
   const [data, card] = await Promise.all([
     gqlFetch<{
-      service: ServiceDetail | null;
-      activeSuppliers: { totalCount: number } | null;
-      totalSuppliers: { totalCount: number } | null;
-      activeApps: { totalCount: number } | null;
+      service: Omit<ServiceDetail, 'latestDiff'> | null;
+      summary:
+        | {
+            stakedSuppliers: string | null;
+            suppliers: string | null;
+            stakedApplications: string | null;
+            numRelaysEma: string | null;
+            targetHashHex: string | null;
+            difficultyUpdatedHeight: string | null;
+          }[]
+        | null;
     }>(network, SERVICE_BY_ID, { id }, { revalidate: 60 }),
     getServiceCard(network, id),
   ]);
   if (!data.service) return null;
+  // No summary row: no supplier config or application for the service at all (0, as the old counts said).
+  const summary = data.summary?.[0];
+  const count = (v: string | null | undefined) => (data.summary ? Number(v ?? 0) : null);
   return {
-    service: data.service,
-    activeSuppliers: data.activeSuppliers?.totalCount ?? null,
-    totalSuppliers: data.totalSuppliers?.totalCount ?? null,
-    activeApps: data.activeApps?.totalCount ?? null,
+    // The current difficulty is the summary's newest update (none when the service never had one).
+    service: {
+      ...data.service,
+      latestDiff: {
+        nodes:
+          summary?.difficultyUpdatedHeight != null
+            ? [{ blockId: String(summary.difficultyUpdatedHeight), newNumRelaysEma: summary.numRelaysEma, newTargetHashHexEncoded: summary.targetHashHex }]
+            : [],
+      },
+    },
+    activeSuppliers: count(summary?.stakedSuppliers),
+    totalSuppliers: count(summary?.suppliers),
+    activeApps: count(summary?.stakedApplications),
     description: cardDescription(card),
     card,
   };
 }
 
-export interface ServiceEndpoint {
-  url?: string;
-  rpcType?: number;
-}
 export interface ServiceSupplierRow {
   supplierId: string;
   domains: string[] | null;
-  endpoints: ServiceEndpoint[] | null;
   supplier: { stakeAmount: string | null; stakeStatus: string | null } | null;
 }
 
-/** Active (Staked) suppliers serving this service. */
+/** Active (Staked) suppliers serving this service, largest stake first, with the root domains of their endpoints for it. */
 export async function getServiceSuppliers(network: NetworkId, id: string, limit: number, offset: number) {
-  const data = await gqlFetch<{ supplierServiceConfigs: { totalCount: number; nodes: ServiceSupplierRow[] } }>(
+  type Row = { supplierId: string; stakeUpokt: string | null; stakeStatus: string | null; serviceDomains: string[] | null };
+  const data = await gqlFetch<{ getSupplierFleetList: Row[] | null; summary: { stakedSuppliers: string | null }[] | null }>(
     network,
     SERVICE_SUPPLIERS,
-    { id, limit, offset },
+    { id, rowLimit: limit, rowOffset: offset },
     { revalidate: 60 },
   );
-  return data.supplierServiceConfigs;
+  return {
+    totalCount: Number(data.summary?.[0]?.stakedSuppliers ?? 0),
+    nodes: firstPerId(data.getSupplierFleetList ?? [], (s) => s.supplierId).map(
+      (s): ServiceSupplierRow => ({
+        supplierId: s.supplierId,
+        domains: s.serviceDomains,
+        supplier: { stakeAmount: s.stakeUpokt, stakeStatus: s.stakeStatus },
+      }),
+    ),
+  };
 }
 
 export interface ServiceApplicationRow {
@@ -190,21 +227,48 @@ export interface ServiceApplicationRow {
   application: { stakeAmount: string | null; stakeStatus: string | null } | null;
 }
 
-/** Active (Staked) applications staked for this service. */
+/** Active (Staked) applications staked for this service, largest stake first. */
 export async function getServiceApplications(network: NetworkId, id: string, limit: number, offset: number) {
-  const data = await gqlFetch<{ applicationServices: { totalCount: number; nodes: ServiceApplicationRow[] } }>(
-    network,
-    SERVICE_APPLICATIONS,
-    { id, limit, offset },
-    { revalidate: 60 },
-  );
-  return data.applicationServices;
+  const data = await gqlFetch<{
+    getApplicationFleetList: { applicationId: string; stakeUpokt: string | null; stakeStatus: string | null }[] | null;
+    summary: { stakedApplications: string | null }[] | null;
+  }>(network, SERVICE_APPLICATIONS, { id, limit, offset }, { revalidate: 60 });
+  return {
+    totalCount: Number(data.summary?.[0]?.stakedApplications ?? 0),
+    nodes: firstPerId(data.getApplicationFleetList ?? [], (a) => a.applicationId).map(
+      (a): ServiceApplicationRow => ({ applicationId: a.applicationId, application: { stakeAmount: a.stakeUpokt, stakeStatus: a.stakeStatus } }),
+    ),
+  };
 }
 
-/** Relay-mining difficulty / EMA update history for this service (newest first). */
+interface DifficultyRow {
+  height: string;
+  serviceId?: string;
+  prevNumRelaysEma?: string | null;
+  newNumRelaysEma: string | null;
+  newTargetHashHex: string | null;
+}
+
+function toDifficultyPoint(r: DifficultyRow): ServiceDifficultyPoint {
+  return {
+    blockId: String(r.height),
+    prevNumRelaysEma: r.prevNumRelaysEma,
+    newNumRelaysEma: r.newNumRelaysEma,
+    newTargetHashHexEncoded: r.newTargetHashHex,
+  };
+}
+
+/**
+ * Relay-mining difficulty / EMA update history for this service (newest first), the page and one row past it in
+ * one call (`rowOffset`). No total: `hasNext` says whether an older page exists.
+ */
 export async function getServiceDifficulty(network: NetworkId, id: string, limit: number, offset: number) {
-  const data = await gqlFetch<{
-    service: { relayMiningDifficultyUpdatedEvents: { totalCount: number; nodes: ServiceDifficultyPoint[] } } | null;
-  }>(network, SERVICE_DIFFICULTY, { id, limit, offset }, { revalidate: 60 });
-  return data.service?.relayMiningDifficultyUpdatedEvents ?? { totalCount: 0, nodes: [] };
+  const data = await gqlFetch<{ getRelayMiningDifficultyList: DifficultyRow[] | null }>(
+    network,
+    SERVICE_DIFFICULTY,
+    { id, rowLimit: limit + 1, rowOffset: offset },
+    { revalidate: 60 },
+  );
+  const rows = data.getRelayMiningDifficultyList ?? [];
+  return { hasNext: rows.length > limit, nodes: rows.slice(0, limit).map(toDifficultyPoint) };
 }

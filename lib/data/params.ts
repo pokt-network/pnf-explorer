@@ -7,7 +7,7 @@ export interface ParamNode {
   id: string;
   key: string;
   value: unknown;
-  block: { height: string } | null;
+  blockId: string | null;
 }
 
 export interface ParamGroup {

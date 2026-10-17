@@ -29,8 +29,9 @@ export async function AccountRoleView({
   txsPage: string | undefined;
   transfersPage: string | undefined;
 }) {
-  const counts = await addressTabCounts(network, address);
   const balance = profile.account?.balances?.nodes?.find((b) => b.denom === 'upokt') ?? profile.account?.balances?.nodes?.[0] ?? null;
+  const updatedAt = balance?.lastUpdatedTime ?? null;
+  const counts = await addressTabCounts(network, address);
   const rawData = profile.account ?? { id: address, balances: { nodes: [] } };
 
   const tabs: TabDef[] = [
@@ -74,11 +75,15 @@ export async function AccountRoleView({
           </div>
           <div className="upokt">{formatUpokt(balance?.amount ?? '0')} upokt</div>
           {balance?.lastUpdatedBlock ? (
-            <div className="upd" title={absoluteUtc(balance.lastUpdatedBlock.timestamp)}>
+            <div className="upd" title={updatedAt ? absoluteUtc(updatedAt) : undefined}>
               Last updated at block{' '}
               <Link href={`/block/${balance.lastUpdatedBlock.height}`}>{formatNumber(balance.lastUpdatedBlock.height)}</Link>
-              {' · '}
-              {relativeTime(balance.lastUpdatedBlock.timestamp)}
+              {updatedAt ? (
+                <>
+                  {' · '}
+                  {relativeTime(updatedAt)}
+                </>
+              ) : null}
             </div>
           ) : null}
         </div>

@@ -32,12 +32,13 @@ export async function ServiceSuppliersPanel({ network, id, page }: { network: Ne
             <tr>
               <th>Supplier</th>
               <th className="num">Stake</th>
-              <th>Endpoint</th>
+              <th>Endpoint domains</th>
             </tr>
           </thead>
           <tbody>
             {data.nodes.map((s) => {
-              const endpoint = s.endpoints?.[0]?.url ?? (s.domains?.length ? s.domains.join(', ') : null);
+              // The fleet function gives each supplier's endpoint root domains for this service, not the URLs.
+              const endpoint = s.domains?.length ? s.domains.join(', ') : null;
               return (
                 <tr key={s.supplierId}>
                   <td className="mono">
@@ -126,7 +127,7 @@ export async function ServiceDifficultyPanel({ network, id, page }: { network: N
         </table>
       </div>
       {data.nodes.length === 0 ? <EmptyState>No relay-mining difficulty updates recorded.</EmptyState> : null}
-      {data.totalCount > TAB_LIMIT ? <Pager page={page} pageSize={TAB_LIMIT} totalCount={data.totalCount} param="mining" /> : null}
+      {page > 1 || data.hasNext ? <Pager page={page} pageSize={TAB_LIMIT} totalCount={null} hasNext={data.hasNext} param="mining" /> : null}
     </div>
   );
 }

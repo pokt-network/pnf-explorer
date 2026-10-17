@@ -11,6 +11,7 @@ import { getRevShareIncome } from '@/lib/data/roles';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt } from '@/lib/format';
 import { parsePage } from '@/lib/paging';
+import { SinceNote } from '@/components/ui/SinceNote';
 
 const LIMIT = 25;
 
@@ -47,7 +48,7 @@ function ReceivedSkeleton() {
 
 /**
  * Lifetime rev-share income. Streamed separately from the configs table because it is the one
- * genuinely expensive read on this page — see getRevShareIncome for the measurements.
+ * genuinely expensive read on this page — see getRevShareIncome.
  */
 async function ReceivedLine({ network, address }: { network: NetworkId; address: string }) {
   const income = await getRevShareIncome(network, address).catch(() => null);
@@ -57,10 +58,12 @@ async function ReceivedLine({ network, address }: { network: NetworkId; address:
       <div className="line">
         <div className="k">Received</div>
         <div className="v">
-          <b>{formatPokt(income.totalUpokt)} POKT</b>{' '}
-          <span className="dim">
-            lifetime, from every paying supplier · {formatNumber(income.transfers)} settlement transfers
-          </span>
+          <b>{income.notCovered ? '—' : `${formatPokt(income.totalUpokt)} POKT`}</b>{' '}
+          {income.notCovered ? null : (
+            <span className="dim">
+              lifetime, from every paying supplier · {formatNumber(income.transfers)} settlement transfers
+            </span>
+          )}
           {income.byReason.length > 0 ? (
             <div className="muted" style={{ marginTop: 4 }}>
               {income.byReason.map((r, i) => (
@@ -71,6 +74,7 @@ async function ReceivedLine({ network, address }: { network: NetworkId; address:
               ))}
             </div>
           ) : null}
+          <SinceNote c={income} />
         </div>
       </div>
     </div>
@@ -98,7 +102,7 @@ async function IncomePanel({ network, address, page }: { network: NetworkId; add
 
   return (
     <div className="card flush-top">
-      {/* The lifetime figure is ~5s of indexer aggregate against the configs table's ~0.6s. Behind
+      {/* The lifetime figure was ~5s of indexer aggregate against the configs table's ~0.6s. Behind
           its own boundary it streams in after the table has already painted, instead of holding the
           whole panel hostage to the slowest number on it. */}
       <Suspense fallback={<ReceivedSkeleton />}>

@@ -88,6 +88,32 @@ export function coveredMs(w: CoveredWindow, a: number, b: number): number {
 /** An end short of the request by less than this is the indexer's normal lag behind the newest block, not missing data. */
 const END_SLACK_MS = 3_600_000;
 
+/** What a lifetime catalog answer (open range) covers, for the figures read from it. */
+export interface Coverage {
+  /** Where the data starts (epoch ms); null from an indexer without the range contract. */
+  dataSince: number | null;
+  /** Where the data ends when that is over END_SLACK_MS behind now (the money step lags indexing); else null. */
+  dataUntil: number | null;
+  /** Stretches inside the data with nothing indexed. */
+  gaps: { from: number; to: number }[];
+  /** Nothing is covered: the figures are unknown, not 0. */
+  notCovered: boolean;
+}
+
+/**
+ * The coverage of a lifetime answer. A 0 or a missing row means "none" only inside it: when `notCovered`,
+ * or past `dataUntil`, it means "not covered yet".
+ */
+export function lifetimeCoverage(range: CoveredRange | null): Coverage {
+  const w = coveredWindow(range, -Infinity, Infinity);
+  return {
+    dataSince: range && w && Number.isFinite(w.from) ? w.from : null,
+    dataUntil: range && w && w.to < Date.now() - END_SLACK_MS ? w.to : null,
+    gaps: w?.gaps ?? [],
+    notCovered: range != null && w == null,
+  };
+}
+
 /** Whether `coveredDays` of data is the whole of a `windowDays` window, by the same slack coverageNote gives the end. */
 export function coversWholeWindow(windowDays: number, coveredDays: number): boolean {
   return (windowDays - coveredDays) * 86_400_000 <= END_SLACK_MS;
@@ -114,4 +140,14 @@ export function coverageNote(range: CoveredRange | null): string | null {
   else if (until) parts.push(`Data until ${until}`);
   if (w.gaps.length > 0) parts.push(`gaps: ${w.gaps.map((g) => `${absoluteUtc(g.from)} – ${absoluteUtc(g.to)}`).join(', ')}`);
   return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+/**
+ * One row per id, the first kept. A GraphQL request is not one snapshot: while the indexer commits a block in pieces
+ * (~30-40 s on settlement blocks), an actor restaked in it has two live versions, and an unpinned list or fleet
+ * function can return it twice.
+ */
+export function firstPerId<T>(rows: T[], id: (r: T) => string): T[] {
+  const seen = new Set<string>();
+  return rows.filter((r) => (seen.has(id(r)) ? false : (seen.add(id(r)), true)));
 }

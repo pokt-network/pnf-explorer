@@ -13,6 +13,7 @@ import type { ApplicationRoleView as AppView } from '@/lib/data/roles';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, formatPoktCompact, formatCompact } from '@/lib/format';
 import { agoFromBlocks } from '@/lib/time';
+import { SinceNote, coveredEmpty } from '@/components/ui/SinceNote';
 import { parsePage } from '@/lib/paging';
 
 /**
@@ -24,7 +25,8 @@ function UsagePanel({ view, currentHeight }: { view: AppView; currentHeight: num
   if (view.byService.length === 0) {
     return (
       <div className="card flush-top">
-        <EmptyState>This application has no settled claims yet — nothing has been served for it.</EmptyState>
+        <EmptyState>{coveredEmpty(view, 'No settled claims for this application — nothing served for it')}</EmptyState>
+        <SinceNote c={view} />
       </div>
     );
   }
@@ -39,6 +41,7 @@ function UsagePanel({ view, currentHeight }: { view: AppView; currentHeight: num
             <div className="muted" style={{ marginTop: 4 }}>
               Amounts on an application are what it paid suppliers, not what it earned.
             </div>
+            <SinceNote c={view} />
           </div>
         </div>
       </div>
@@ -55,7 +58,7 @@ function UsagePanel({ view, currentHeight }: { view: AppView; currentHeight: num
           </thead>
           <tbody>
             {view.byService.map((s) => {
-              const agoBlocks = currentHeight != null ? currentHeight - s.lastBlock : null;
+              const agoBlocks = currentHeight != null && s.lastBlock != null ? currentHeight - s.lastBlock : null;
               return (
                 <tr key={s.serviceId}>
                   <td>
@@ -67,7 +70,7 @@ function UsagePanel({ view, currentHeight }: { view: AppView; currentHeight: num
                   <td className="num mono">{formatNumber(s.relays)}</td>
                   <td className="num mono">{formatPokt(s.claimedUpokt)}</td>
                   <td>
-                    <Link href={`/block/${s.lastBlock}`}>{formatNumber(s.lastBlock)}</Link>
+                    {s.lastBlock != null ? <Link href={`/block/${s.lastBlock}`}>{formatNumber(s.lastBlock)}</Link> : <span className="dim">—</span>}
                     {agoBlocks != null ? <span className="dim"> · {agoFromBlocks(agoBlocks)}</span> : null}
                   </td>
                 </tr>
@@ -172,8 +175,8 @@ export function ApplicationRoleView({
     <>
       <RoleStats>
         <SummaryCard label="Stake" dot={DOT.gold} value={formatPokt(view.stakeAmount)} unit="POKT" />
-        <SummaryCard label="Relays Served" dot={DOT.blue} value={formatCompact(view.totals.relays)} />
-        <SummaryCard label="Spent" dot={DOT.coral} value={formatPoktCompact(view.totals.claimedUpokt)} unit="POKT" />
+        <SummaryCard label="Relays Served" dot={DOT.blue} value={view.notCovered ? '—' : formatCompact(view.totals.relays)} />
+        <SummaryCard label="Spent" dot={DOT.coral} value={view.notCovered ? '—' : formatPoktCompact(view.totals.claimedUpokt)} unit="POKT" />
         <SummaryCard label="Gateways" dot={DOT.lavender} value={formatNumber(view.gatewayCount)} />
       </RoleStats>
 
@@ -223,11 +226,11 @@ export function ApplicationRoleView({
             </div>
           </div>
         ) : null}
-        {view.overservicedCount > 0 ? (
+        {view.overservicedUpokt !== '0' ? (
           <div className="line">
             <div className="k">Overserviced</div>
             <div className="v">
-              {formatNumber(view.overservicedCount)} <span className="dim">event(s) — suppliers served beyond what this app could pay</span>
+              {formatPokt(view.overservicedUpokt)} POKT <span className="dim">unpaid — suppliers served beyond what this app could pay</span>
             </div>
           </div>
         ) : null}

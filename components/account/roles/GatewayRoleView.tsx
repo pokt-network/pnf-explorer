@@ -12,26 +12,19 @@ import type { GatewayRoleView as GatewayView } from '@/lib/data/roles';
 import type { NetworkId } from '@/lib/networks';
 import { formatNumber, formatPokt, formatPoktCompact, formatCompact } from '@/lib/format';
 import { agoFromBlocks } from '@/lib/time';
+import { SinceNote, coveredEmpty } from '@/components/ui/SinceNote';
 import { parsePage } from '@/lib/paging';
 
 /**
  * Traffic tab — what actually flows through this gateway, per service. A gateway signs relays but is
  * never recorded on a claim, proof or relay, so this is reconstructed from the settled claims of the
- * apps that delegate to it: authorized-routing inference, not cryptographic attribution. Same basis
- * as the supplier Traffic tab, in the opposite direction.
+ * apps delegated to it at each settlement: authorized-routing inference, not cryptographic attribution.
+ * Same basis as the supplier Traffic tab, in the opposite direction.
  */
 async function TrafficPanel({ network, view, currentHeight }: { network: NetworkId; view: GatewayView; currentHeight: number | null }) {
-  if (view.appIds.length === 0) {
-    return (
-      <div className="card flush-top">
-        <EmptyState>No applications delegate to this gateway, so no traffic can be attributed to it.</EmptyState>
-      </div>
-    );
-  }
-
   let t: Awaited<ReturnType<typeof getGatewayTraffic>>;
   try {
-    t = await getGatewayTraffic(network, view.appIds);
+    t = await getGatewayTraffic(network, view.id);
   } catch {
     return (
       <div className="card flush-top">
@@ -42,7 +35,8 @@ async function TrafficPanel({ network, view, currentHeight }: { network: Network
   if (t.totals.claims === 0) {
     return (
       <div className="card flush-top">
-        <EmptyState>The applications delegating to this gateway have no settled claims yet.</EmptyState>
+        <EmptyState>{coveredEmpty(t, 'No settled claims from applications delegated to this gateway')}</EmptyState>
+        <SinceNote c={t} />
       </div>
     );
   }
@@ -54,17 +48,12 @@ async function TrafficPanel({ network, view, currentHeight }: { network: Network
           <div className="k">Routed traffic</div>
           <div className="v">
             <b>{formatNumber(t.totals.relays)}</b> relays{' '}
-            <span className="dim">
-              · {formatPokt(t.totals.claimedUpokt)} POKT claimed · across {formatNumber(view.appIds.length)} delegating app
-              {view.appIds.length === 1 ? '' : 's'}
-            </span>
+            <span className="dim">· {formatPokt(t.totals.claimedUpokt)} POKT claimed</span>
             <div className="muted" style={{ marginTop: 4 }}>
               Inferred: the signing gateway is not recorded on-chain, so this is the traffic of the apps authorized to route through
-              this gateway.
-              {view.truncated
-                ? ` Covers the first ${formatNumber(view.appIds.length)} of ${formatNumber(view.appCount)} delegating apps.`
-                : ''}
+              this gateway, each settlement counted for the apps delegated to it at that block.
             </div>
+            <SinceNote c={t} />
           </div>
         </div>
       </div>
@@ -80,7 +69,7 @@ async function TrafficPanel({ network, view, currentHeight }: { network: Network
           </thead>
           <tbody>
             {t.byService.map((s) => {
-              const agoBlocks = currentHeight != null ? currentHeight - s.lastBlock : null;
+              const agoBlocks = currentHeight != null && s.lastBlock != null ? currentHeight - s.lastBlock : null;
               return (
                 <tr key={s.serviceId}>
                   <td>
@@ -91,7 +80,7 @@ async function TrafficPanel({ network, view, currentHeight }: { network: Network
                   <td className="num mono">{formatNumber(s.relays)}</td>
                   <td className="num mono">{formatPokt(s.claimedUpokt)}</td>
                   <td>
-                    <Link href={`/block/${s.lastBlock}`}>{formatNumber(s.lastBlock)}</Link>
+                    {s.lastBlock != null ? <Link href={`/block/${s.lastBlock}`}>{formatNumber(s.lastBlock)}</Link> : <span className="dim">—</span>}
                     {agoBlocks != null ? <span className="dim"> · {agoFromBlocks(agoBlocks)}</span> : null}
                   </td>
                 </tr>
@@ -148,9 +137,9 @@ export function GatewayRoleView({
     <>
       <RoleStats>
         <SummaryCard label="Stake" dot={DOT.lavender} value={formatPokt(view.stakeAmount)} unit="POKT" />
-        <SummaryCard label="Delegating Apps" dot={DOT.blue} value={formatNumber(view.appCount)} />
-        <SummaryCard label="Delegations" dot={DOT.mint} value={formatCompact(view.delegationMsgs)} />
-        <SummaryCard label="Undelegations" dot={DOT.coral} value={formatCompact(view.undelegationMsgs)} />
+        <SummaryCard label="Delegating Apps" dot={DOT.blue} value={view.appCount != null ? formatNumber(view.appCount) : '—'} />
+        <SummaryCard label="Delegations" dot={DOT.mint} value={view.delegationMsgs != null ? formatCompact(view.delegationMsgs) : '—'} />
+        <SummaryCard label="Undelegations" dot={DOT.coral} value={view.undelegationMsgs != null ? formatCompact(view.undelegationMsgs) : '—'} />
       </RoleStats>
 
       {view.stakeStatus === 'Unstaking' ? <UnbondBanner endHeight={view.unstakingEndHeight} currentHeight={currentHeight} /> : null}

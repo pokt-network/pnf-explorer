@@ -3,18 +3,21 @@
 // state machine with its own read set. These queries are fetched ONLY for the active role, so a
 // 98-operator owner wallet never pays for supplier service-config work.
 //
-// Verified live against data.pocket.network (poktroll v0.1.34) on 2026-08-19.
+// Verified live against data.pocket.network (poktroll v0.1.34) on 2026-08-19. Moved to the indexer's closed schema
+// (no relations, aggregates or event tables) on 2026-10-14: sums come from the settlement catalog functions, which
+// answer {range, data} — the rows plus the span they cover.
 
 // ---- supplier (operator) ----
 // One round-trip for the whole supplier role: current config (services/endpoints/rev-share) AND
-// the lifetime settlement rollup, grouped per service so the Services tab can show "configured for
-// X, earned Y on it" in a single table (the report's "3 pages to build a mental map" complaint).
+// the lifetime settlement rollup per service from the settlement catalog, so the Services tab can
+// show "configured for X, earned Y on it" in a single table (the report's "3 pages to build a mental
+// map" complaint). Slashes are the penalties function's `slashed` rows.
 //
-// NOTE `settled.groupedAggregates` covers every service the supplier has EVER settled a claim on,
-// which is a superset of the currently-configured ones (pokt1w8mta…: 3 configured, 32 settled).
-// The UI joins on serviceId and renders the leftovers as "no longer configured".
+// NOTE the per-service rows cover every service the supplier has EVER settled a claim on, which is a
+// superset of the currently-configured ones (pokt1w8mta…: 3 configured, 32 settled). The UI joins on
+// serviceId and renders the leftovers as "no longer configured".
 export const SUPPLIER_ROLE = /* GraphQL */ `
-  query supplierRole($id: String!) {
+  query supplierRole($id: String!, $ids: [String]) {
     supplier(id: $id) {
       id
       operatorId
@@ -25,117 +28,52 @@ export const SUPPLIER_ROLE = /* GraphQL */ `
       unstakingReason
       unstakingBeginBlockId
       unstakingEndHeight
-      serviceConfigs {
-        totalCount
-        nodes {
-          serviceId
-          revShare
-          endpoints
-        }
-      }
-      settled: eventClaimSettleds {
-        totalCount
-        aggregates {
-          sum {
-            numRelays
-            claimedAmount
-            settledAmount
-            mintedAmount
-          }
-        }
-        groupedAggregates(groupBy: [SERVICE_ID]) {
-          keys
-          sum {
-            numRelays
-            claimedAmount
-            settledAmount
-          }
-          max {
-            blockId
-          }
-        }
-      }
-      slashes: eventSupplierSlasheds {
-        totalCount
-        aggregates {
-          sum {
-            proofMissingPenalty
-          }
-        }
-      }
-      stakeMsgs {
-        totalCount
-      }
-      unstakeMsgs {
-        totalCount
-      }
     }
-  }
-`;
-
-// Payout ledger: every mod→account settlement transfer emitted by this supplier's settled claims,
-// grouped by recipient. This is the ACTUAL earnings split, as opposed to the configured rev-share
-// percentages — the two diverge whenever the config has changed (see design doc §4).
-//
-// The nested-relation filter IS respected by groupedAggregates: group distinctCounts sum exactly to
-// totalCount (verified 497,142 across 606 groups). NEVER query modToAcctTransfers without a parent
-// filter — the unconstrained table times out server-side.
-export const SUPPLIER_PAYOUTS = /* GraphQL */ `
-  query supplierPayouts($id: String!) {
-    modToAcctTransfers(filter: { eventClaimSettled: { supplierId: { equalTo: $id } } }) {
+    serviceConfigs: supplierServiceConfigs(filter: { supplierId: { equalTo: $id } }) {
       totalCount
-      aggregates {
-        sum {
-          amount
-        }
-      }
-      groupedAggregates(groupBy: [RECIPIENT_ID]) {
-        keys
-        sum {
-          amount
-        }
-        distinctCount {
-          id
-        }
+      nodes {
+        serviceId
+        revShare
+        endpoints
       }
     }
+    settled: getSupplierEarningsJson(suppliers: $ids, rangeStart: null, rangeEnd: null, bySupplier: false, byService: true)
+    penalties: getSupplierPenaltiesJson(suppliers: $ids, rangeStart: null, rangeEnd: null, bySupplier: false)
   }
 `;
 
-// Supplier lifecycle: stake/unstake messages and slash events, newest first. Powers the History tab.
+// Payout ledger: everything this supplier's settled claims paid out, by recipient (settlement catalog). This is
+// the ACTUAL earnings split, as opposed to the configured rev-share percentages — the two diverge whenever the
+// config has changed (see design doc §4). The stakers' share comes as one row (`recipient_id` 'all').
+export const SUPPLIER_PAYOUTS = /* GraphQL */ `
+  query supplierPayouts($ids: [String]) {
+    getSupplierDistributionJson(suppliers: $ids, rangeStart: null, rangeEnd: null, bySupplier: false)
+  }
+`;
+
+// Supplier lifecycle: stake and unstake messages and slashes, newest first (one list per kind, each at most
+// `rowLimit` rows). Powers the History tab.
 export const SUPPLIER_HISTORY = /* GraphQL */ `
-  query supplierHistory($id: String!, $limit: Int!) {
-    supplier(id: $id) {
-      stakeMsgs(first: $limit, orderBy: BLOCK_ID_DESC) {
-        totalCount
-        nodes {
-          id
-          stakeAmount
-          stakeDenom
-          blockId
-          transactionId
-        }
-      }
-      unstakeMsgs(first: $limit, orderBy: BLOCK_ID_DESC) {
-        totalCount
-        nodes {
-          id
-          blockId
-          transactionId
-        }
-      }
-      slashes: eventSupplierSlasheds(first: $limit, orderBy: BLOCK_ID_DESC) {
-        totalCount
-        nodes {
-          id
-          serviceId
-          blockId
-          proofMissingPenalty
-          previousStakeAmount
-          afterStakeAmount
-          proofValidationStatus
-        }
-      }
+  query supplierHistory($ids: [String], $rowLimit: Int!) {
+    stakeMsgs: getActorLifecycleList(kind: "supplier", addresses: $ids, events: ["stake"], rowLimit: $rowLimit) {
+      id
+      height
+      stakeUpokt
+      transactionId
+    }
+    unstakeMsgs: getActorLifecycleList(kind: "supplier", addresses: $ids, events: ["unstake"], rowLimit: $rowLimit) {
+      id
+      height
+      transactionId
+    }
+    slashes: getActorLifecycleList(kind: "supplier", addresses: $ids, events: ["slash"], rowLimit: $rowLimit) {
+      id
+      height
+      serviceId
+      penaltyUpokt
+      previousStakeUpokt
+      stakeUpokt
+      proofValidationStatus
     }
   }
 `;
@@ -156,35 +94,19 @@ export const OWNER_FLEET_IDS = /* GraphQL */ `
 `;
 
 // Lifetime earnings of every supplier the owner owns now, from the settlement catalog: one total, per supplier, or per
-// service (bySupplier: false, byService: true). Read as three requests so they run in parallel.
+// service (bySupplier: false, byService: true). Read as two requests (per supplier, per service) so they run in parallel;
+// the totals are the per-service rows summed.
 export const FLEET_EARNINGS = /* GraphQL */ `
   query fleetEarnings($owners: [String], $bySupplier: Boolean, $byService: Boolean) {
     getSupplierEarningsJson(suppliers: null, rangeStart: null, rangeEnd: null, bySupplier: $bySupplier, byService: $byService, owners: $owners)
   }
 `;
 
-// One supplier's lifetime earnings per service (the supplier Traffic tab).
-export const SUPPLIER_SERVICE_EARNINGS = /* GraphQL */ `
-  query supplierServiceEarnings($suppliers: [String]) {
-    getSupplierEarningsJson(suppliers: $suppliers, rangeStart: null, rangeEnd: null, bySupplier: false, byService: true)
-  }
-`;
-
-/** The block of each supplier's latest settled claim: one `first: 1` lookup per id on the (supplier_id, block_id) index,
- *  aliased s0…sN. A grouped max over the fleet's claims read every claim (~4.5 s for 43 suppliers). */
-export function lastSettledQuery(count: number): string {
-  const vars = Array.from({ length: count }, (_, i) => `$s${i}: String!`).join(', ');
-  const fields = Array.from(
-    { length: count },
-    (_, i) => `s${i}: eventClaimSettleds(filter: { supplierId: { equalTo: $s${i} } }, orderBy: BLOCK_ID_DESC, first: 1) { nodes { blockId } }`,
-  ).join('\n    ');
-  return `query lastSettled(${vars}) {\n    ${fields}\n  }`;
-}
-
 // ---- application ----
-// Claim amounts on an application are SPEND (stake burned to pay suppliers), not income.
+// Claim amounts on an application are SPEND (stake burned to pay suppliers), not income. The spend
+// per service comes from the settlement catalog (burned, overserviced and unpaid, last settled height).
 export const APPLICATION_ROLE = /* GraphQL */ `
-  query applicationRole($id: String!) {
+  query applicationRole($id: String!, $ids: [String]) {
     application(id: $id) {
       id
       stakeAmount
@@ -197,50 +119,27 @@ export const APPLICATION_ROLE = /* GraphQL */ `
       transferEndHeight
       sourceApplicationId
       destinationApplicationId
-      applicationServices {
-        totalCount
-        nodes {
-          serviceId
-        }
-      }
-      applicationGateways {
-        totalCount
-      }
-      settled: eventClaimSettleds {
-        totalCount
-        aggregates {
-          sum {
-            numRelays
-            claimedAmount
-            settledAmount
-          }
-        }
-        groupedAggregates(groupBy: [SERVICE_ID]) {
-          keys
-          sum {
-            numRelays
-            claimedAmount
-            settledAmount
-          }
-          max {
-            blockId
-          }
-        }
-      }
-      overserviced: eventApplicationOverserviceds {
-        totalCount
+    }
+    services: applicationServices(filter: { applicationId: { equalTo: $id } }) {
+      totalCount
+      nodes {
+        serviceId
       }
     }
+    gateways: applicationGateways(filter: { applicationId: { equalTo: $id } }) {
+      totalCount
+    }
+    spend: getApplicationSpendJson(applications: $ids, rangeStart: null, rangeEnd: null, byApplication: false, byService: true)
   }
 `;
 
 // ---- gateway ----
 // A gateway signs relays but is NOT recorded on any claim/relay/proof, so its traffic is derived:
-// the apps that delegate to it → their settled claims. Same authorized-routing inference the
-// supplier Traffic tab uses, in the opposite direction. Delegating apps are capped at the
-// connection limit; the UI labels the coverage when the fleet is truncated.
+// the settled claims of the apps delegated to it — by the delegation in force at each settlement
+// height (getGatewaySpend), not by today's delegators. Same authorized-routing inference the
+// supplier Traffic tab uses, in the opposite direction.
 export const GATEWAY_ROLE = /* GraphQL */ `
-  query gatewayRole($id: String!, $limit: Int!) {
+  query gatewayRole($id: String!, $ids: [String]) {
     gateway(id: $id) {
       id
       stakeAmount
@@ -248,122 +147,55 @@ export const GATEWAY_ROLE = /* GraphQL */ `
       stakeStatus
       unstakingBeginBlockId
       unstakingEndHeight
-      applicationGateways(first: $limit) {
-        totalCount
-        nodes {
-          applicationId
-        }
-      }
-      delegations: msgDelegateToGateways {
-        totalCount
-      }
-      undelegations: msgUndelegateFromGateways {
-        totalCount
-      }
+    }
+    # The applications delegating to it now and the delegate/undelegate messages it ever received, from the gateway
+    # fleet function.
+    fleet: getGatewayFleetList(gateways: $ids) {
+      delegatedApplications
+      delegationsEver
+      undelegationsEver
     }
   }
 `;
 
 export const GATEWAY_TRAFFIC = /* GraphQL */ `
-  query gatewayTraffic($ids: [String!]) {
-    eventClaimSettleds(filter: { applicationId: { in: $ids } }) {
-      totalCount
-      aggregates {
-        sum {
-          numRelays
-          claimedAmount
-        }
-      }
-      byService: groupedAggregates(groupBy: [SERVICE_ID]) {
-        keys
-        sum {
-          numRelays
-          claimedAmount
-        }
-        max {
-          blockId
-        }
-      }
-    }
+  query gatewayTraffic($ids: [String]) {
+    getGatewaySpendJson(gateways: $ids, rangeStart: null, rangeEnd: null, byGateway: false, byService: true)
   }
 `;
 
 // ---- service owner ----
-// Paginated: the PNF service-owner wallet owns 138 services, well past a sane inline list.
+// Paginated: the PNF service-owner wallet owns 138 services, well past a sane inline list. The page's supplier and
+// application counts come from the service summary function over the services the address owns, in the same document.
 export const SERVICE_OWNER_ROLE = /* GraphQL */ `
-  query serviceOwnerRole($id: String!, $limit: Int!, $offset: Int!) {
+  query serviceOwnerRole($id: String!, $ids: [String], $limit: Int!, $offset: Int!, $countLimit: Int!) {
     services(filter: { ownerId: { equalTo: $id } }, orderBy: ID_ASC, first: $limit, offset: $offset) {
       totalCount
       nodes {
         id
         name
         computeUnitsPerRelay
-        supplierServiceConfigs {
-          totalCount
-        }
-        applicationServices {
-          totalCount
-        }
       }
+    }
+    counts: getServiceSummaryList(owners: $ids, first: $countLimit) {
+      serviceId
+      suppliers
+      applications
     }
   }
 `;
 
 // ---- rev-share income (reverse lookup) ----
 // "What has this address actually been paid as a rev-share recipient", lifetime, across every
-// supplier that pays it.
-//
-// Reads `modToAcctTransfersSummarizeds`, the indexer's pre-aggregated roll-up of
-// `modToAcctTransfers` (one row per block/recipient/reason/service, carrying `transferCount`).
-// Same numbers to the last upokt, roughly half the rows, and far steadier latency.
-//
-// PERFORMANCE (measured 2026-08-29, 3 runs each, against a 395-config recipient / 97,064 transfers):
-//   raw + groupedAggregates(groupBy: OP_REASON)   59.00s        <- the original
-//   raw + one aliased aggregate per reason        9.96/5.04/14.25s
-//   summarized + one aliased aggregate per reason  0.85/0.68/0.72s
-// Both raw shapes also swing wildly run to run; the roll-up does not. Totals verified identical:
-// 130,298.402690 POKT / 97,064 transfers on the heavy account, 20.004337 POKT / 1,318 on a typical
-// one.
-//
-// Two traps this shape avoids, both easy to walk back into:
-//   1. `groupBy: OP_REASON` does a full scan to discover keys the enum already gives us — it was 54
-//      of those 59 seconds. One aliased aggregate per reason returns the identical breakdown.
-//   2. `recipientId` WITHOUT `opReason` is not merely slow, it is cancelled by the statement
-//      timeout. The pair is the index. Never drop the reason.
+// supplier that pays it: the income catalog by reason, kept to the `rev_share` role (the address can
+// also earn in other roles). `family` is the settlement family: relay (relay burn = mint) or global
+// (global mint). Lifetime here is the span the catalog covers (its `range`).
 //
 // There is no supplier-id join: narrowing to the current page's suppliers put per-page values in the
-// fetch cache key, so paginating recomputed the whole aggregate. The figure is a lifetime total,
+// cache key, so paginating recomputed the whole aggregate. The figure is a lifetime total,
 // which is both cheaper and the more meaningful number.
-//
-// NOTE: `totalCount` here counts ROLL-UP ROWS, not transfers. The transfer count is
-// `sum { transferCount }`. Reading totalCount would silently under-report by ~2x.
 export const REVSHARE_INCOME_AMOUNTS = /* GraphQL */ `
-  query revShareIncomeAmounts($recipient: String!) {
-    relay: modToAcctTransfersSummarizeds(
-      filter: {
-        recipientId: { equalTo: $recipient }
-        opReason: { equalTo: TLM_RELAY_BURN_EQUALS_MINT_SUPPLIER_SHAREHOLDER_RD }
-      }
-    ) {
-      aggregates {
-        sum {
-          amount
-          transferCount
-        }
-      }
-    }
-    mint: modToAcctTransfersSummarizeds(
-      filter: {
-        recipientId: { equalTo: $recipient }
-        opReason: { equalTo: TLM_GLOBAL_MINT_SUPPLIER_SHAREHOLDER_REWARD_DISTRIBUTION }
-      }
-    ) {
-      aggregates {
-        sum {
-          amount
-          transferCount
-        }
-      }
-    }
+  query revShareIncomeAmounts($recipients: [String]) {
+    getIncomeJson(addresses: $recipients, rangeStart: null, rangeEnd: null, byReason: true, byAddress: false)
   }
 `;

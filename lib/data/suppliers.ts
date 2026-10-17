@@ -1,6 +1,7 @@
 import { gqlFetch } from '@/lib/graphql';
 import type { NetworkId } from '@/lib/networks';
 import { SUPPLIERS_LIST, SUPPLIER_ROUTING } from '@/lib/queries/suppliers';
+import { firstPerId, lifetimeCoverage, unwrapRange, type Coverage } from '@/lib/data/range';
 
 export interface SupplierRow {
   id: string;
@@ -10,15 +11,28 @@ export interface SupplierRow {
   serviceConfigs: { totalCount: number };
 }
 
-/** Active (Staked) suppliers, ordered by stake desc. Offset-paginated. ISR 30s. */
+type FleetRow = { supplierId: string; ownerId: string | null; stakeUpokt: string | null; stakeStatus: string | null; serviceCount: string | null };
+
+/** Active (Staked) suppliers, ordered by stake desc (then id), one request per page at any depth (`rowLimit`/`rowOffset`). ISR 30s. */
 export async function getSupplierList(network: NetworkId, limit: number, offset: number) {
-  const data = await gqlFetch<{ suppliers: { totalCount: number; nodes: SupplierRow[] } }>(
+  const data = await gqlFetch<{ getSupplierFleetList: FleetRow[] | null; suppliers: { totalCount: number } }>(
     network,
     SUPPLIERS_LIST,
-    { limit, offset },
+    { rowLimit: limit, rowOffset: offset },
     { revalidate: 30 },
   );
-  return data.suppliers;
+  return {
+    totalCount: data.suppliers.totalCount,
+    nodes: firstPerId(data.getSupplierFleetList ?? [], (s) => s.supplierId).map(
+      (s): SupplierRow => ({
+        id: s.supplierId,
+        ownerId: s.ownerId,
+        stakeAmount: s.stakeUpokt,
+        stakeStatus: s.stakeStatus,
+        serviceConfigs: { totalCount: Number(s.serviceCount ?? 0) },
+      }),
+    ),
+  };
 }
 
 // ---- traffic / routing (which gateway sends a supplier its traffic, per service) ----
@@ -26,7 +40,12 @@ export async function getSupplierList(network: NetworkId, limit: number, offset:
 export interface ServiceTraffic {
   serviceId: string;
   relays: number;
-  lastBlock: number;
+  /** What the claims asked for, what was paid, and the difference lost to overservicing (upokt). */
+  claimedUpokt: string;
+  settledUpokt: string;
+  overservicedUpokt: string;
+  /** The latest settled height over the service's rows; null while the catalog cannot vouch for one. */
+  lastBlock: number | null;
   /** Distinct gateways whose delegated apps drove this service's claims (the routing inference). */
   gateways: string[];
 }
@@ -36,45 +55,55 @@ export interface SupplierRouting {
   activeCount: number;
   /** All distinct routing gateways across every service. */
   gateways: string[];
-}
-
-interface SupplierRoutingResult {
-  supplier: {
-    settled: {
-      groupedAggregates: { keys: string[]; sum: { numRelays: string | null }; max: { blockId: string | null } }[] | null;
-    };
-    servedApps: { nodes: { id: string; applicationGateways: { nodes: { gatewayId: string }[] } }[] };
-  } | null;
+  /** What the settlement catalog covers: a service missing past it is not covered yet, not idle. */
+  coverage: Coverage;
 }
 
 /**
  * Reconstruct a supplier's actual traffic and its routing gateway(s), per service. The signing
  * gateway isn't recorded on-chain, so this joins settled claims (service+app+relays+block) to each
  * app's delegated gateways — an authorized-routing inference, not cryptographic proof. Empty for an
- * idle supplier (no settled claims). See SUPPLIER_ROUTING.
+ * idle supplier (no settled claims). See SUPPLIER_ROUTING. The settlement catalog answers what it
+ * covers; `lastBlock` is null where it cannot vouch for a height yet.
  */
 export async function getSupplierRouting(network: NetworkId, id: string): Promise<SupplierRouting> {
-  const data = await gqlFetch<SupplierRoutingResult>(network, SUPPLIER_ROUTING, { id }, { revalidate: 30 });
-  const s = data.supplier;
-  if (!s) return { byService: {}, activeCount: 0, gateways: [] };
+  const data = await gqlFetch<{ getSupplierEarningsJson: unknown }>(network, SUPPLIER_ROUTING, { suppliers: [id] }, { revalidate: 30 });
+  const answer = unwrapRange<
+    {
+      service_id: string;
+      application_id: string;
+      relays: string | null;
+      claimed_upokt: string | null;
+      settled_upokt: string | null;
+      overservicing_loss_upokt: string | null;
+      last_settled_height: string | null;
+      /** The application's gateways now. */
+      gateway_ids: string[] | null;
+    }[]
+  >(data.getSupplierEarningsJson);
+  const rows = answer.data ?? [];
 
-  const appGateways = new Map<string, string[]>();
-  for (const app of s.servedApps.nodes) {
-    appGateways.set(app.id, app.applicationGateways.nodes.map((g) => g.gatewayId));
-  }
-
+  // Per service: the (service, application) rows summed. Amounts are JSON strings (they can pass 2^53): BigInt.
   const byService: Record<string, ServiceTraffic> = {};
-  for (const g of s.settled.groupedAggregates ?? []) {
-    const [serviceId, appId] = g.keys;
+  const unknownLast = new Set<string>();
+  const add = (a: string, b: string | null) => (BigInt(a) + BigInt(b ?? '0')).toString();
+  for (const r of rows) {
+    const serviceId = r.service_id;
     if (!serviceId) continue;
-    const entry = (byService[serviceId] ??= { serviceId, relays: 0, lastBlock: 0, gateways: [] });
-    entry.relays += Number(g.sum.numRelays ?? 0);
-    entry.lastBlock = Math.max(entry.lastBlock, Number(g.max.blockId ?? 0));
-    for (const gw of appGateways.get(appId) ?? []) {
+    const entry = (byService[serviceId] ??= { serviceId, relays: 0, claimedUpokt: '0', settledUpokt: '0', overservicedUpokt: '0', lastBlock: null, gateways: [] });
+    entry.relays += Number(r.relays ?? 0);
+    entry.claimedUpokt = add(entry.claimedUpokt, r.claimed_upokt);
+    entry.settledUpokt = add(entry.settledUpokt, r.settled_upokt);
+    entry.overservicedUpokt = add(entry.overservicedUpokt, r.overservicing_loss_upokt);
+    // One row the catalog cannot vouch for makes the service's latest height unknown, not the max of the others.
+    if (r.last_settled_height == null) unknownLast.add(serviceId);
+    else entry.lastBlock = Math.max(entry.lastBlock ?? 0, Number(r.last_settled_height));
+    for (const gw of r.gateway_ids ?? []) {
       if (!entry.gateways.includes(gw)) entry.gateways.push(gw);
     }
   }
 
+  for (const serviceId of unknownLast) byService[serviceId].lastBlock = null;
   const gateways = [...new Set(Object.values(byService).flatMap((e) => e.gateways))];
-  return { byService, activeCount: Object.keys(byService).length, gateways };
+  return { byService, activeCount: Object.keys(byService).length, gateways, coverage: lifetimeCoverage(answer.range) };
 }

@@ -60,16 +60,16 @@ export function TxTable({ txs, columns, empty = 'No transactions.' }: { txs: Blo
                       </td>
                     );
                   case 'block':
-                    // A tip tx can be indexed before its block relation → tx.block null (transient).
+                    // A tip tx can be indexed before its block row → no timestamp yet (transient); the height is its own.
                     return (
                       <td key={c}>
-                        {tx.block ? <Link href={`/block/${tx.block.height}`}>{formatNumber(tx.block.height)}</Link> : <span className="dim">—</span>}
+                        <Link href={`/block/${tx.block.height}`}>{formatNumber(tx.block.height)}</Link>
                       </td>
                     );
                   case 'age':
                     return (
-                      <td key={c} className="dim" title={tx.block ? absoluteUtc(tx.block.timestamp) : undefined}>
-                        {tx.block ? relativeTime(tx.block.timestamp) : 'pending'}
+                      <td key={c} className="dim" title={tx.block.timestamp ? absoluteUtc(tx.block.timestamp) : undefined}>
+                        {tx.block.timestamp ? relativeTime(tx.block.timestamp) : 'pending'}
                       </td>
                     );
                   case 'signer':
