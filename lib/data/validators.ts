@@ -23,7 +23,7 @@ import { NOT_COVERED, coverageNote, coveredMs, coveredWindow, unwrapRange, type 
 // missedBlocks come back as getValidatorBlocksList rows (`height`, a BigInt string).
 
 const UPTIME_WINDOW = 2000;
-/** getValidatorBlocksList's rowLimit in VALIDATOR_UPTIME and VALIDATOR_BLOCKS_PAGE. */
+/** getValidatorBlocksList's rowLimit, passed to VALIDATOR_UPTIME and VALIDATOR_BLOCKS_PAGE. */
 const VALIDATOR_BLOCKS_PAGE_ROWS = 1000;
 
 // The uptime query needs the validator's hex consensus address. VALIDATOR_BY_ID (verbatim,
@@ -307,7 +307,7 @@ export async function getValidatorUptime(network: NetworkId, id: string): Promis
     const data = await gqlFetch<{ producedBlocks: Rows; missedBlocks: Rows }>(
       network,
       VALIDATOR_UPTIME,
-      { from: String(fromHeight), validatorHexAddress: hexAddress },
+      { from: String(fromHeight), validatorHexAddress: hexAddress, rowLimit: VALIDATOR_BLOCKS_PAGE_ROWS },
       { revalidate: 15 },
     );
     // A full page has more below it: a validator missing every block of the window has ~2000.
@@ -318,7 +318,7 @@ export async function getValidatorUptime(network: NetworkId, id: string): Promis
         const next = await gqlFetch<{ blocks: Rows }>(
           network,
           VALIDATOR_BLOCKS_PAGE,
-          { from: String(fromHeight), validatorHexAddress: hexAddress, kind, beforeHeight: String(Math.min(...page)) },
+          { from: String(fromHeight), validatorHexAddress: hexAddress, kind, beforeHeight: String(Math.min(...page)), rowLimit: VALIDATOR_BLOCKS_PAGE_ROWS },
           { revalidate: 15 },
         );
         page = (next.blocks ?? []).map((r) => Number(r.height));
@@ -326,9 +326,10 @@ export async function getValidatorUptime(network: NetworkId, id: string): Promis
       }
       return heights;
     };
+    const [produced, missed] = await Promise.all([all('produced', data.producedBlocks), all('missed', data.missedBlocks)]);
     return {
-      produced: await all('produced', data.producedBlocks),
-      missed: await all('missed', data.missedBlocks),
+      produced,
+      missed,
       fromHeight,
       toHeight,
     };

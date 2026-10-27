@@ -47,19 +47,19 @@ export const VALIDATOR_BY_ID = /* GraphQL */ `
   }
 `;
 
-// getValidatorBlocksList answers newest first, at most `rowLimit` (up to 1000) rows a call: a full page is followed by
+// getValidatorBlocksList answers newest first, at most `rowLimit` (up to 1000; lib/data/validators.ts passes it) rows a call: a full page is followed by
 // VALIDATOR_BLOCKS_PAGE with `beforeHeight` = the page's lowest height (exclusive), until a page comes back short.
 // `toHeight` null reads to the latest block, as the old functions did.
 export const VALIDATOR_UPTIME = /* GraphQL */ `
-  query validatorUptime($from: BigInt!, $validatorHexAddress: String!) {
-    producedBlocks: getValidatorBlocksList(validatorAddress: $validatorHexAddress, fromHeight: $from, kind: "produced", rowLimit: 1000) { height }
-    missedBlocks: getValidatorBlocksList(validatorAddress: $validatorHexAddress, fromHeight: $from, kind: "missed", rowLimit: 1000) { height }
+  query validatorUptime($from: BigInt!, $validatorHexAddress: String!, $rowLimit: Int!) {
+    producedBlocks: getValidatorBlocksList(validatorAddress: $validatorHexAddress, fromHeight: $from, kind: "produced", rowLimit: $rowLimit) { height }
+    missedBlocks: getValidatorBlocksList(validatorAddress: $validatorHexAddress, fromHeight: $from, kind: "missed", rowLimit: $rowLimit) { height }
   }
 `;
 
 export const VALIDATOR_BLOCKS_PAGE = /* GraphQL */ `
-  query validatorBlocksPage($from: BigInt!, $validatorHexAddress: String!, $kind: String!, $beforeHeight: BigInt!) {
-    blocks: getValidatorBlocksList(validatorAddress: $validatorHexAddress, fromHeight: $from, kind: $kind, rowLimit: 1000, beforeHeight: $beforeHeight) { height }
+  query validatorBlocksPage($from: BigInt!, $validatorHexAddress: String!, $kind: String!, $beforeHeight: BigInt!, $rowLimit: Int!) {
+    blocks: getValidatorBlocksList(validatorAddress: $validatorHexAddress, fromHeight: $from, kind: $kind, rowLimit: $rowLimit, beforeHeight: $beforeHeight) { height }
   }
 `;
 
