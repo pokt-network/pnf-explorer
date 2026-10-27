@@ -1,13 +1,13 @@
 // Home summary — the non-chart subset of the verified `summary` query (home.md §6): economic
 // total supply + latest-block staked-actor counts + 24h relay/CU aggregates.
 //
-// Total supply is the indexer's `getTotalSupplyByDay.total_supply` = minted Shannon supply PLUS
+// Total supply is the indexer's `getSupplyJson(bucket: "day")` `total_supply_upokt` = minted Shannon supply PLUS
 // claimable-but-unminted balances (valid Morse claims that can be minted on Shannon at any time).
 // This is the figure exchanges/traders expect (matches PoktScan/pokt.money). The last block's supply
 // rows are read only as a fallback (the already-minted `shannon_supply` slice; lib/data/home.ts).
 export const HOME_SUMMARY = /* GraphQL */ `
   query homeSummary($last24HourDate: Datetime!, $currentDate: Datetime!, $supplyStartDate: Datetime!, $supplyEndDate: Datetime!) {
-    supply: getTotalSupplyByDay(startDate: $supplyStartDate, endDate: $supplyEndDate)
+    supply: getSupplyJson(rangeStart: $supplyStartDate, rangeEnd: $supplyEndDate, bucket: "day")
     lastBlock: blocks(orderBy: ID_DESC, first: 1) {
       nodes {
         height: id

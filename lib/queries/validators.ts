@@ -47,10 +47,19 @@ export const VALIDATOR_BY_ID = /* GraphQL */ `
   }
 `;
 
+// getValidatorBlocksList answers newest first, at most `rowLimit` (up to 1000) rows a call: a full page is followed by
+// VALIDATOR_BLOCKS_PAGE with `beforeHeight` = the page's lowest height (exclusive), until a page comes back short.
+// `toHeight` null reads to the latest block, as the old functions did.
 export const VALIDATOR_UPTIME = /* GraphQL */ `
   query validatorUptime($from: BigInt!, $validatorHexAddress: String!) {
-    producedBlocks: getProducedBlocksByValidator(fromId: $from, validatorAddress: $validatorHexAddress)
-    missedBlocks: getMissingValidatorBlocks(fromId: $from, validatorAddress: $validatorHexAddress)
+    producedBlocks: getValidatorBlocksList(validatorAddress: $validatorHexAddress, fromHeight: $from, kind: "produced", rowLimit: 1000) { height }
+    missedBlocks: getValidatorBlocksList(validatorAddress: $validatorHexAddress, fromHeight: $from, kind: "missed", rowLimit: 1000) { height }
+  }
+`;
+
+export const VALIDATOR_BLOCKS_PAGE = /* GraphQL */ `
+  query validatorBlocksPage($from: BigInt!, $validatorHexAddress: String!, $kind: String!, $beforeHeight: BigInt!) {
+    blocks: getValidatorBlocksList(validatorAddress: $validatorHexAddress, fromHeight: $from, kind: $kind, rowLimit: 1000, beforeHeight: $beforeHeight) { height }
   }
 `;
 

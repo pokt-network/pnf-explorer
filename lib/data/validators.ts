@@ -9,6 +9,7 @@ import {
   VALIDATORS_LIST,
   VALIDATOR_BY_ID,
   VALIDATOR_UPTIME,
+  VALIDATOR_BLOCKS_PAGE,
   VALIDATOR_REWARDS,
 } from '@/lib/queries/validators';
 import { trailingRange, MIN_SPAN_DAYS } from '@/lib/data/window';
@@ -19,9 +20,11 @@ import { NOT_COVERED, coverageNote, coveredMs, coveredWindow, unwrapRange, type 
 // stakeStatus is the StakeStatus enum (Staked/Unstaking/Unstaked) — NOT Bonded/Unbonding.
 // Probed live (2026-06-05): 35 validators total; signerId/id are valoper bech32; `ed25519Id`
 // is the hex consensus address used for uptime; minSelfDelegation is a upokt amount; produced/
-// missedBlocks come back as arrays of block-height numbers.
+// missedBlocks come back as getValidatorBlocksList rows (`height`, a BigInt string).
 
 const UPTIME_WINDOW = 2000;
+/** getValidatorBlocksList's rowLimit in VALIDATOR_UPTIME and VALIDATOR_BLOCKS_PAGE. */
+const VALIDATOR_BLOCKS_PAGE_ROWS = 1000;
 
 // The uptime query needs the validator's hex consensus address. VALIDATOR_BY_ID (verbatim,
 // per the pre-authored constants) does not select it, so we read just `ed25519Id` here.
@@ -300,15 +303,32 @@ export async function getValidatorUptime(network: NetworkId, id: string): Promis
   }
   const fromHeight = Math.max(1, toHeight - UPTIME_WINDOW);
   try {
-    const data = await gqlFetch<{ producedBlocks: number[] | null; missedBlocks: number[] | null }>(
+    type Rows = { height: string }[] | null;
+    const data = await gqlFetch<{ producedBlocks: Rows; missedBlocks: Rows }>(
       network,
       VALIDATOR_UPTIME,
       { from: String(fromHeight), validatorHexAddress: hexAddress },
       { revalidate: 15 },
     );
+    // A full page has more below it: a validator missing every block of the window has ~2000.
+    const all = async (kind: 'produced' | 'missed', first: Rows): Promise<number[]> => {
+      let page = (first ?? []).map((r) => Number(r.height));
+      const heights = [...page];
+      while (page.length === VALIDATOR_BLOCKS_PAGE_ROWS && heights.length <= UPTIME_WINDOW) {
+        const next = await gqlFetch<{ blocks: Rows }>(
+          network,
+          VALIDATOR_BLOCKS_PAGE,
+          { from: String(fromHeight), validatorHexAddress: hexAddress, kind, beforeHeight: String(Math.min(...page)) },
+          { revalidate: 15 },
+        );
+        page = (next.blocks ?? []).map((r) => Number(r.height));
+        heights.push(...page);
+      }
+      return heights;
+    };
     return {
-      produced: Array.isArray(data.producedBlocks) ? data.producedBlocks.map(Number) : [],
-      missed: Array.isArray(data.missedBlocks) ? data.missedBlocks.map(Number) : [],
+      produced: await all('produced', data.producedBlocks),
+      missed: await all('missed', data.missedBlocks),
       fromHeight,
       toHeight,
     };

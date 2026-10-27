@@ -3,7 +3,7 @@ import { NETWORKS, type NetworkId } from '@/lib/networks';
 import { HOME_SUMMARY } from '@/lib/queries/home';
 import { sumUpokt } from '@/lib/tx';
 import { getBlockSupplies } from '@/lib/data/blocks';
-import { unwrapRange } from '@/lib/data/range';
+import { latestTotalSupply, unwrapRange } from '@/lib/data/range';
 import { roundedNow } from '@/lib/data/window';
 
 export interface HomeSummary {
@@ -24,11 +24,11 @@ export interface HomeSummary {
 export async function getHomeSummary(network: NetworkId): Promise<HomeSummary> {
   const end = new Date(roundedNow()); // a stable cache key for the minute
   const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
-  // getTotalSupplyByDay returns one row per UTC day; span ~2 days so a row always exists and
+  // getSupplyJson (bucket day) returns one row per UTC day; span ~2 days so a row always exists and
   // take the latest. (The function may not have computed today's row early in the UTC day.)
   const supplyStart = new Date(end.getTime() - 48 * 60 * 60 * 1000);
   const data = await gqlFetch<{
-    supply: { day: string; total_supply: number | null }[] | null;
+    supply: unknown;
     lastBlock: {
       nodes: {
         height: string;
@@ -53,9 +53,8 @@ export async function getHomeSummary(network: NetworkId): Promise<HomeSummary> {
   const lb = data.lastBlock.nodes[0];
 
   // Economic total supply (minted + claimable-but-unminted Morse claims). Fall back to the
-  // already-minted on-chain supply (the last block's supply rows) if getTotalSupplyByDay is unavailable.
-  const supplyRows = data.supply ?? [];
-  const latestSupply = supplyRows.length ? supplyRows[supplyRows.length - 1]?.total_supply : null;
+  // already-minted on-chain supply (the last block's supply rows) if getSupplyJson has no row (not covered).
+  const latestSupply = latestTotalSupply(data.supply);
   let lbSupplies: Awaited<ReturnType<typeof getBlockSupplies>> = [];
   if (latestSupply == null && lb) {
     try {
