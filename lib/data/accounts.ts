@@ -1,6 +1,6 @@
 import { gqlFetch } from '@/lib/graphql';
 import { getDelegations } from '@/lib/data/delegations';
-import { firstPerId } from '@/lib/data/range';
+import { firstPerId, latestTotalSupply } from '@/lib/data/range';
 import { roundedNow } from '@/lib/data/window';
 import type { NetworkId } from '@/lib/networks';
 import {
@@ -17,7 +17,7 @@ import {
 // denominator so it matches the home Total Supply card. See lib/data/home.ts for the rationale.
 const TOTAL_SUPPLY = /* GraphQL */ `
   query totalSupply($startDate: Datetime!, $endDate: Datetime!) {
-    supply: getTotalSupplyByDay(startDate: $startDate, endDate: $endDate)
+    supply: getSupplyJson(rangeStart: $startDate, rangeEnd: $endDate, bucket: "day")
   }
 `;
 
@@ -194,14 +194,13 @@ export async function getTotalSupplyUpokt(network: NetworkId): Promise<number | 
     const end = new Date(roundedNow()); // a stable cache key for the minute
     // ~2-day window so a daily row always exists; take the latest (see getHomeSummary).
     const start = new Date(end.getTime() - 48 * 60 * 60 * 1000);
-    const data = await gqlFetch<{ supply: { total_supply: number | null }[] | null }>(
+    const data = await gqlFetch<{ supply: unknown }>(
       network,
       TOTAL_SUPPLY,
       { startDate: start.toISOString(), endDate: end.toISOString() },
       { revalidate: 60 }, // one daily row: no reason to ask more than once per block
     );
-    const rows = data.supply ?? [];
-    const latest = rows.length ? rows[rows.length - 1]?.total_supply : null;
+    const latest = latestTotalSupply(data.supply);
     return latest != null && Number(latest) > 0 ? Number(latest) : null;
   } catch {
     return null;

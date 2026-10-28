@@ -151,3 +151,15 @@ export function firstPerId<T>(rows: T[], id: (r: T) => string): T[] {
   const seen = new Set<string>();
   return rows.filter((r) => (seen.has(id(r)) ? false : (seen.add(id(r)), true)));
 }
+
+/**
+ * The newest day's `total_supply_upokt` (a decimal string) from a `getSupplyJson` answer, or null when it has no row.
+ * The catalog returns its rows newest first (the deprecated daily supply function was oldest first), so the newest is picked by
+ * `bucket_start`, not by position.
+ */
+export function latestTotalSupply(x: unknown): string | null {
+  const rows = unwrapRange<{ bucket_start: string; total_supply_upokt: string | null }[]>(x).data ?? [];
+  let latest: (typeof rows)[number] | null = null;
+  for (const r of rows) if (!latest || Date.parse(r.bucket_start) > Date.parse(latest.bucket_start)) latest = r;
+  return latest?.total_supply_upokt ?? null;
+}
