@@ -1,8 +1,9 @@
-// Names of Morse relay chain ids, from PoktScan's chains map
-// (https://poktscan-v1.nyc3.cdn.digitaloceanspaces.com/pokt-chains-map.json, last modified 2025-03-07). Vendored, not
-// fetched: Morse is halted, so its chain set can't change. Each label's trailing "(id)" is dropped (one, 0045, names the
-// wrong id) and the UI shows the real id beside the name. The chain kept no names on-chain, and ids missing here
-// (A100–A102, live at the halt) show as the bare id.
+// Names of Morse relay chain ids, from the chains map the pokt-morse-api maintainers call canonical
+// (https://pokt-network.github.io/soothe-assets/pokt-chains-map.json; PoktScan's copy is identical, last modified
+// 2025-03-07). Vendored, not fetched: Morse is halted, so its chain set can't change. Each label's trailing "(id)" is
+// dropped (one, 0045, names the wrong id) and the UI shows the real id beside the name. The chain kept no names
+// on-chain, and ids the map lacks show as the bare id: A100–A102 (live at the halt) and the app-staked 0020, 003A,
+// 0055, 0062, A092 and E021.
 const NAMES: Record<string, string> = {
   '0001': 'POKT Mainnet',
   '0002': 'Bitcoin Mainnet',
