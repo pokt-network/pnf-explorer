@@ -103,6 +103,22 @@ export async function getMorseClaimableAccounts(
   return data.morseClaimableAccounts;
 }
 
+// ---- one account ----
+/**
+ * The claimable-account row of one Morse address (any case; the indexer lowercases ids), or null when the address held
+ * nothing to claim. The Morse archive's account, node and app pages show it as the address's Shannon migration. Cached
+ * like the unfiltered list: a claim lands on the chain at most once per account.
+ */
+export async function getMorseClaim(network: NetworkId, morseAddress: string): Promise<MorseClaimableAccountRow | null> {
+  const data = await gqlFetch<{ morseClaimableAccounts: MorseClaimableAccountPage }>(
+    network,
+    MORSE_CLAIMABLE_ACCOUNTS,
+    { limit: 1, offset: 0, filter: { id: { equalTo: morseAddress.toLowerCase() } } },
+    { revalidate: 30 },
+  );
+  return data.morseClaimableAccounts.nodes[0] ?? null;
+}
+
 // ---- summary ----
 export async function getMorseClaimSummary(network: NetworkId): Promise<MorseClaimSummary> {
   const data = await gqlFetch<{ getMorseClaimSummaryList: ({ claimed: boolean; accounts: string } & MorseClaimAmounts)[] | null }>(

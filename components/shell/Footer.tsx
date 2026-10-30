@@ -1,16 +1,16 @@
 import { NetLink as Link } from '@/components/shell/NetLink';
 
 // Source attribution + nav. Analytics/Discord are external (the analytics app is the
-// separate surface per §0/§1); Params is in-app.
-export function Footer() {
+// separate surface per §0/§1); Params is in-app. The Morse archive credits its own source.
+export function Footer({ archive = false }: { archive?: boolean }) {
   return (
     <footer>
       <div className="lf">
-        Pocket Network Explorer · data from{' '}
-        <span style={{ color: 'var(--text-secondary)' }}>data.pocket.network</span>
+        {archive ? 'Morse Archive' : 'Pocket Network Explorer'} · data from{' '}
+        <span style={{ color: 'var(--text-secondary)' }}>{archive ? 'morse-api.pocket.network' : 'data.pocket.network'}</span>
       </div>
       <div className="rt">
-        <Link href="/params">Params</Link>
+        {archive ? <Link href="/migration">Migration</Link> : <Link href="/params">Params</Link>}
         <a href="https://docs.pocket.network" target="_blank" rel="noopener noreferrer">
           Docs
         </a>

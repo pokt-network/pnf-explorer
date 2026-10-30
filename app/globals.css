@@ -107,6 +107,9 @@ header.bar{max-width:var(--maxw);margin:0 auto;padding:22px 24px;display:flex;al
 .netswitch-item .dot{width:8px;height:8px;border-radius:50%;flex:none}
 .netswitch-item .nm{flex:1}
 .netswitch-item .chk{color:var(--mint);font-weight:700}
+/* the Morse Archive: set apart below the live networks */
+.netswitch-item.archive{margin-top:6px;position:relative}
+.netswitch-item.archive::before{content:"";position:absolute;left:10px;right:10px;top:-4px;border-top:1px solid var(--border)}
 .iconbtn{width:40px;height:40px;display:grid;place-items:center;border-radius:10px;background:var(--bg-card);color:var(--text-secondary);border:1px solid var(--border);cursor:pointer;transition:all .2s ease}
 .iconbtn:hover{color:var(--text-primary);border-color:var(--border-hover)}
 .livebadge{display:flex;align-items:center;gap:8px;height:40px;padding:0 13px;border-radius:10px;background:var(--bg-card);border:1px solid var(--border);font-size:13px;font-weight:600;color:var(--text-primary);text-decoration:none;font-variant-numeric:tabular-nums;transition:all .2s ease;white-space:nowrap}
@@ -258,6 +261,7 @@ main{max-width:var(--maxw);margin:0 auto;padding:8px 24px 64px}
 .s-leaving{background:rgba(255,197,71,.14);color:var(--gold)}
 .s-jailed{background:rgba(255,143,83,.14);color:var(--orange)}
 .s-removed{background:rgba(255,90,95,.12);color:var(--coral)}
+.s-validator{background:rgba(184,184,255,.14);color:var(--lavender)}
 /* The pills carry a title= explainer, so flag them as such rather than leaving a bare cursor. */
 .statuspill[title]{cursor:help}
 
@@ -507,3 +511,18 @@ footer .rt a:hover{color:var(--blue-soft)}
   .brand .sub{display:none}
   .hero h1{font-size:24px}
 }
+
+/* ---- Morse archive ---- */
+.pillrow{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chainlist{display:inline-flex;flex-wrap:wrap;gap:5px;align-items:center}
+.chainlist a.pill-soft{text-decoration:none;font-size:11px}
+.chainlist .cid{font-family:var(--mono);font-size:10px;font-weight:500;opacity:.6;margin-left:5px}
+.chainlist a.pill-soft:hover{background:rgba(2,90,242,.22)}
+.archive-note{display:flex;gap:11px;align-items:flex-start;padding:13px 22px;margin-bottom:18px;border-radius:var(--radius-card);background:var(--bg-card);border:1px solid var(--border)}
+.archive-note svg{flex:none;margin-top:1px}
+.archive-note .ft{font-size:13px;color:var(--text-secondary)}
+.archive-note .ft b{color:var(--text-primary);font-weight:600}
+.archive-note .ft a{color:var(--blue-soft);text-decoration:none}
+.archive-note .ft a:hover{text-decoration:underline}
+.chips .sep{width:1px;align-self:stretch;background:var(--border);margin:0 4px}
+.kv.migcard{margin-top:14px}
