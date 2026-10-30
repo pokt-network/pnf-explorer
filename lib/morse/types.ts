@@ -128,8 +128,8 @@ export interface MorseTx {
   to_address?: string;
   amount?: string | null;
   total_fee?: string | null;
-  // `total_pokt` is left out on purpose: the contract calls it uPOKT but the API serves a POKT decimal ("0.016614"
-  // for a 16,614 uPOKT reward). A proof's reward is read from reward_split.total_reward instead.
+  // `total_pokt` is left out on purpose: unlike every other amount it is a POKT decimal ("0.016614" for a 16,614 uPOKT
+  // reward), and the contract recommends reward_split. A proof's reward is read from reward_split.total_reward.
   total_proof?: number;
   /** 0 is success; -1 on a pending tx. */
   result_code?: number;
