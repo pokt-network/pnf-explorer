@@ -7,7 +7,9 @@ import { useNetwork } from '@/lib/network-context';
 import { netHref } from '@/lib/networks';
 
 // Top-level navigation to every list/section. Lives to the right of the theme toggle in the AppBar.
-const SECTIONS: { heading: string; links: { href: string; label: string }[] }[] = [
+export type NavSection = { heading: string; links: { href: string; label: string }[] };
+
+const SECTIONS: NavSection[] = [
   {
     heading: 'Chain',
     links: [
@@ -35,7 +37,8 @@ const SECTIONS: { heading: string; links: { href: string; label: string }[] }[] 
   },
 ];
 
-export function NavMenu() {
+/** `sections` replaces the network menu (the Morse archive passes its own, with /morse hrefs). */
+export function NavMenu({ sections = SECTIONS }: { sections?: NavSection[] }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
@@ -84,7 +87,7 @@ export function NavMenu() {
       </button>
       {open ? (
         <div className="navmenu-pop" role="menu">
-          {SECTIONS.map((sec) => (
+          {sections.map((sec) => (
             <div className="navmenu-section" key={sec.heading}>
               <div className="navmenu-heading">{sec.heading}</div>
               {sec.links.map((l) => (

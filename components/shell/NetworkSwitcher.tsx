@@ -8,17 +8,29 @@ import { NETWORK_LIST, netHref, type NetworkId } from '@/lib/networks';
 // Mainnet/betanet switcher (AppBar, between the live badge and the theme toggle). Selecting a
 // network navigates to that network's HOME — a full repaint with the new chain's data (ids and
 // heights don't map across chains, so staying on a detail page would 404).
-const DOT: Record<NetworkId, string> = {
+//
+// The Morse Archive sits last: not a network of the registry but the halted Morse chain's own route
+// tree at /morse, in a muted grey so it reads as history rather than a live chain.
+type Entry = 'morse' | NetworkId;
+
+const DOT: Record<Entry, string> = {
   main: 'var(--mint)',
   beta: 'var(--gold)',
+  morse: 'var(--text-secondary)',
 };
 
-export function NetworkSwitcher() {
+const ENTRIES: { id: Entry; label: string; short: string; href: string }[] = [
+  ...NETWORK_LIST.map((n) => ({ id: n.id, label: n.label, short: n.short, href: netHref(n.id, '/') })),
+  { id: 'morse', label: 'Morse Archive', short: 'Morse', href: '/morse' },
+];
+
+export function NetworkSwitcher({ archive = false }: { archive?: boolean }) {
   const network = useNetwork();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const active = NETWORK_LIST.find((n) => n.id === network) ?? NETWORK_LIST[0];
+  const current: Entry = archive ? 'morse' : network;
+  const active = ENTRIES.find((n) => n.id === current) ?? ENTRIES[0];
 
   // Close on outside click / Escape.
   useEffect(() => {
@@ -37,10 +49,10 @@ export function NetworkSwitcher() {
     };
   }, [open]);
 
-  function select(id: NetworkId) {
+  function select(entry: (typeof ENTRIES)[number]) {
     setOpen(false);
-    if (id === network) return;
-    router.push(netHref(id, '/'));
+    if (entry.id === current) return;
+    router.push(entry.href);
   }
 
   return (
@@ -63,18 +75,18 @@ export function NetworkSwitcher() {
       {open ? (
         <div className="navmenu-pop netswitch-pop" role="listbox" aria-label="Networks">
           <div className="navmenu-heading">Network</div>
-          {NETWORK_LIST.map((n) => (
+          {ENTRIES.map((n) => (
             <button
               key={n.id}
               type="button"
               role="option"
-              aria-selected={n.id === network}
-              className={`netswitch-item${n.id === network ? ' active' : ''}`}
-              onClick={() => select(n.id)}
+              aria-selected={n.id === current}
+              className={`netswitch-item${n.id === current ? ' active' : ''}${n.id === 'morse' ? ' archive' : ''}`}
+              onClick={() => select(n)}
             >
               <span className="dot" style={{ background: DOT[n.id] }} />
               <span className="nm">{n.label}</span>
-              {n.id === network ? <span className="chk">✓</span> : null}
+              {n.id === current ? <span className="chk">✓</span> : null}
             </button>
           ))}
         </div>

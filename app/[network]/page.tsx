@@ -1,15 +1,19 @@
 import { Suspense } from 'react';
+import { notFound } from 'next/navigation';
 import { GlobalSearch } from '@/components/shell/GlobalSearch';
 import { LiveStrip } from '@/components/home/LiveStrip';
 import { RecentBlocks } from '@/components/home/RecentBlocks';
 import { RecentTxs } from '@/components/home/RecentTxs';
 import { getHomeSummary } from '@/lib/data/home';
-import { getNetwork, type NetworkId } from '@/lib/networks';
+import { getNetwork, isNetwork, type NetworkId } from '@/lib/networks';
 import { formatPoktCompact, formatCompact, formatNumber } from '@/lib/format';
 
 // Home: hero + search, live strip, 4 network summary cards, latest blocks + txs (§6 — no charts).
 export default async function Home({ params }: { params: Promise<{ network: NetworkId }> }) {
   const { network } = await params;
+  // The layout's guard doesn't stop this page: Next renders them in parallel. A one-segment path with a file extension
+  // that public/ doesn't hold (/favicon.ico, /robots.txt) skips proxy.ts and lands here as the network segment.
+  if (!isNetwork(network)) notFound();
   const summary = await getHomeSummary(network);
   const net = getNetwork(network);
   // Supply is a meaningful, verifiable figure on mainnet; on testnets it's inflated by test

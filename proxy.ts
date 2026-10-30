@@ -15,6 +15,9 @@ import { NETWORK_IDS, DEFAULT_NETWORK, networkPrefix } from '@/lib/networks';
 // Non-default networks that keep a visible URL prefix.
 const PREFIXED = NETWORK_IDS.filter((id) => networkPrefix(id) !== '');
 
+// The Morse archive (`app/morse/`) is its own route tree over the halted Morse chain, not a network of the registry.
+const ARCHIVE = '/morse';
+
 // Root-level routes that must NOT be network-prefixed (metadata + static-file conventions).
 const RESERVED = new Set(['/icon', '/apple-icon', '/opengraph-image']);
 const ASSET_FILE = /\.[a-z0-9]+$/i; // anything ending in a file extension (.svg, .ico, .webmanifest…)
@@ -22,12 +25,14 @@ const ASSET_FILE = /\.[a-z0-9]+$/i; // anything ending in a file extension (.svg
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Leave Next internals, API routes, metadata routes, and static files alone.
+  // Leave Next internals, API routes, metadata routes, static files, and the Morse archive alone.
   if (
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api') ||
     RESERVED.has(pathname) ||
-    ASSET_FILE.test(pathname)
+    ASSET_FILE.test(pathname) ||
+    pathname === ARCHIVE ||
+    pathname.startsWith(`${ARCHIVE}/`)
   ) {
     return;
   }

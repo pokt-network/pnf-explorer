@@ -45,6 +45,18 @@ Next.js (App Router) + TypeScript + plain CSS. Analytics/dashboards are explicit
 - **Never hardcode `max_validators`** (21 on mainnet as of 2026-09) or any other governance param.
   It moves by proposal; read it from `/cosmos/staking/v1beta1/params`.
 
+## Morse Archive (`/morse`)
+- The halted Morse chain (final height 170617), read from the REST API in `pokt-network/pokt-morse-api`
+  (`https://morse-api.pocket.network`, contract at `/openapi.json`) via `lib/morse/api.ts` only. Not a
+  `NetworkId`: its own route tree `app/morse/`, which `proxy.ts` passes through untouched. It shows up as the
+  last entry in the network switcher.
+- The data is immutable, so reads use Next's fetch cache for a day. That's safe because the API returns every
+  error as non-2xx. Lists are keyset-paged by opaque cursor, so `CursorPager` replaces `Pager`. Never build or
+  parse a cursor.
+- The API rate-limits each IP to ~100 req/10 s. Keep deferred tabs deferred, and don't add per-row fan-out
+  reads.
+- Archive pages link Shannon via `MigrationCard` (mainnet `morseClaimableAccounts` by Morse address).
+
 ## Layout
 - `app/` — routes (App Router, no src dir). `@/*` → project root.
 - `components/shell/` — AppBar, Footer, Atmosphere, ThemeToggle, GlobalSearch, ThemeScript, Logo.

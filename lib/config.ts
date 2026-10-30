@@ -13,6 +13,12 @@ export const INDEXER_LAG_THRESHOLD = Number(
     5,
 );
 
+/**
+ * Morse archive REST API (pokt-network/pokt-morse-api): the frozen dataset of the halted Morse chain. Public, CORS
+ * open — the archive's global search calls it from the browser, so this is a NEXT_PUBLIC value.
+ */
+export const MORSE_API_URL = process.env.NEXT_PUBLIC_MORSE_API_URL ?? 'https://morse-api.pocket.network';
+
 /** Micro-POKT per POKT. Balances/stakes are denominated in upokt (§5). */
 export const UPOKT_PER_POKT = 1_000_000;
 
