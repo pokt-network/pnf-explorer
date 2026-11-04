@@ -61,6 +61,8 @@ Next.js (App Router) + TypeScript + plain CSS. Analytics/dashboards are explicit
 - `app/` — routes (App Router, no src dir). `@/*` → project root.
 - `components/shell/` — AppBar, Footer, Atmosphere, ThemeToggle, GlobalSearch, ThemeScript, Logo.
 - `lib/` — `config.ts` (env), data helpers, format/time utils, queries (added per build step).
+- `app/api/search` — the global search's lookahead: resolves a complete query into the views it opens
+  (`lib/data/search.ts`; an address's roles come from `heldRoles()`, the same as the account page's role tabs).
 - `app/globals.css` — full design system (tokens + primitives) ported from the mockups.
 
 ## Design system
