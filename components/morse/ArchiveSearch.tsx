@@ -4,8 +4,9 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { MORSE_FINAL_HEIGHT, morseAddress, morseHash, morseHeight, morseHitHref, searchMorse } from '@/lib/morse/api';
 import { formatNumber } from '@/lib/format';
+import { compactQuery, heightDigits, isShortened } from '@/lib/search';
 
-const SearchIcon = ({ size = 16, className }: { size?: number; className?: string }) => (
+const SearchIcon = ({ size, className }: { size: number; className?: string }) => (
   <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="11" cy="11" r="8" />
     <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -25,12 +26,15 @@ export function ArchiveSearch({ variant = 'mini' }: { variant?: 'mini' | 'hero' 
   const [note, setNote] = useState<string | null>(null);
 
   async function resolve(raw: string) {
-    const q = raw.trim();
+    // Spaces and invisible characters a paste brings are dropped before matching (lib/search.ts).
+    const q = compactQuery(raw);
     setNote(null);
     if (!q) return;
+    if (isShortened(q)) return setNote('That’s a shortened value. Copy the full hash or address.');
     if (/^pokt1/i.test(q)) return router.push(`/account/${q.toLowerCase()}`);
-    if (/^\d+$/.test(q)) {
-      const h = morseHeight(q);
+    const digits = heightDigits(q);
+    if (digits) {
+      const h = morseHeight(digits);
       if (h != null) return router.push(`/morse/block/${h}`);
       return setNote(`Morse blocks run from 1 to ${formatNumber(MORSE_FINAL_HEIGHT)}.`);
     }
@@ -57,42 +61,60 @@ export function ArchiveSearch({ variant = 'mini' }: { variant?: 'mini' | 'hero' 
     resolve(value);
   }
 
-  const status = busy ? 'Resolving…' : note;
+  // A message under the box, in the global search's dropdown style: a tooltip alone went unseen.
+  const noteBox = note ? (
+    <div className="search-hints" role="status">
+      <div className="search-hint-note">{note}</div>
+    </div>
+  ) : null;
+  const searchButton = (size: number, className?: string) => (
+    <button type="submit" className="search-go" aria-label="Search">
+      <SearchIcon size={size} className={className} />
+    </button>
+  );
 
   if (variant === 'hero') {
     return (
       <form className="searchwrap" onSubmit={submit} role="search">
-        <SearchIcon size={19} className="s-icon" />
+        {searchButton(19, 's-icon')}
         <input
           className="search"
           type="text"
           aria-label="Search the Morse archive"
           placeholder="Search by height / tx hash / address / public key"
           value={value}
-          onChange={(e) => setValue(e.target.value)}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setNote(null);
+          }}
           autoComplete="off"
+          autoCapitalize="off"
           spellCheck={false}
         />
-        {status ? <span className="search-busy">{status}</span> : null}
+        {busy ? <span className="search-busy">Resolving…</span> : null}
+        {noteBox}
       </form>
     );
   }
 
   return (
-    <form className="minisearch" onSubmit={submit} role="search" title={note ?? undefined}>
-      <SearchIcon />
+    <form className="minisearch" onSubmit={submit} role="search">
+      {searchButton(16)}
       <input
         type="text"
         aria-label="Search the Morse archive"
-        placeholder={busy ? 'Resolving…' : 'Search Morse height / hash / address…'}
+        placeholder="Search Morse height / hash / address…"
         value={value}
         onChange={(e) => {
           setValue(e.target.value);
           setNote(null);
         }}
         autoComplete="off"
+        autoCapitalize="off"
         spellCheck={false}
       />
+      {busy ? <span className="search-busy">Resolving…</span> : null}
+      {noteBox}
     </form>
   );
 }

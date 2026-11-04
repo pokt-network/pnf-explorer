@@ -120,7 +120,7 @@ a.livebadge:hover{border-color:var(--border-hover)}
 .minisearch{position:relative;flex:1;max-width:420px}
 .minisearch input{width:100%;padding:10px 12px 10px 38px;border-radius:10px;font-size:13px;font-family:inherit;background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border);outline:none}
 .minisearch input:focus{border-color:var(--blue)}
-.minisearch svg{position:absolute;left:12px;top:50%;transform:translateY(-50%)}
+.minisearch .search-go svg{position:absolute;left:12px;top:50%;transform:translateY(-50%)}
 
 main{max-width:var(--maxw);margin:0 auto;padding:8px 24px 64px}
 
@@ -406,12 +406,21 @@ main{max-width:var(--maxw);margin:0 auto;padding:8px 24px 64px}
 .search-hints{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:20;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:0 8px 28px rgba(0,0,0,.25)}
 .search-hints-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-tertiary);padding:10px 14px 6px}
 .search-hint-row{display:flex;align-items:center;gap:10px;padding:9px 14px;font-size:13px;border-top:1px solid var(--border);cursor:pointer}
-.search-hint-row:hover{background:var(--bg-card-hover)}
+.search-hint-row:hover,.search-hint-row.active{background:var(--bg-card-hover)}
+.search-hint-row .sg-ic{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;flex:none}
+.search-hints{max-height:min(70vh,520px);overflow-y:auto}
 .search-hint-row .mono{font-family:var(--mono);font-size:12.5px;color:var(--text-primary)}
 /* Service hint rows: pretty name primary (left), service id mono/secondary (right). */
 .search-hint-row .svc-name{font-weight:500;color:var(--text-primary)}
 .search-hint-row .svc-id{font-family:var(--mono);font-size:12px;color:var(--text-tertiary);margin-left:auto}
 .search-busy{position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text-tertiary)}
+.minisearch .search-busy{right:12px;background:var(--bg-card);padding-left:6px}
+/* A no-match / shortened-value message, in the dropdown's place. */
+.search-hint-note{padding:11px 14px;font-size:13px;color:var(--text-secondary)}
+/* The magnifier is the submit button; its glyph stays where it was (absolutely placed against the form). */
+.search-go{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit}
+.search-go svg{cursor:pointer}
+.search-go:focus-visible svg{outline:2px solid var(--blue);outline-offset:3px;border-radius:4px}
 
 /* ---- empty / state messages ---- */
 .empty{padding:40px 22px;text-align:center;color:var(--text-tertiary);font-size:13.5px}
